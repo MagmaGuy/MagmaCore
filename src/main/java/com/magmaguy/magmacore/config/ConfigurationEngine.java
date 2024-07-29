@@ -31,7 +31,6 @@ public class ConfigurationEngine {
     }
 
     public static File fileCreator(File file) {
-
         if (!file.exists())
             try {
                 file.getParentFile().mkdirs();
@@ -39,9 +38,7 @@ public class ConfigurationEngine {
             } catch (IOException ex) {
                 Logger.warn("Error generating the plugin file: " + file.getName());
             }
-
         return file;
-
     }
 
     public static FileConfiguration fileConfigurationCreator(File file) {

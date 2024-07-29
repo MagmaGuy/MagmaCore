@@ -96,7 +96,7 @@ public class ZipFile {
                     else
                         zipFile(file1, zos);
                 }
-            } else {
+            }  else  {
                 zipFile(file, zos);
             }
             zos.flush();
@@ -133,6 +133,7 @@ public class ZipFile {
          * @throws IOException
          */
         private static void zipFile(File file, ZipOutputStream zos) throws FileNotFoundException, IOException {
+            if (file.getName().endsWith(".zip")) return;
             ZipEntry zipEntry = new ZipEntry(file.getName());
             zippedySplit(zos, file, zipEntry);
         }

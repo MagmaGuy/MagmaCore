@@ -11,7 +11,9 @@ public class UnusedNodeHandler {
     }
 
     public static Configuration clearNodes(FileConfiguration configuration) {
-
+        //Some configs have no defaults because they're written in weird ways
+        if (configuration.getDefaults() == null)
+            return configuration;
         for (String actual : configuration.getKeys(false)) {
             boolean keyExists = false;
             for (String defaults : configuration.getDefaults().getKeys(true))
