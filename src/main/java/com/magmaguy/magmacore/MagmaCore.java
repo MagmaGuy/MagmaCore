@@ -16,6 +16,7 @@ public final class MagmaCore {
     private MagmaCore(Plugin requestingPlugin) {
         instance = this;
         this.requestingPlugin = requestingPlugin;
+
         Logger.info("MagmaCore v1.0 initialized!");
     }
 
