@@ -7,6 +7,9 @@ import net.md_5.bungee.api.chat.HoverEvent;
 import net.md_5.bungee.api.chat.TextComponent;
 import net.md_5.bungee.api.chat.hover.content.Text;
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
+import org.bukkit.Material;
+import org.bukkit.Particle;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
@@ -60,5 +63,9 @@ public class Logger {
         TextComponent textComponent = hoverMessage(message, hoverMessage);
         textComponent.setClickEvent(new ClickEvent(ClickEvent.Action.OPEN_URL, link));
         return textComponent;
+    }
+
+    public static void showLocation(Location location) {
+        location.getWorld().spawnParticle(Particle.BLOCK_MARKER, location, 1, Material.BARRIER.createBlockData());
     }
 }

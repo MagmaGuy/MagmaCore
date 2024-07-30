@@ -3,23 +3,16 @@ package com.magmaguy.magmacore.config;
 
 import com.magmaguy.magmacore.MagmaCore;
 import com.magmaguy.magmacore.util.Logger;
-import org.bukkit.Bukkit;
-import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.reflections.Reflections;
 
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStreamReader;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.*;
-import java.util.logging.Level;
 
 public class CustomConfig {
 
@@ -36,6 +29,11 @@ public class CustomConfig {
         initialize(schematicConfigField);
     }
 
+    public CustomConfig(String folderName, Class<? extends CustomConfigFields> customConfigFields) {
+        this.folderName = folderName;
+        this.customConfigFields = customConfigFields;
+    }
+
     /**
      * Initializes all configurations and stores them in a list for later access
      */
@@ -43,18 +41,25 @@ public class CustomConfig {
         this.folderName = folderName;
         this.customConfigFields = customConfigFields;
 
+        //Case if there are no premade configurations in the premade package, otherwise reflections error
+        if (packageName.isEmpty()) return;
+
         //Set defaults through reflections by getting everything that extends specific CustomConfigFields within specific package scopes
         Reflections reflections = new Reflections(packageName);
 
-        Set<Class> classSet = new HashSet<>(reflections.getSubTypesOf(customConfigFields));
-        classSet.forEach(aClass -> {
-            try {
-                customConfigFieldsArrayList.add(aClass.newInstance());
-            } catch (Exception ex) {
-                Logger.warn("Failed to generate plugin default classes for " + folderName + " ! This is very bad, warn the developer!");
-                ex.printStackTrace();
-            }
-        });
+        try {
+            Set<Class> classSet = new HashSet<>(reflections.getSubTypesOf(customConfigFields));
+            classSet.forEach(aClass -> {
+                try {
+                    customConfigFieldsArrayList.add(aClass.newInstance());
+                } catch (Exception ex) {
+                    Logger.warn("Failed to generate plugin default classes for " + folderName + " ! This is very bad, warn the developer!");
+                    ex.printStackTrace();
+                }
+            });
+        } catch (Exception e) {
+            //In some plugins the premades are empty which causes this error
+        }
 
         //Check if the directory doesn't exist
         try {
@@ -167,19 +172,8 @@ public class CustomConfig {
     private void initialize(File file) {
         //Load file configuration from file
         try {
-            //Make sure it's a yml configuration file
             if (!file.getName().endsWith(".yml")) return;
-            YamlConfiguration fileConfiguration = new YamlConfiguration();
-            try {
-                fileConfiguration.load(new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8));
-            } catch (IOException ex) {
-                Bukkit.getLogger().log(Level.SEVERE, "Cannot load configuration from stream", ex);
-            } catch (InvalidConfigurationException ex) {
-                Logger.warn("Failed to load file " + file.getName() + " in " + file.getAbsolutePath() + " ! This file is not correctly formatted for a yaml file.");
-                Logger.warn("You can check the file validity by through YAML linters, such as the one at https://www.yamllint.com/");
-                ex.printStackTrace();
-                return;
-            }
+            FileConfiguration fileConfiguration = YamlConfiguration.loadConfiguration(file);
             //Instantiate the correct CustomConfigFields instance
             Constructor<?> constructor = customConfigFields.getConstructor(String.class, boolean.class);
             CustomConfigFields instancedCustomConfigFields = (CustomConfigFields) constructor.newInstance(file.getName(), true);

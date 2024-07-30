@@ -243,8 +243,7 @@ public class ConfigurationImporter {
                 if (platform == PluginPlatform.ELITEMOBS)
                     return Path.of(eliteMobsPath.toFile().getAbsolutePath() + File.separatorChar + "powers");
             case "worldcontainer":
-                if (platform == PluginPlatform.ELITEMOBS)
-                    return Bukkit.getWorldContainer().toPath();
+                return Bukkit.getWorldContainer().toPath();
             case "world_blueprints":
                 if (platform == PluginPlatform.ELITEMOBS)
                     return Path.of(eliteMobsPath.toFile().getAbsolutePath() + File.separatorChar + "world_blueprints");
