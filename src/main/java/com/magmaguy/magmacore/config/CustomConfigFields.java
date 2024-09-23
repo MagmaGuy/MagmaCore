@@ -16,7 +16,9 @@ import org.bukkit.inventory.meta.SkullMeta;
 import org.bukkit.util.Vector;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 
 public abstract class CustomConfigFields {
 
@@ -41,6 +43,18 @@ public abstract class CustomConfigFields {
     public CustomConfigFields(String filename, boolean isEnabled) {
         this.filename = filename.contains(".yml") ? filename : filename + ".yml";
         this.isEnabled = isEnabled;
+    }
+
+    public CompletableFuture<Void> setEnabledAndSave(boolean enabled) {
+        this.isEnabled = enabled;
+        this.fileConfiguration.set("isEnabled", enabled);
+        return CompletableFuture.runAsync(() -> {
+            try {
+                this.fileConfiguration.save(this.file);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        });
     }
 
     public abstract void processConfigFields();
@@ -311,11 +325,20 @@ public abstract class CustomConfigFields {
         return fileConfiguration.getConfigurationSection(path).getValues(false);
     }
 
+    public Map<String, Object> processMapWithKey(String path, Map<String, Object> value) {
+        if (!configHas(path) && value != null) {
+            fileConfiguration.addDefault(path, value);
+            fileConfiguration.createSection(path, value);
+        }
+        if (fileConfiguration.get(path) == null)
+            return Collections.emptyMap();
+        return fileConfiguration.getConfigurationSection(path).getValues(false);
+    }
+
     public ConfigurationSection processConfigurationSection(String path, Map<String, Object> value) {
         if (!configHas(path) && value != null)
             fileConfiguration.addDefaults(value);
         ConfigurationSection newValue = fileConfiguration.getConfigurationSection(path);
-        if (newValue == null) return null;
 
         return newValue;
     }

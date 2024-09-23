@@ -1,6 +1,7 @@
 package com.magmaguy.magmacore.events;
 
 import com.magmaguy.freeminecraftmodels.commands.ReloadCommand;
+import com.magmaguy.magmacore.menus.SetupMenu;
 import com.magmaguy.magmacore.util.Logger;
 import org.bukkit.Bukkit;
 import org.bukkit.event.Event;

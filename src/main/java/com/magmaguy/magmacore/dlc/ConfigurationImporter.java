@@ -216,9 +216,12 @@ public class ConfigurationImporter {
             case "customtreasurechests":
                 if (platform == PluginPlatform.ELITEMOBS)
                     return Path.of(eliteMobsPath.toFile().getAbsolutePath() + File.separatorChar + "customtreasurechests");
-            case "dungeonpackages":
+            case "dungeonpackages", "content_packages":
                 if (platform == PluginPlatform.ELITEMOBS)
-                    return Path.of(eliteMobsPath.toFile().getAbsolutePath() + File.separatorChar + "dungeonpackages");
+                    return Path.of(eliteMobsPath.toFile().getAbsolutePath() + File.separatorChar + "content_packages");
+                if (platform == PluginPlatform.BETTERSTRUCTURES)
+                    return Path.of(betterStructuresPath.toFile().getAbsolutePath() + File.separatorChar + "content_packages");
+
             case "customevents":
                 if (platform == PluginPlatform.ELITEMOBS)
                     return Path.of(eliteMobsPath.toFile().getAbsolutePath() + File.separatorChar + "customevents");
