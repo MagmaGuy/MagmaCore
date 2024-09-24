@@ -221,7 +221,6 @@ public class ConfigurationImporter {
                     return Path.of(eliteMobsPath.toFile().getAbsolutePath() + File.separatorChar + "content_packages");
                 if (platform == PluginPlatform.BETTERSTRUCTURES)
                     return Path.of(betterStructuresPath.toFile().getAbsolutePath() + File.separatorChar + "content_packages");
-
             case "customevents":
                 if (platform == PluginPlatform.ELITEMOBS)
                     return Path.of(eliteMobsPath.toFile().getAbsolutePath() + File.separatorChar + "customevents");
