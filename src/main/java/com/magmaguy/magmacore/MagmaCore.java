@@ -6,6 +6,7 @@ import com.magmaguy.magmacore.menus.AdvancedMenu;
 import com.magmaguy.magmacore.menus.AdvancedMenuHandler;
 import com.magmaguy.magmacore.menus.FirstTimeSetupMenu;
 import com.magmaguy.magmacore.menus.SetupMenu;
+import com.magmaguy.magmacore.thirdparty.CustomBiomeCompatibility;
 import com.magmaguy.magmacore.util.Logger;
 import lombok.Getter;
 import org.bukkit.Bukkit;
@@ -21,8 +22,8 @@ public final class MagmaCore {
         instance = this;
         this.requestingPlugin = requestingPlugin;
         new AdvancedMenuHandler();
-        Logger.info("MagmaCore v1.0 initialized!");
-        Logger.info("Sanity check!");
+        CustomBiomeCompatibility.initializeMappings();
+        Logger.info("MagmaCore v1.5 initialized!");
     }
 
     public static void onEnable(){
@@ -38,6 +39,7 @@ public final class MagmaCore {
 
     public static void shutdown(){
         CommandManager.shutdown();
+        CustomBiomeCompatibility.shutdown();
     }
 
     public static void initializeImporter(){

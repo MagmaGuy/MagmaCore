@@ -6,7 +6,7 @@
 
     <groupId>com.magmaguy</groupId>
     <artifactId>MagmaCore</artifactId>
-    <version>1.4</version>
+    <version>1.7</version>
     <packaging>jar</packaging>
 
     <name>MagmaCore</name>
@@ -65,7 +65,7 @@
         <dependency>
             <groupId>org.spigotmc</groupId>
             <artifactId>spigot-api</artifactId>
-            <version>1.21-R0.1-SNAPSHOT</version>
+            <version>1.21.4-R0.1-SNAPSHOT</version>
             <scope>provided</scope>
         </dependency>
         <!-- Lombok -->
@@ -95,7 +95,7 @@
             <url>https://repo.magmaguy.com/snapshots</url>
         </snapshotRepository>
         <repository>
-            <id>magmaguy-repo-releases</id>
+            <id>magmaguy-repo</id>
             <name>MagmaGuy's Repository</name>
             <url>https://repo.magmaguy.com/releases</url>
         </repository>

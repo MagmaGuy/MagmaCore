@@ -43,7 +43,7 @@ public class ConfigurationEngine {
 
     public static FileConfiguration fileConfigurationCreator(File file) {
         try {
-            return YamlConfiguration.loadConfiguration(new InputStreamReader(Files.newInputStream(file.toPath()), StandardCharsets.UTF_8));
+            return YamlConfiguration.loadConfiguration(new InputStreamReader(Files.newInputStream(file.toPath().normalize().toAbsolutePath()), StandardCharsets.UTF_8));
         } catch (Exception exception) {
             Logger.warn("Failed to read configuration from file " + file.getName());
             return null;

@@ -4,6 +4,7 @@ import com.google.gson.*;
 import com.google.gson.stream.JsonReader;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
 import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -153,6 +154,21 @@ public class ItemStackGenerator {
         return itemStack;
     }
 
+    public static ItemStack generateItemStack(Material material, String name, List<String> lore, String namespacedKey) {
+        ItemStack itemStack = generateItemStack(material, ChatColorConverter.convert(name));
+        ItemMeta itemMeta = itemStack.getItemMeta();
+        itemMeta.setLore(ChatColorConverter.convert(lore));
+        if (!VersionChecker.serverVersionOlderThan(21,4) && namespacedKey != null)
+            try {
+                itemMeta.setItemModel(NamespacedKey.fromString(namespacedKey));
+            } catch (Exception e) {
+                e.printStackTrace();
+                System.out.println("Failed to set item model for " + namespacedKey);
+            }
+        itemStack.setItemMeta(itemMeta);
+        return itemStack;
+    }
+
     public static ItemStack generateItemStack(Material material, String name, List<String> lore) {
         ItemStack itemStack = generateItemStack(material, ChatColorConverter.convert(name));
         ItemMeta itemMeta = itemStack.getItemMeta();
@@ -179,7 +195,7 @@ public class ItemStackGenerator {
         return itemStack;
     }
 
-    public static ItemStack generateFlaglessItemStack(Material material, String name, List<String> loreList){
+    public static ItemStack generateFlaglessItemStack(Material material, String name, List<String> loreList) {
         ItemStack itemStack = generateItemStack(material, name, loreList);
         ItemMeta itemMeta = itemStack.getItemMeta();
         itemMeta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);

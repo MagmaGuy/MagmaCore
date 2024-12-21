@@ -20,11 +20,11 @@ import java.nio.file.StandardCopyOption;
 import java.util.*;
 
 public class ConfigurationImporter {
-    private final Path eliteMobsPath = Path.of(MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getParentFile().getAbsolutePath() + File.separatorChar + "EliteMobs");
-    private final Path betterStructuresPath = Path.of(MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getParentFile().getAbsolutePath() + File.separatorChar + "BetterStructures");
-    private final Path freeMinecraftModelsPath = Path.of(MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getParentFile().getAbsolutePath() + File.separatorChar + "FreeMinecraftModels");
-    private final Path modelEnginePath = Path.of(MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getParentFile().getAbsolutePath() + File.separatorChar + "ModelEngine");
-    private final Path eternalTDPath = Path.of(MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getParentFile().getAbsolutePath() + File.separatorChar + "EternalTD");
+    private final Path eliteMobsPath = Path.of(MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getParentFile().getAbsolutePath()).resolve("EliteMobs");
+    private final Path betterStructuresPath = Path.of(MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getParentFile().getAbsolutePath()).resolve("BetterStructures");
+    private final Path freeMinecraftModelsPath = Path.of(MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getParentFile().getAbsolutePath()).resolve("FreeMinecraftModels");
+    private final Path modelEnginePath = Path.of(MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getParentFile().getAbsolutePath()).resolve("ModelEngine");
+    private final Path eternalTDPath = Path.of(MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getParentFile().getAbsolutePath()).resolve("EternalTD");
     private PluginPlatform pluginPlatform;
     private File importsFolder;
     private boolean modelsInstalled = false;
@@ -41,16 +41,28 @@ public class ConfigurationImporter {
 
     private static void deleteDirectory(File file) {
         if (file == null) return;
-        if (file.isDirectory()) for (File iteratedFile : file.listFiles())
-            if (iteratedFile != null) deleteDirectory(iteratedFile);
+        if (file.isDirectory()) {
+            for (File iteratedFile : file.listFiles()) {
+                if (iteratedFile != null) deleteDirectory(iteratedFile);
+            }
+        }
         Logger.info("Cleaning up " + file.getPath());
         file.delete();
     }
 
     private static void moveWorlds(File worldcontainerFile) {
-        for (File file : worldcontainerFile.listFiles())
+        for (File file : worldcontainerFile.listFiles()) {
             try {
-                File destinationFile = new File(Paths.get(Bukkit.getWorldContainer().getCanonicalPath() + File.separatorChar + file.getName()).normalize().toString());
+                File worldContainer = Bukkit.getWorldContainer().getCanonicalFile();
+                Path worldContainerPath = worldContainer.toPath().normalize().toAbsolutePath();
+                Path destinationPath = worldContainerPath.resolve(file.getName());
+                File destinationFile = destinationPath.toFile();
+
+//                Logger.debug("Moving world: " + file.getName());
+//                Logger.debug("World container: " + worldContainer.getCanonicalPath());
+//                Logger.debug("World container path: " + worldContainerPath);
+//                Logger.debug("From: " + file.getCanonicalPath() + " to: " + destinationPath);
+
                 if (destinationFile.exists()) {
                     Logger.info("Overriding existing directory " + destinationFile.getPath());
                     if (Bukkit.getWorld(file.getName()) != null) {
@@ -59,50 +71,67 @@ public class ConfigurationImporter {
                     }
                     deleteDirectory(destinationFile);
                 }
-                moveDirectory(file, destinationFile.toPath());
-//                FileUtils.moveDirectory(file, destinationFile);
+                moveDirectory(file, destinationPath);
             } catch (Exception exception) {
                 Logger.warn("Failed to move worlds for " + file.getName() + "! Tell the dev!");
                 exception.printStackTrace();
             }
+        }
     }
 
     private static void moveDirectory(File unzippedDirectory, Path targetPath) {
-        for (File file : unzippedDirectory.listFiles())
+//        Logger.debug("moveDirectory called. Source: " + unzippedDirectory.getAbsolutePath() + " | Target: " + targetPath);
+        for (File file : unzippedDirectory.listFiles()) {
             try {
-                Logger.info("Adding " + file.getCanonicalPath());
+//                Logger.debug("Attempting to move directory entry: " + file.getAbsolutePath() + " to " + targetPath);
                 moveFile(file, targetPath);
             } catch (Exception exception) {
                 Logger.warn("Failed to move directories for " + file.getName() + "! Tell the dev!");
                 exception.printStackTrace();
             }
+        }
     }
 
     private static void moveFile(File file, Path targetPath) {
         try {
+            Path destinationPath = targetPath.resolve(file.getName());
+//            Logger.debug("moveFile called. From: " + file.getAbsolutePath() + " to: " + destinationPath);
+//            Logger.debug("Normalized source: " + file.toPath().normalize().toAbsolutePath());
+//            Logger.debug("Target parent: " + targetPath.toAbsolutePath());
+
             if (file.isDirectory()) {
-                if (Paths.get(targetPath + "" + File.separatorChar + file.getName()).toFile().exists())
-                    for (File iteratedFile : file.listFiles())
-                        moveFile(iteratedFile, Paths.get(targetPath + "" + File.separatorChar + file.getName()));
-                else {
-                    targetPath.toFile().mkdirs();
-                    Files.move(file.toPath(), Paths.get(targetPath + "" + File.separatorChar + file.getName()), StandardCopyOption.REPLACE_EXISTING);
+//                Logger.debug("Source is a directory.");
+                if (Files.exists(destinationPath)) {
+//                    Logger.debug("Destination path " + destinationPath + " exists. Recursively moving contents.");
+                    for (File iteratedFile : file.listFiles()) {
+                        moveFile(iteratedFile, destinationPath);
+                    }
+                } else {
+//                    Logger.debug("Creating directories for " + targetPath);
+                    Files.createDirectories(targetPath);
+//                    Logger.debug("Moving directory " + file.getName() + " into " + destinationPath);
+                    Files.move(file.toPath().normalize().toAbsolutePath(), destinationPath, StandardCopyOption.REPLACE_EXISTING);
                 }
-            } else if (targetPath.toFile().exists()) {
-                targetPath.toFile().mkdirs();
-                Files.move(file.toPath(), Paths.get(targetPath + "" + File.separatorChar + file.getName()), StandardCopyOption.REPLACE_EXISTING);
+            } else {
+//                Logger.debug("Source is a file.");
+                Files.createDirectories(targetPath);
+//                Logger.debug("Moving file " + file.getName() + " into " + destinationPath);
+                Files.move(file.toPath().normalize().toAbsolutePath(), destinationPath, StandardCopyOption.REPLACE_EXISTING);
             }
         } catch (Exception exception) {
-            Logger.warn("Failed to move directories for " + file.getName() + "! Tell the dev!");
+            Logger.warn("Failed to move file/directories for " + file.getName() + "! Tell the dev!");
             exception.printStackTrace();
         }
     }
 
     private boolean createImportsDirectory() {
         Path configurationsPath = Paths.get(MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getAbsolutePath());
-        if (!Files.isDirectory(Paths.get(configurationsPath.normalize() + "" + File.separatorChar + "imports"))) {
+        Path importsPath = configurationsPath.normalize().resolve("imports");
+//        Logger.debug("Checking imports directory at: " + importsPath.toAbsolutePath());
+        if (!Files.isDirectory(importsPath)) {
             try {
-                Files.createDirectory(Paths.get(configurationsPath.normalize() + "" + File.separatorChar + "imports"));
+//                Logger.debug("Imports directory doesn't exist, creating...");
+                Files.createDirectory(importsPath);
                 return true;
             } catch (Exception exception) {
                 Logger.warn("Failed to create import directory! Tell the dev!");
@@ -115,9 +144,12 @@ public class ConfigurationImporter {
 
     private File getImportsDirectory() {
         try {
-            return new File(Paths.get(MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getCanonicalPath() + File.separatorChar + "imports").toString());
+            File dir = Paths.get(MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getCanonicalPath()).resolve("imports").toFile();
+//            Logger.debug("Imports directory resolved to: " + dir.getAbsolutePath());
+            return dir;
         } catch (Exception ex) {
             Logger.warn("Failed to get imports folder! Report this to the dev!");
+            ex.printStackTrace();
             return null;
         }
     }
@@ -131,7 +163,7 @@ public class ConfigurationImporter {
                 return PluginPlatform.BETTERSTRUCTURES;
             case "freeminecraftmodels":
                 return PluginPlatform.FREEMINECRAFTMODELS;
-            case "eternald":
+            case "eternaltd":
                 return PluginPlatform.ETERNALTD;
             default:
                 return PluginPlatform.NONE;
@@ -139,7 +171,9 @@ public class ConfigurationImporter {
     }
 
     private void processImportsFolder() {
+//        Logger.debug("Processing imports folder: " + importsFolder.getAbsolutePath());
         for (File zippedFile : importsFolder.listFiles()) {
+//            Logger.debug("Found file in imports: " + zippedFile.getAbsolutePath());
             if (zippedFile.getName().endsWith(".zip")) {
                 unzipImportFile(zippedFile);
             } else if (pluginPlatform == PluginPlatform.FREEMINECRAFTMODELS && zippedFile.getName().endsWith(".bbmodel")) {
@@ -153,7 +187,10 @@ public class ConfigurationImporter {
                     }
                 }
                 if (incorrectlyUnzippedFolder) {
+//                    Logger.debug("Processing unzipped folder that contains a pack.meta: " + zippedFile.getAbsolutePath());
                     processUnzippedFile(zippedFile);
+                } else {
+//                    Logger.debug("Directory " + zippedFile.getAbsolutePath() + " does not contain pack.meta, skipping.");
                 }
             } else {
                 Logger.warn("File " + zippedFile.getPath() + " can't be imported! It will be skipped.");
@@ -163,7 +200,9 @@ public class ConfigurationImporter {
 
     private void unzipImportFile(File zippedFile) {
         try {
+//            Logger.debug("Unzipping file: " + zippedFile.getAbsolutePath());
             File unzippedFolder = ZipFile.unzip(zippedFile, new File(zippedFile.getAbsolutePath().replace(".zip", "")));
+//            Logger.debug("Unzipped folder: " + unzippedFolder.getAbsolutePath());
             processUnzippedFile(unzippedFolder);
             deleteDirectory(zippedFile);
         } catch (Exception ex) {
@@ -175,13 +214,18 @@ public class ConfigurationImporter {
 
     private void processUnzippedFile(File unzippedFolder) {
         PluginPlatform platform = pluginPlatform;
+//        Logger.debug("Processing unzipped file at: " + unzippedFolder.getAbsolutePath());
         //Check for pack.meta
         for (File unzippedFile : unzippedFolder.listFiles()) {
             if (unzippedFile.getName().equalsIgnoreCase("pack.meta")) {
+//                Logger.debug("Found pack.meta, determining platform...");
                 platform = getPluginPlatform(readPackMeta(unzippedFile));
+//                Logger.debug("Platform determined: " + platform);
             }
         }
+
         for (File unzippedFile : unzippedFolder.listFiles()) {
+//            Logger.debug("Moving unzipped file: " + unzippedFile.getAbsolutePath());
             moveUnzippedFiles(unzippedFile, platform);
         }
         deleteDirectory(unzippedFolder);
@@ -189,101 +233,142 @@ public class ConfigurationImporter {
 
     private void moveUnzippedFiles(File unzippedFile, PluginPlatform platform) {
         Path targetPath = getTargetPath(unzippedFile.getName(), platform);
-        if (targetPath == null) return;
-        Logger.debug("target path " + targetPath.toAbsolutePath());
-        if (targetPath.toFile().getParentFile() != null && !targetPath.toFile().getParentFile().exists())
-            targetPath.toFile().mkdirs();
-        if (targetPath.toFile().exists()) targetPath.toFile().mkdir();
-        if (unzippedFile.isDirectory())
+//        Logger.debug("moveUnzippedFiles called for " + unzippedFile.getAbsolutePath() + " with platform " + platform);
+        if (targetPath == null) {
+//            Logger.debug("No target path resolved for " + unzippedFile.getName());
+            return;
+        }
+//        Logger.debug("Resolved target path: " + targetPath.toAbsolutePath());
+        if (targetPath.toFile().getParentFile() != null && !targetPath.toFile().getParentFile().exists()) {
+//            Logger.debug("Creating parent directories: " + targetPath.toFile().getParentFile().getAbsolutePath());
+            targetPath.toFile().getParentFile().mkdirs();
+        }
+        if (targetPath.toFile().exists()) {
+//            Logger.debug("Target path already exists: " + targetPath.toFile().getAbsolutePath() + " - attempting mkdir");
+            targetPath.toFile().mkdir();
+        }
+
+        if (unzippedFile.isDirectory()) {
+//            Logger.debug("Unzipped file is a directory: " + unzippedFile.getName());
             if (unzippedFile.getName().equalsIgnoreCase("worldcontainer"))
                 moveWorlds(unzippedFile);
             else
                 moveDirectory(unzippedFile, targetPath);
-        else
+        } else {
+//            Logger.debug("Unzipped file is a single file: " + unzippedFile.getName());
             moveFile(unzippedFile, targetPath);
+        }
     }
 
     private Path getTargetPath(String folder, PluginPlatform platform) {
+//        Logger.debug("getTargetPath called with folder: " + folder + " and platform: " + platform);
         if (platform == PluginPlatform.FREEMINECRAFTMODELS)
-            return Path.of(freeMinecraftModelsPath.toFile().getAbsolutePath() + File.separatorChar + "models");
+            return freeMinecraftModelsPath.resolve("models");
         switch (folder) {
             case "custombosses":
                 if (platform == PluginPlatform.ELITEMOBS)
-                    return Path.of(eliteMobsPath.toFile().getAbsolutePath() + File.separatorChar + "custombosses");
+                    return eliteMobsPath.resolve("custombosses");
+                break;
             case "customitems":
                 if (platform == PluginPlatform.ELITEMOBS)
-                    return Path.of(eliteMobsPath.toFile().getAbsolutePath() + File.separatorChar + "customitems");
+                    return eliteMobsPath.resolve("customitems");
+                break;
             case "customtreasurechests":
                 if (platform == PluginPlatform.ELITEMOBS)
-                    return Path.of(eliteMobsPath.toFile().getAbsolutePath() + File.separatorChar + "customtreasurechests");
-            case "dungeonpackages", "content_packages":
+                    return eliteMobsPath.resolve("customtreasurechests");
+                break;
+            case "dungeonpackages":
+            case "content_packages":
                 if (platform == PluginPlatform.ELITEMOBS)
-                    return Path.of(eliteMobsPath.toFile().getAbsolutePath() + File.separatorChar + "content_packages");
+                    return eliteMobsPath.resolve("content_packages");
                 if (platform == PluginPlatform.BETTERSTRUCTURES)
-                    return Path.of(betterStructuresPath.toFile().getAbsolutePath() + File.separatorChar + "content_packages");
+                    return betterStructuresPath.resolve("content_packages");
+                break;
             case "customevents":
                 if (platform == PluginPlatform.ELITEMOBS)
-                    return Path.of(eliteMobsPath.toFile().getAbsolutePath() + File.separatorChar + "customevents");
+                    return eliteMobsPath.resolve("customevents");
+                break;
             case "customspawns":
                 if (platform == PluginPlatform.ELITEMOBS)
-                    return Path.of(eliteMobsPath.toFile().getAbsolutePath() + File.separatorChar + "customspawns");
+                    return eliteMobsPath.resolve("customspawns");
+                break;
             case "customquests":
                 if (platform == PluginPlatform.ELITEMOBS)
-                    return Path.of(eliteMobsPath.toFile().getAbsolutePath() + File.separatorChar + "customquests");
+                    return eliteMobsPath.resolve("customquests");
+                break;
             case "customarenas":
                 if (platform == PluginPlatform.ELITEMOBS)
-                    return Path.of(eliteMobsPath.toFile().getAbsolutePath() + File.separatorChar + "customarenas");
+                    return eliteMobsPath.resolve("customarenas");
+                break;
             case "npcs":
                 if (platform == PluginPlatform.ELITEMOBS)
-                    return Path.of(eliteMobsPath.toFile().getAbsolutePath() + File.separatorChar + "npcs");
+                    return eliteMobsPath.resolve("npcs");
                 if (platform == PluginPlatform.ETERNALTD)
-                    return Path.of(eternalTDPath.toFile().getAbsolutePath() + File.separatorChar + "npcs");
+                    return eternalTDPath.resolve("npcs");
+                break;
             case "wormholes":
                 if (platform == PluginPlatform.ELITEMOBS)
-                    return Path.of(eliteMobsPath.toFile().getAbsolutePath() + File.separatorChar + "wormholes");
+                    return eliteMobsPath.resolve("wormholes");
+                break;
             case "powers":
                 if (platform == PluginPlatform.ELITEMOBS)
-                    return Path.of(eliteMobsPath.toFile().getAbsolutePath() + File.separatorChar + "powers");
+                    return eliteMobsPath.resolve("powers");
+                break;
             case "worldcontainer":
-                return Bukkit.getWorldContainer().toPath();
+                try {
+                    File wc = Bukkit.getWorldContainer().getCanonicalFile();
+//                    Logger.debug("World container: " + wc.getAbsolutePath());
+                    return wc.toPath().normalize().toAbsolutePath();
+                } catch (IOException e) {
+                    Logger.warn("Failed to resolve world container path canonically!");
+                    e.printStackTrace();
+                    return null;
+                }
             case "world_blueprints":
                 if (platform == PluginPlatform.ELITEMOBS)
-                    return Path.of(eliteMobsPath.toFile().getAbsolutePath() + File.separatorChar + "world_blueprints");
-            case "ModelEngine", "models":
+                    return eliteMobsPath.resolve("world_blueprints");
+                break;
+            case "ModelEngine":
+            case "models":
                 modelsInstalled = true;
                 if (Bukkit.getPluginManager().isPluginEnabled("FreeMinecraftModels"))
-                    return Path.of(freeMinecraftModelsPath.toFile().getAbsolutePath() + File.separatorChar + "models");
+                    return freeMinecraftModelsPath.resolve("models");
                 else if (Bukkit.getPluginManager().isPluginEnabled("ModelEngine"))
-                    return Path.of(modelEnginePath.toFile().getAbsolutePath() + File.separatorChar + "blueprints");
+                    return modelEnginePath.resolve("blueprints");
                 else
-                    return Path.of(freeMinecraftModelsPath.toFile().getAbsolutePath() + File.separatorChar + "models");
+                    return freeMinecraftModelsPath.resolve("models");
             case "schematics":
                 if (platform == PluginPlatform.ELITEMOBS) {
                     Logger.warn("You just tried to import legacy content! Schematic dungeons no longer exist as of EliteMobs 9.0, use BetterStructures shrines instead!");
                     break;
                 }
                 if (platform == PluginPlatform.BETTERSTRUCTURES)
-                    return Path.of(betterStructuresPath.toFile().getAbsolutePath() + File.separatorChar + "schematics");
+                    return betterStructuresPath.resolve("schematics");
+                break;
             case "levels":
                 if (platform == PluginPlatform.ETERNALTD)
-                    return Path.of(eternalTDPath.toFile().getAbsolutePath() + File.separatorChar + "levels");
+                    return eternalTDPath.resolve("levels");
+                break;
             case "waves":
                 if (platform == PluginPlatform.ETERNALTD)
-                    return Path.of(eternalTDPath.toFile().getAbsolutePath() + File.separatorChar + "waves");
+                    return eternalTDPath.resolve("waves");
+                break;
             case "worlds":
                 if (platform == PluginPlatform.ETERNALTD)
-                    return Path.of(eternalTDPath.toFile().getAbsolutePath() + File.separatorChar + "worlds");
+                    return eternalTDPath.resolve("worlds");
+                break;
             case "elitemobs":
                 if (platform == PluginPlatform.BETTERSTRUCTURES)
                     return eliteMobsPath;
+                break;
             case "pack.meta":
-                //Only for tagging purposes
+                // Only for tagging purposes
                 return null;
             default:
-                Logger.warn("Directory " + folder + " for zipped file was not a recognized directory for the file import system! Was the zipped file packaged correctly?");
+                Logger.warn("Directory " + folder + " for zipped file was not recognized! Was the zipped file packaged correctly?");
                 return null;
         }
-        Logger.warn("Directory " + folder + " for zipped file was not a recognized directory for the file import system! Was the zipped file packaged correctly?");
+        Logger.warn("Directory " + folder + " for zipped file was not recognized! Was the zipped file packaged correctly?");
         return null;
     }
 
@@ -294,7 +379,8 @@ public class ConfigurationImporter {
         }
 
         try {
-            Path filePath = packMetaFile.toPath();
+            Path filePath = packMetaFile.getCanonicalFile().toPath().normalize().toAbsolutePath();
+//            Logger.debug("Reading pack.meta from: " + filePath);
             return Files.readString(filePath, StandardCharsets.UTF_8);
         } catch (IOException e) {
             Logger.warn("Failed to read pack.meta file " + packMetaFile.getPath() + ". Ensure the file is readable.");
@@ -304,31 +390,31 @@ public class ConfigurationImporter {
     }
 
     private void processBbmodel(File bbmodelFile) {
-        //Reading time
+//        Logger.debug("Processing .bbmodel file: " + bbmodelFile.getAbsolutePath());
         Gson readerGson = new Gson();
-
         Reader reader;
-        // create a reader
         try {
-            reader = Files.newBufferedReader(Paths.get(bbmodelFile.getPath()));
+            reader = Files.newBufferedReader(bbmodelFile.getCanonicalFile().toPath());
         } catch (Exception ex) {
             Logger.warn("Failed to read file " + bbmodelFile.getAbsolutePath());
             return;
         }
 
-        // convert JSON file to map
         Map<?, ?> jsonMap = readerGson.fromJson(reader, Map.class);
 
-        //Writing time
         Gson writerGson = new Gson();
-        //The objective here is to get every map that is actually used, and avoid every map that is not.
         HashMap<String, Object> minifiedMap = new HashMap<>();
 
         minifiedMap.put("resolution", jsonMap.get("resolution"));
         minifiedMap.put("elements", jsonMap.get("elements"));
         minifiedMap.put("outliner", jsonMap.get("outliner"));
+
         ArrayList<Map> minifiedTextures = new ArrayList<>();
-        ((ArrayList) jsonMap.get("textures")).forEach(innerMap -> minifiedTextures.add(Map.of("source", ((LinkedTreeMap) innerMap).get("source"), "id", ((LinkedTreeMap) innerMap).get("id"), "name", ((LinkedTreeMap) innerMap).get("name"))));
+        ((ArrayList) jsonMap.get("textures")).forEach(innerMap -> minifiedTextures.add(Map.of(
+                "source", ((LinkedTreeMap) innerMap).get("source"),
+                "id", ((LinkedTreeMap) innerMap).get("id"),
+                "name", ((LinkedTreeMap) innerMap).get("name"))
+        ));
         minifiedMap.put("textures", minifiedTextures);
         minifiedMap.put("animations", jsonMap.get("animations"));
 
@@ -340,21 +426,27 @@ public class ConfigurationImporter {
             parentFiles.add(parentFile.getName());
             currentFile = parentFile;
         }
+
         String modelsDirectory = freeMinecraftModelsPath.toFile().getAbsolutePath() + File.separatorChar + "models";
         String pathName;
-        if (parentFiles.isEmpty())
+        if (parentFiles.isEmpty()) {
             pathName = modelsDirectory + File.separatorChar + bbmodelFile.getName().replace(".bbmodel", ".fmmodel");
-        else {
-            pathName = modelsDirectory;
-            for (int i = parentFiles.size() - 1; i > -1; i--)
-                pathName += File.separatorChar + parentFiles.get(i);
-            pathName += File.separatorChar + bbmodelFile.getName().replace(".bbmodel", ".fmmodel");
+        } else {
+            StringBuilder sb = new StringBuilder(modelsDirectory);
+            for (int i = parentFiles.size() - 1; i >= 0; i--) {
+                sb.append(File.separatorChar).append(parentFiles.get(i));
+            }
+            sb.append(File.separatorChar).append(bbmodelFile.getName().replace(".bbmodel", ".fmmodel"));
+            pathName = sb.toString();
         }
+
+//        Logger.debug("Writing fmmodel to: " + pathName);
 
         try {
             FileUtils.writeStringToFile(new File(pathName), writerGson.toJson(minifiedMap), StandardCharsets.UTF_8);
         } catch (IOException e) {
             Logger.warn("Failed to generate the minified file!");
+            e.printStackTrace();
             throw new RuntimeException(e);
         }
     }
