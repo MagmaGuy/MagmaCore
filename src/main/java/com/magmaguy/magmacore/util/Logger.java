@@ -55,13 +55,19 @@ public class Logger {
     public static TextComponent commandHoverMessage(String message, String hoverMessage, String commandString) {
         TextComponent textComponent = hoverMessage(message, ChatColorConverter.convert(hoverMessage));
         if (!commandString.isEmpty())
-            textComponent.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, commandString));
+            textComponent.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, ChatColorConverter.convert(commandString)));
         return textComponent;
     }
 
     public static TextComponent hoverLinkMessage(String message, String hoverMessage, String link) {
         TextComponent textComponent = hoverMessage(message, hoverMessage);
-        textComponent.setClickEvent(new ClickEvent(ClickEvent.Action.OPEN_URL, link));
+        textComponent.setClickEvent(new ClickEvent(ClickEvent.Action.OPEN_URL, ChatColorConverter.convert(link)));
+        return textComponent;
+    }
+
+    public static TextComponent hoverCopyMessage(String message, String hoverMessage, String stringToCopy) {
+        TextComponent textComponent = hoverMessage(message, hoverMessage);
+        textComponent.setClickEvent(new ClickEvent(ClickEvent.Action.COPY_TO_CLIPBOARD, stringToCopy));
         return textComponent;
     }
 
