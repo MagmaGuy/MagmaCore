@@ -58,11 +58,6 @@ public class ConfigurationImporter {
                 Path destinationPath = worldContainerPath.resolve(file.getName());
                 File destinationFile = destinationPath.toFile();
 
-//                Logger.debug("Moving world: " + file.getName());
-//                Logger.debug("World container: " + worldContainer.getCanonicalPath());
-//                Logger.debug("World container path: " + worldContainerPath);
-//                Logger.debug("From: " + file.getCanonicalPath() + " to: " + destinationPath);
-
                 if (destinationFile.exists()) {
                     Logger.info("Overriding existing directory " + destinationFile.getPath());
                     if (Bukkit.getWorld(file.getName()) != null) {
@@ -80,10 +75,8 @@ public class ConfigurationImporter {
     }
 
     private static void moveDirectory(File unzippedDirectory, Path targetPath) {
-//        Logger.debug("moveDirectory called. Source: " + unzippedDirectory.getAbsolutePath() + " | Target: " + targetPath);
         for (File file : unzippedDirectory.listFiles()) {
             try {
-//                Logger.debug("Attempting to move directory entry: " + file.getAbsolutePath() + " to " + targetPath);
                 moveFile(file, targetPath);
             } catch (Exception exception) {
                 Logger.warn("Failed to move directories for " + file.getName() + "! Tell the dev!");
@@ -95,27 +88,17 @@ public class ConfigurationImporter {
     private static void moveFile(File file, Path targetPath) {
         try {
             Path destinationPath = targetPath.resolve(file.getName());
-//            Logger.debug("moveFile called. From: " + file.getAbsolutePath() + " to: " + destinationPath);
-//            Logger.debug("Normalized source: " + file.toPath().normalize().toAbsolutePath());
-//            Logger.debug("Target parent: " + targetPath.toAbsolutePath());
-
             if (file.isDirectory()) {
-//                Logger.debug("Source is a directory.");
                 if (Files.exists(destinationPath)) {
-//                    Logger.debug("Destination path " + destinationPath + " exists. Recursively moving contents.");
                     for (File iteratedFile : file.listFiles()) {
                         moveFile(iteratedFile, destinationPath);
                     }
                 } else {
-//                    Logger.debug("Creating directories for " + targetPath);
                     Files.createDirectories(targetPath);
-//                    Logger.debug("Moving directory " + file.getName() + " into " + destinationPath);
                     Files.move(file.toPath().normalize().toAbsolutePath(), destinationPath, StandardCopyOption.REPLACE_EXISTING);
                 }
             } else {
-//                Logger.debug("Source is a file.");
                 Files.createDirectories(targetPath);
-//                Logger.debug("Moving file " + file.getName() + " into " + destinationPath);
                 Files.move(file.toPath().normalize().toAbsolutePath(), destinationPath, StandardCopyOption.REPLACE_EXISTING);
             }
         } catch (Exception exception) {
@@ -127,10 +110,8 @@ public class ConfigurationImporter {
     private boolean createImportsDirectory() {
         Path configurationsPath = Paths.get(MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getAbsolutePath());
         Path importsPath = configurationsPath.normalize().resolve("imports");
-//        Logger.debug("Checking imports directory at: " + importsPath.toAbsolutePath());
         if (!Files.isDirectory(importsPath)) {
             try {
-//                Logger.debug("Imports directory doesn't exist, creating...");
                 Files.createDirectory(importsPath);
                 return true;
             } catch (Exception exception) {
@@ -145,7 +126,6 @@ public class ConfigurationImporter {
     private File getImportsDirectory() {
         try {
             File dir = Paths.get(MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getCanonicalPath()).resolve("imports").toFile();
-//            Logger.debug("Imports directory resolved to: " + dir.getAbsolutePath());
             return dir;
         } catch (Exception ex) {
             Logger.warn("Failed to get imports folder! Report this to the dev!");
@@ -171,9 +151,7 @@ public class ConfigurationImporter {
     }
 
     private void processImportsFolder() {
-//        Logger.debug("Processing imports folder: " + importsFolder.getAbsolutePath());
         for (File zippedFile : importsFolder.listFiles()) {
-//            Logger.debug("Found file in imports: " + zippedFile.getAbsolutePath());
             if (zippedFile.getName().endsWith(".zip")) {
                 unzipImportFile(zippedFile);
             } else if (pluginPlatform == PluginPlatform.FREEMINECRAFTMODELS && zippedFile.getName().endsWith(".bbmodel")) {
@@ -187,7 +165,6 @@ public class ConfigurationImporter {
                     }
                 }
                 if (incorrectlyUnzippedFolder) {
-//                    Logger.debug("Processing unzipped folder that contains a pack.meta: " + zippedFile.getAbsolutePath());
                     processUnzippedFile(zippedFile);
                 } else {
 //                    Logger.debug("Directory " + zippedFile.getAbsolutePath() + " does not contain pack.meta, skipping.");
@@ -200,9 +177,7 @@ public class ConfigurationImporter {
 
     private void unzipImportFile(File zippedFile) {
         try {
-//            Logger.debug("Unzipping file: " + zippedFile.getAbsolutePath());
             File unzippedFolder = ZipFile.unzip(zippedFile, new File(zippedFile.getAbsolutePath().replace(".zip", "")));
-//            Logger.debug("Unzipped folder: " + unzippedFolder.getAbsolutePath());
             processUnzippedFile(unzippedFolder);
             deleteDirectory(zippedFile);
         } catch (Exception ex) {
@@ -214,18 +189,14 @@ public class ConfigurationImporter {
 
     private void processUnzippedFile(File unzippedFolder) {
         PluginPlatform platform = pluginPlatform;
-//        Logger.debug("Processing unzipped file at: " + unzippedFolder.getAbsolutePath());
         //Check for pack.meta
         for (File unzippedFile : unzippedFolder.listFiles()) {
             if (unzippedFile.getName().equalsIgnoreCase("pack.meta")) {
-//                Logger.debug("Found pack.meta, determining platform...");
                 platform = getPluginPlatform(readPackMeta(unzippedFile));
-//                Logger.debug("Platform determined: " + platform);
             }
         }
 
         for (File unzippedFile : unzippedFolder.listFiles()) {
-//            Logger.debug("Moving unzipped file: " + unzippedFile.getAbsolutePath());
             moveUnzippedFiles(unzippedFile, platform);
         }
         deleteDirectory(unzippedFolder);
@@ -233,48 +204,46 @@ public class ConfigurationImporter {
 
     private void moveUnzippedFiles(File unzippedFile, PluginPlatform platform) {
         Path targetPath = getTargetPath(unzippedFile.getName(), platform);
-//        Logger.debug("moveUnzippedFiles called for " + unzippedFile.getAbsolutePath() + " with platform " + platform);
         if (targetPath == null) {
-//            Logger.debug("No target path resolved for " + unzippedFile.getName());
             return;
         }
-//        Logger.debug("Resolved target path: " + targetPath.toAbsolutePath());
         if (targetPath.toFile().getParentFile() != null && !targetPath.toFile().getParentFile().exists()) {
-//            Logger.debug("Creating parent directories: " + targetPath.toFile().getParentFile().getAbsolutePath());
             targetPath.toFile().getParentFile().mkdirs();
         }
         if (targetPath.toFile().exists()) {
-//            Logger.debug("Target path already exists: " + targetPath.toFile().getAbsolutePath() + " - attempting mkdir");
             targetPath.toFile().mkdir();
         }
 
         if (unzippedFile.isDirectory()) {
-//            Logger.debug("Unzipped file is a directory: " + unzippedFile.getName());
             if (unzippedFile.getName().equalsIgnoreCase("worldcontainer"))
                 moveWorlds(unzippedFile);
             else
                 moveDirectory(unzippedFile, targetPath);
         } else {
-//            Logger.debug("Unzipped file is a single file: " + unzippedFile.getName());
             moveFile(unzippedFile, targetPath);
         }
     }
 
     private Path getTargetPath(String folder, PluginPlatform platform) {
-//        Logger.debug("getTargetPath called with folder: " + folder + " and platform: " + platform);
         if (platform == PluginPlatform.FREEMINECRAFTMODELS)
             return freeMinecraftModelsPath.resolve("models");
         switch (folder) {
             case "custombosses":
-                if (platform == PluginPlatform.ELITEMOBS)
+                if (platform == PluginPlatform.ELITEMOBS ||
+                        //BetterStructures content sometimes has bosses, this reserves it
+                        platform == PluginPlatform.BETTERSTRUCTURES)
                     return eliteMobsPath.resolve("custombosses");
                 break;
             case "customitems":
-                if (platform == PluginPlatform.ELITEMOBS)
+                if (platform == PluginPlatform.ELITEMOBS ||
+                        //BetterStructures content sometimes has elite loot, this reserves it
+                        platform == PluginPlatform.BETTERSTRUCTURES)
                     return eliteMobsPath.resolve("customitems");
                 break;
             case "customtreasurechests":
-                if (platform == PluginPlatform.ELITEMOBS)
+                if (platform == PluginPlatform.ELITEMOBS ||
+                        //BetterStructures content sometimes has treasure chests (future?), this reserves it
+                        platform == PluginPlatform.BETTERSTRUCTURES)
                     return eliteMobsPath.resolve("customtreasurechests");
                 break;
             case "dungeonpackages":
@@ -317,7 +286,6 @@ public class ConfigurationImporter {
             case "worldcontainer":
                 try {
                     File wc = Bukkit.getWorldContainer().getCanonicalFile();
-//                    Logger.debug("World container: " + wc.getAbsolutePath());
                     return wc.toPath().normalize().toAbsolutePath();
                 } catch (IOException e) {
                     Logger.warn("Failed to resolve world container path canonically!");
@@ -380,7 +348,6 @@ public class ConfigurationImporter {
 
         try {
             Path filePath = packMetaFile.getCanonicalFile().toPath().normalize().toAbsolutePath();
-//            Logger.debug("Reading pack.meta from: " + filePath);
             return Files.readString(filePath, StandardCharsets.UTF_8);
         } catch (IOException e) {
             Logger.warn("Failed to read pack.meta file " + packMetaFile.getPath() + ". Ensure the file is readable.");
@@ -390,7 +357,6 @@ public class ConfigurationImporter {
     }
 
     private void processBbmodel(File bbmodelFile) {
-//        Logger.debug("Processing .bbmodel file: " + bbmodelFile.getAbsolutePath());
         Gson readerGson = new Gson();
         Reader reader;
         try {
@@ -439,8 +405,6 @@ public class ConfigurationImporter {
             sb.append(File.separatorChar).append(bbmodelFile.getName().replace(".bbmodel", ".fmmodel"));
             pathName = sb.toString();
         }
-
-//        Logger.debug("Writing fmmodel to: " + pathName);
 
         try {
             FileUtils.writeStringToFile(new File(pathName), writerGson.toJson(minifiedMap), StandardCharsets.UTF_8);

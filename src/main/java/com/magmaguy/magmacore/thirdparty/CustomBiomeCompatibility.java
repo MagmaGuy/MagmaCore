@@ -407,7 +407,8 @@ public class CustomBiomeCompatibility {
 
                 Biome defaultBiome;
                 try {
-                    defaultBiome = Biome.valueOf(defaultBiomeName);
+//                    defaultBiome = Biome.valueOf(defaultBiomeName);
+                    defaultBiome = Registry.BIOME.get(new NamespacedKey("minecraft", defaultBiomeName));
                 } catch (IllegalArgumentException e) {
                     // Default biome not found
                     continue;
@@ -439,7 +440,8 @@ public class CustomBiomeCompatibility {
 
                         Biome defaultBiome;
                         try {
-                            defaultBiome = Biome.valueOf(defaultBiomeName);
+//                            defaultBiome = Biome.valueOf(defaultBiomeName);
+                            defaultBiome = Registry.BIOME.get(new NamespacedKey("minecraft", defaultBiomeName));
                         } catch (IllegalArgumentException e) {
                             // Default biome not found
                             continue;

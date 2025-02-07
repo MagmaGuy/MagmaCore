@@ -34,8 +34,6 @@ public class LogifyCommand extends AdvancedCommand {
 
         File logFile = new File(plugin.getDataFolder().getParentFile().getParentFile(), "Logs"+File.separatorChar+"latest.log");
 
-        Logger.debug("Checking log file path: " + logFile.getAbsolutePath());
-
         if (!logFile.exists()) {
             sender.sendMessage("§cNo latest.log file found!");
             return;
@@ -62,7 +60,7 @@ public class LogifyCommand extends AdvancedCommand {
 
         } catch (IOException e) {
             sender.sendMessage("§cAn error occurred while processing the log file.");
-            Logger.debug("Error reading log file: " + e.getMessage());
+            Logger.warn("Error reading log file: " + e.getMessage());
         }
 
     }
@@ -92,7 +90,7 @@ public class LogifyCommand extends AdvancedCommand {
             return response.toString();
 
         } catch (IOException e) {
-            Logger.debug("Error uploading log: " + e.getMessage());
+            Logger.warn("Error uploading log: " + e.getMessage());
             return null;
         }
     }

@@ -1,8 +1,10 @@
 package com.magmaguy.magmacore.command;
 
+import com.magmaguy.magmacore.command.arguments.*;
 import com.magmaguy.magmacore.util.Logger;
 import lombok.Getter;
 import org.bukkit.command.CommandSender;
+import org.checkerframework.checker.units.qual.A;
 
 import java.util.*;
 
@@ -18,7 +20,7 @@ public abstract class AdvancedCommand {
     @Getter
     private String permission = "";
     @Getter
-    private final List argumentsList = new ArrayList();
+    private final List<ICommandArgument> argumentsList = new ArrayList<>();
     @Getter
     private final Map<String, Integer> argumentsMap = new HashMap<>();
     @Getter
@@ -26,6 +28,18 @@ public abstract class AdvancedCommand {
 
     public AdvancedCommand(List<String> aliases) {
         this.aliases = aliases;
+    }
+
+    public boolean aliasMatches(String potentialAlias){
+        for (String alias : aliases)
+            if (alias.equals(potentialAlias)) return true;
+        return false;
+    }
+
+    public boolean aliasStartMatches(String potentialAliasStart){
+        for (String alias : aliases)
+            if (alias.startsWith(potentialAliasStart)) return true;
+        return false;
     }
 
     protected void setPermission(String permission) {
@@ -40,13 +54,18 @@ public abstract class AdvancedCommand {
         this.senderType = senderType;
     }
 
-    protected void addLiteral(String literal) {
-        argumentsList.add(literal);
+    protected void addLiteral(String key) {
+        addArgument(key, new LiteralCommandArgument(key));
     }
 
-    protected void addArgument(String key, Object value) {
+    protected void addPlayerArgument(String key) {
+        addArgument(key, new PlayerCommandArgument());
+    }
+
+    // or if you want a generic “addArgument(ICommandArgument arg)”
+    protected void addArgument(String key, ICommandArgument arg) {
         argumentsMap.put(key, argumentsList.size());
-        argumentsList.add(value);
+        argumentsList.add(arg);
     }
 
     protected void setUsage(String usage) {

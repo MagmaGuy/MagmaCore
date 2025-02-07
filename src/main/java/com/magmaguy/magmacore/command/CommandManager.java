@@ -1,5 +1,7 @@
 package com.magmaguy.magmacore.command;
 
+import com.magmaguy.magmacore.command.arguments.ICommandArgument;
+import com.magmaguy.magmacore.command.arguments.LiteralCommandArgument;
 import com.magmaguy.magmacore.util.Logger;
 import lombok.Getter;
 import org.bukkit.command.Command;
@@ -43,97 +45,101 @@ public class CommandManager implements CommandExecutor, TabCompleter {
     }
 
     @Override
-    public boolean onCommand(CommandSender commandSender, Command cmd, String label, String[] args) {
+    public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
+        // If no args, either run a no-args command if it exists, or list valid commands
         if (args.length == 0) {
             for (AdvancedCommand command : commands) {
+                // If there's a command whose aliases are empty (meaning no subcommand keyword), run it
                 if (command.getAliases().isEmpty()) {
-                    command.execute(new CommandData(commandSender, args, command));
+                    command.execute(new CommandData(sender, args, command));
                     return true;
                 }
             }
-            Logger.sendMessage(commandSender, "Valid commands:");
-            commands.forEach(command -> commandSender.sendMessage(command.getUsage()));
+            // Otherwise, show a usage list
+            commands.forEach(command -> sender.sendMessage(command.getUsage()));
             return true;
         }
 
+        // We'll try to find and execute a valid subcommand
         for (AdvancedCommand command : commands) {
-            // We don't want to execute other commands or ones that are disabled
-            if (!(command.getAliases().contains(args[0]) && command.isEnabled())) continue;
+            // Must match the first argument (subcommand alias) and be enabled
+            if (!command.isEnabled()) continue;
+            if (!command.getAliases().contains(args[0])) continue;
 
-            if (command.getArgumentsList().size() != args.length - 1) continue;
-
-            boolean sameMandatoryArguments = true;
-            for (int i = command.getArgumentsList().size() - 1; i >= 0; i--) {
-                if (command.getArgumentsList().get(i) instanceof String string)
-                    if (!args[i + 1].equalsIgnoreCase(string)) {
-                        sameMandatoryArguments = false;
-                        break;
-                    }
+            boolean valid = true;
+            for (int i = 0; i < command.getArgumentsList().size(); i++) {
+                if (!command.getArgumentsList().get(i).isLiteral()) continue;
+                if (!((LiteralCommandArgument) command.getArgumentsList().get(i)).getLiteral().equals(args[i + 1])) {
+                    valid = false;
+                    break;
+                }
             }
-            if (!sameMandatoryArguments) continue;
 
-            if (command.getSenderType() == SenderType.PLAYER && !(commandSender instanceof Player)) {
-                // Must be a player
-                Logger.sendMessage(commandSender, "This command must be run as a player!");
+            if (!valid) continue;
+
+            // Check sender type (player vs. console)
+            if (command.getSenderType() == SenderType.PLAYER && !(sender instanceof Player)) {
+                Logger.sendMessage(sender, "This command must be run as a player!");
                 return false;
             }
 
-            if (!permissionCheck(commandSender, command)) {
-                // No permissions
-                Logger.sendMessage(commandSender, "You do not have the permission to run this command!");
+            // Check permission
+            if (!permissionCheck(sender, command)) {
+                Logger.sendMessage(sender, "You do not have permission to run this command!");
                 return false;
             }
 
-            command.execute(new CommandData(commandSender, args, command));
+            command.execute(new CommandData(sender, args, command));
             return true;
         }
-        // Unknown command message
-        Logger.sendMessage(commandSender, "Unknown command!");
+
+        // If we reach here, no matching subcommand was found
+        Logger.sendMessage(sender, "Unknown command!");
         return false;
     }
 
     @Override
-    public List<String> onTabComplete(CommandSender commandSender, Command cmd, String label, String[] args) {
-        // Handle the tab completion if it's a sub-command.
-        if (args.length == 1) return tabCompleteFirstArgument(commandSender, args);
-        return tabCompleteRestOfArguments(commandSender, args);
+    public List<String> onTabComplete(CommandSender sender, Command cmd, String label, String[] args) {
+        return tabCompleteRestOfArguments(sender, args);
     }
 
-    private List<String> tabCompleteFirstArgument(CommandSender commandSender, String[] args) {
-        List<String> result = new ArrayList<>();
-        for (AdvancedCommand command : commands) {
-            for (String alias : command.getAliases()) {
-                if (alias.toLowerCase().startsWith(args[0].toLowerCase()) &&
-                        (command.isEnabled() && permissionCheck(commandSender, command))) {
-                    result.add(alias);
-                }
-            }
-        }
-        return result;
-    }
+    private List<String> tabCompleteRestOfArguments(CommandSender sender, String[] args) {
+        if (args[0] == null) return List.of();
 
-    private List<String> tabCompleteRestOfArguments(CommandSender commandSender, String[] args) {
-        List<String> output = new ArrayList<>();
-        // Let the sub-command handle the tab completion
-        for (AdvancedCommand command : commands) {
-            if (command.getAliases().contains(args[0]) &&
-                    command.getArgumentsList().size() >= args.length - 1 &&
-                    command.isEnabled() &&
-                    permissionCheck(commandSender, command)) {
-                boolean sameMandatoryArguments = true;
-                for (int i = 1; i < args.length; i++) {
-                    if (command.getArgumentsList().get(i - 1) instanceof String string &&
-                            !args[i].equalsIgnoreCase(string) &&
-                            i != args.length - 1) {
-                        sameMandatoryArguments = false;
-                        break;
-                    }
-                }
-                if (!sameMandatoryArguments) continue;
-                output.addAll(command.onTabComplete(args));
+        List<String> completions = new ArrayList<>();
+
+        if (args.length == 1) {
+            for (AdvancedCommand command : commands) {
+                if (command.aliasStartMatches(args[0]))
+                    completions.addAll(command.getAliases());
             }
+            return completions;
         }
-        return output;
+
+        for (AdvancedCommand command : commands) {
+            if (!command.aliasMatches(args[0])) continue;
+            if (!command.isEnabled() || !permissionCheck(sender, command)) continue;
+
+            int currentArgumentIndex = args.length - 2;
+            String currentArgument = args[args.length - 1];
+
+            if (currentArgumentIndex >= command.getArgumentsList().size()) continue;
+
+            boolean argumentsSoFarValid = true;
+            // Validate all previous arguments (0 to currentArgumentIndex - 1)
+            for (int i = 0; i < currentArgumentIndex; i++) {
+                ICommandArgument argDef = command.getArgumentsList().get(i);
+                if (!argDef.matchesInput(args[i + 1])) { // Check all argument types
+                    argumentsSoFarValid = false;
+                    break;
+                }
+            }
+            if (!argumentsSoFarValid) continue;
+
+            completions.addAll(command.getArgumentsList().get(currentArgumentIndex).getSuggestions(sender, currentArgument));
+        }
+
+        return completions;
     }
 
     private boolean permissionCheck(CommandSender commandSender, AdvancedCommand command) {
