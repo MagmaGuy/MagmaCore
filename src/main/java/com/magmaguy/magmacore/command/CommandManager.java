@@ -69,11 +69,13 @@ public class CommandManager implements CommandExecutor, TabCompleter {
             boolean valid = true;
             for (int i = 0; i < command.getArgumentsList().size(); i++) {
                 if (!command.getArgumentsList().get(i).isLiteral()) continue;
-                if (!((LiteralCommandArgument) command.getArgumentsList().get(i)).getLiteral().equals(args[i + 1])) {
+                // Ensure there is an argument at index i+1 before checking its value
+                if (args.length < i + 2 || !((LiteralCommandArgument) command.getArgumentsList().get(i)).getLiteral().equals(args[i + 1])) {
                     valid = false;
                     break;
                 }
             }
+
 
             if (!valid) continue;
 
@@ -94,7 +96,28 @@ public class CommandManager implements CommandExecutor, TabCompleter {
         }
 
         // If we reach here, no matching subcommand was found
-        Logger.sendMessage(sender, "Unknown command!");
+        // Let's collect any commands with aliases that partially match the first argument.
+        List<AdvancedCommand> suggestions = new ArrayList<>();
+        for (AdvancedCommand command : commands) {
+            if (!command.isEnabled()) continue;
+            for (String alias : command.getAliases()) {
+                // Use a case-insensitive check for partial matching.
+                if (alias.toLowerCase().startsWith(args[0].toLowerCase())) {
+                    suggestions.add(command);
+                    break;
+                }
+            }
+        }
+
+        if (!suggestions.isEmpty()) {
+            Logger.sendMessage(sender, "Unknown command! Did you mean one of the following?");
+            for (AdvancedCommand suggestion : suggestions) {
+                // Sending the usage for each suggested command.
+                sender.sendMessage(" " + suggestion.getUsage());
+            }
+        } else {
+            Logger.sendMessage(sender, "Unknown command!");
+        }
         return false;
     }
 

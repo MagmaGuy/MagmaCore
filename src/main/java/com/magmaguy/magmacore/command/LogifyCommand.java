@@ -32,10 +32,35 @@ public class LogifyCommand extends AdvancedCommand {
     public void execute(CommandData commandData) {
         CommandSender sender = commandData.getCommandSender();
 
-        File logFile = new File(plugin.getDataFolder().getParentFile().getParentFile(), "Logs"+File.separatorChar+"latest.log");
+        // Locate the logs folder relative to the plugin's data folder.
+        File logsFolder = new File(plugin.getDataFolder().getParentFile().getParentFile(), "Logs");
+        if (!logsFolder.exists())
+            logsFolder = new File(plugin.getDataFolder().getParentFile().getParentFile(), "logs");
+        if (!logsFolder.exists() || !logsFolder.isDirectory()) {
+            sender.sendMessage("§cCould not find the logs folder on your server!");
+            return;
+        }
 
+        // Try to use the latest.log file first.
+        File logFile = new File(logsFolder, "latest.log");
         if (!logFile.exists()) {
-            sender.sendMessage("§cNo latest.log file found!");
+            // If latest.log doesn't exist, search for any .log file and choose the most recently modified one.
+            File[] logFiles = logsFolder.listFiles(file -> file.isFile() && file.getName().endsWith(".log"));
+            if (logFiles != null && logFiles.length > 0) {
+                File mostRecentLog = null;
+                long mostRecentTime = 0;
+                for (File file : logFiles) {
+                    if (file.lastModified() > mostRecentTime) {
+                        mostRecentTime = file.lastModified();
+                        mostRecentLog = file;
+                    }
+                }
+                logFile = mostRecentLog;
+            }
+        }
+
+        if (logFile == null || !logFile.exists()) {
+            sender.sendMessage("§cNo log file found!");
             return;
         }
 
@@ -43,6 +68,7 @@ public class LogifyCommand extends AdvancedCommand {
             byte[] fileBytes = Files.readAllBytes(logFile.toPath());
             String content = new String(fileBytes, StandardCharsets.UTF_8);
 
+            // URL-encode the content
             String encodedContent = URLEncoder.encode(content, StandardCharsets.UTF_8);
             String response = uploadLog(encodedContent);
 
@@ -50,9 +76,9 @@ public class LogifyCommand extends AdvancedCommand {
                 String logUrl = extractLogUrl(response);
                 commandData.getCommandSender().spigot().sendMessage(
                         Logger.simpleMessage("&aLog uploaded successfully! View it here: "),
-                        Logger.hoverLinkMessage("&9"+logUrl,"Click to go to link!", logUrl),
+                        Logger.hoverLinkMessage("&9" + logUrl, "Click to go to link!", logUrl),
                         Logger.simpleMessage(" &a. "),
-                        Logger.hoverCopyMessage("&6Click here to copy it!","Click to copy link to clipboard!", logUrl)
+                        Logger.hoverCopyMessage("&6Click here to copy it!", "Click to copy link to clipboard!", logUrl)
                 );
             } else {
                 Logger.sendMessage(commandData.getCommandSender(), "&cFailed to upload log!");
@@ -62,8 +88,8 @@ public class LogifyCommand extends AdvancedCommand {
             sender.sendMessage("§cAn error occurred while processing the log file.");
             Logger.warn("Error reading log file: " + e.getMessage());
         }
-
     }
+
 
     private String uploadLog(String encodedContent) {
         try {
