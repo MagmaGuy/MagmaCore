@@ -49,37 +49,40 @@ public class CommandManager implements CommandExecutor, TabCompleter {
         // If no args, either run a no-args command if it exists, or list valid commands
         if (args.length == 0) {
             for (AdvancedCommand command : commands) {
-                // If there's a command whose aliases are empty (meaning no subcommand keyword), run it
                 if (command.getAliases().isEmpty()) {
                     command.execute(new CommandData(sender, args, command));
                     return true;
                 }
             }
-            // Otherwise, show a usage list
             commands.forEach(command -> sender.sendMessage(command.getUsage()));
             return true;
         }
 
-        // We'll try to find and execute a valid subcommand
+        // Iterate over all commands looking for an exact match
         for (AdvancedCommand command : commands) {
-            // Must match the first argument (subcommand alias) and be enabled
+            // Must match the primary alias and be enabled
             if (!command.isEnabled()) continue;
             if (!command.getAliases().contains(args[0])) continue;
 
+            // Check if the number of provided arguments exactly matches what is expected.
+            // (command.getArgumentsList().size() represents the extra arguments after the alias.)
+            if (args.length != command.getArgumentsList().size() + 1) continue;
+
             boolean valid = true;
             for (int i = 0; i < command.getArgumentsList().size(); i++) {
+                // Only verify literal arguments
                 if (!command.getArgumentsList().get(i).isLiteral()) continue;
-                // Ensure there is an argument at index i+1 before checking its value
-                if (args.length < i + 2 || !((LiteralCommandArgument) command.getArgumentsList().get(i)).getLiteral().equals(args[i + 1])) {
+
+                // We use args[i+1] since args[0] is the base alias
+                if (!((LiteralCommandArgument) command.getArgumentsList().get(i))
+                        .getLiteral().equals(args[i + 1])) {
                     valid = false;
                     break;
                 }
             }
-
-
             if (!valid) continue;
 
-            // Check sender type (player vs. console)
+            // Check sender type (e.g. command must be run by a player)
             if (command.getSenderType() == SenderType.PLAYER && !(sender instanceof Player)) {
                 Logger.sendMessage(sender, "This command must be run as a player!");
                 return false;
@@ -91,17 +94,16 @@ public class CommandManager implements CommandExecutor, TabCompleter {
                 return false;
             }
 
+            // Execute the command
             command.execute(new CommandData(sender, args, command));
             return true;
         }
 
-        // If we reach here, no matching subcommand was found
-        // Let's collect any commands with aliases that partially match the first argument.
+        // If no matching subcommand was found, provide suggestions:
         List<AdvancedCommand> suggestions = new ArrayList<>();
         for (AdvancedCommand command : commands) {
             if (!command.isEnabled()) continue;
             for (String alias : command.getAliases()) {
-                // Use a case-insensitive check for partial matching.
                 if (alias.toLowerCase().startsWith(args[0].toLowerCase())) {
                     suggestions.add(command);
                     break;
@@ -112,7 +114,6 @@ public class CommandManager implements CommandExecutor, TabCompleter {
         if (!suggestions.isEmpty()) {
             Logger.sendMessage(sender, "Unknown command! Did you mean one of the following?");
             for (AdvancedCommand suggestion : suggestions) {
-                // Sending the usage for each suggested command.
                 sender.sendMessage(" " + suggestion.getUsage());
             }
         } else {
