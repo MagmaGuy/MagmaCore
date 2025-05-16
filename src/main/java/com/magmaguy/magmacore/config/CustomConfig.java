@@ -11,6 +11,7 @@ import java.io.File;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 
@@ -40,6 +41,10 @@ public class CustomConfig {
     public CustomConfig(String folderName, String packageName, Class<? extends CustomConfigFields> customConfigFields) {
         this.folderName = folderName;
         this.customConfigFields = customConfigFields;
+
+        String directory = MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getAbsolutePath() + File.separatorChar + folderName;
+        File file = Path.of(directory).toFile();
+        if (!file.exists()) file.mkdir();
 
         //Case if there are no premade configurations in the premade package, otherwise reflections error
         if (packageName.isEmpty()) return;
@@ -186,7 +191,7 @@ public class CustomConfig {
             addCustomConfigFields(file.getName(), instancedCustomConfigFields);
         } catch (Exception ex) {
             Logger.warn("Bad constructor for file " + file.getName() + " ! You should probably delete that file.");
-//            ex.printStackTrace();
+            ex.printStackTrace();
         }
 
     }

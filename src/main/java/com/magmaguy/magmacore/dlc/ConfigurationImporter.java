@@ -21,6 +21,7 @@ import java.util.*;
 
 public class ConfigurationImporter {
     private final Path eliteMobsPath = Path.of(MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getParentFile().getAbsolutePath()).resolve("EliteMobs");
+    private final Path extractioncraftPath = Path.of(MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getParentFile().getAbsolutePath()).resolve("Extractioncraft");
     private final Path betterStructuresPath = Path.of(MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getParentFile().getAbsolutePath()).resolve("BetterStructures");
     private final Path freeMinecraftModelsPath = Path.of(MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getParentFile().getAbsolutePath()).resolve("FreeMinecraftModels");
     private final Path modelEnginePath = Path.of(MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getParentFile().getAbsolutePath()).resolve("ModelEngine");
@@ -112,6 +113,9 @@ public class ConfigurationImporter {
         Path importsPath = configurationsPath.normalize().resolve("imports");
         if (!Files.isDirectory(importsPath)) {
             try {
+                File importsFile = importsPath.toFile();
+                if (!importsFile.getParentFile().exists())
+                    importsPath.toFile().mkdirs();
                 Files.createDirectory(importsPath);
                 return true;
             } catch (Exception exception) {
@@ -139,6 +143,8 @@ public class ConfigurationImporter {
         switch (name.toLowerCase(Locale.ROOT)) {
             case "elitemobs":
                 return PluginPlatform.ELITEMOBS;
+            case "extractioncraft":
+                return PluginPlatform.EXTRACTIONCRAFT;
             case "betterstructures":
                 return PluginPlatform.BETTERSTRUCTURES;
             case "freeminecraftmodels":
@@ -231,19 +237,22 @@ public class ConfigurationImporter {
             case "custombosses":
                 if (platform == PluginPlatform.ELITEMOBS ||
                         //BetterStructures content sometimes has bosses, this reserves it
-                        platform == PluginPlatform.BETTERSTRUCTURES)
+                        platform == PluginPlatform.BETTERSTRUCTURES ||
+                        platform == PluginPlatform.EXTRACTIONCRAFT)
                     return eliteMobsPath.resolve("custombosses");
                 break;
             case "customitems":
                 if (platform == PluginPlatform.ELITEMOBS ||
                         //BetterStructures content sometimes has elite loot, this reserves it
-                        platform == PluginPlatform.BETTERSTRUCTURES)
+                        platform == PluginPlatform.BETTERSTRUCTURES ||
+                        platform == PluginPlatform.EXTRACTIONCRAFT)
                     return eliteMobsPath.resolve("customitems");
                 break;
             case "customtreasurechests":
                 if (platform == PluginPlatform.ELITEMOBS ||
                         //BetterStructures content sometimes has treasure chests (future?), this reserves it
-                        platform == PluginPlatform.BETTERSTRUCTURES)
+                        platform == PluginPlatform.BETTERSTRUCTURES ||
+                        platform == PluginPlatform.EXTRACTIONCRAFT)
                     return eliteMobsPath.resolve("customtreasurechests");
                 break;
             case "dungeonpackages":
@@ -252,6 +261,8 @@ public class ConfigurationImporter {
                     return eliteMobsPath.resolve("content_packages");
                 if (platform == PluginPlatform.BETTERSTRUCTURES)
                     return betterStructuresPath.resolve("content_packages");
+                if (platform == PluginPlatform.EXTRACTIONCRAFT)
+                    return extractioncraftPath.resolve("content_packages");
                 break;
             case "customevents":
                 if (platform == PluginPlatform.ELITEMOBS)
@@ -262,7 +273,8 @@ public class ConfigurationImporter {
                     return eliteMobsPath.resolve("customspawns");
                 break;
             case "customquests":
-                if (platform == PluginPlatform.ELITEMOBS)
+                if (platform == PluginPlatform.ELITEMOBS ||
+                        platform == PluginPlatform.EXTRACTIONCRAFT)
                     return eliteMobsPath.resolve("customquests");
                 break;
             case "customarenas":
@@ -270,7 +282,8 @@ public class ConfigurationImporter {
                     return eliteMobsPath.resolve("customarenas");
                 break;
             case "npcs":
-                if (platform == PluginPlatform.ELITEMOBS)
+                if (platform == PluginPlatform.ELITEMOBS ||
+                        platform == PluginPlatform.EXTRACTIONCRAFT)
                     return eliteMobsPath.resolve("npcs");
                 if (platform == PluginPlatform.ETERNALTD)
                     return eternalTDPath.resolve("npcs");
@@ -280,7 +293,9 @@ public class ConfigurationImporter {
                     return eliteMobsPath.resolve("wormholes");
                 break;
             case "powers":
-                if (platform == PluginPlatform.ELITEMOBS)
+                if (platform == PluginPlatform.ELITEMOBS ||
+                        platform == PluginPlatform.BETTERSTRUCTURES ||
+                        platform == PluginPlatform.EXTRACTIONCRAFT)
                     return eliteMobsPath.resolve("powers");
                 break;
             case "worldcontainer":
@@ -332,6 +347,28 @@ public class ConfigurationImporter {
             case "pack.meta":
                 // Only for tagging purposes
                 return null;
+            case "spawn_pools":
+                if (platform == PluginPlatform.BETTERSTRUCTURES ||
+                        platform == PluginPlatform.EXTRACTIONCRAFT)
+                    return betterStructuresPath.resolve("spawn_pools");
+            case "components":
+                if (platform == PluginPlatform.BETTERSTRUCTURES ||
+                        platform == PluginPlatform.EXTRACTIONCRAFT)
+                    return betterStructuresPath.resolve("components");
+            case "modules":
+                if (platform == PluginPlatform.BETTERSTRUCTURES ||
+                        platform == PluginPlatform.EXTRACTIONCRAFT)
+                    return betterStructuresPath.resolve("modules");
+            case "module_generators":
+                if (platform == PluginPlatform.BETTERSTRUCTURES ||
+                        platform == PluginPlatform.EXTRACTIONCRAFT)
+                    return betterStructuresPath.resolve("module_generators");
+            case "loot_pools":
+                if (platform == PluginPlatform.EXTRACTIONCRAFT)
+                    return extractioncraftPath.resolve("loot_pools");
+            case "loot_tables":
+                if (platform == PluginPlatform.EXTRACTIONCRAFT)
+                    return extractioncraftPath.resolve("loot_tables");
             default:
                 Logger.warn("Directory " + folder + " for zipped file was not recognized! Was the zipped file packaged correctly?");
                 return null;
@@ -417,6 +454,7 @@ public class ConfigurationImporter {
 
     private enum PluginPlatform {
         ELITEMOBS,
+        EXTRACTIONCRAFT,
         BETTERSTRUCTURES,
         FREEMINECRAFTMODELS,
         ETERNALTD,

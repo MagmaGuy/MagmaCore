@@ -13,6 +13,8 @@ import org.bukkit.Particle;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
+import java.util.Optional;
+
 public class Logger {
     private Logger() {
     }
@@ -44,6 +46,14 @@ public class Logger {
 
     public static TextComponent simpleMessage(String message) {
         return new TextComponent(ChatColorConverter.convert(message));
+    }
+
+    public static void sendTitle(Player player, String title, String subtitle) {
+        player.sendTitle(ChatColorConverter.convert(title), ChatColorConverter.convert(subtitle));
+    }
+
+    public static void sendTitle(Player player, String title, String subtitle, int fadeIn, int stay, int fadeOut) {
+        player.sendTitle(ChatColorConverter.convert(title), ChatColorConverter.convert(subtitle), fadeIn, stay, fadeOut);
     }
 
     public static TextComponent hoverMessage(String message, String hoverMessage) {
