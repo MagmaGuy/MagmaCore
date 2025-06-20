@@ -15,6 +15,8 @@ import java.net.URL;
 import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Scanner;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.bukkit.Bukkit;
 
 public class LogifyCommand extends AdvancedCommand {
@@ -24,12 +26,13 @@ public class LogifyCommand extends AdvancedCommand {
         super(new ArrayList<>());
         setUsage("/logify");
         setSenderType(SenderType.ANY);
-        setDescription("Sends the current latest.log server log to mclo.gs!");
+        setPermission("logify.*");
         this.plugin = plugin;
     }
 
     @Override
     public void execute(CommandData commandData) {
+        if (!commandData.getCommandSender().hasPermission("logify.*")) return;
         CommandSender sender = commandData.getCommandSender();
 
         // Locate the logs folder relative to the plugin's data folder.
@@ -68,6 +71,9 @@ public class LogifyCommand extends AdvancedCommand {
             byte[] fileBytes = Files.readAllBytes(logFile.toPath());
             String content = new String(fileBytes, StandardCharsets.UTF_8);
 
+            // Anonymize IP addresses (e.g., 127.125.201.60:58555 -> ***.***.***.**:*****)
+            content = anonymizeIPs(content);
+
             // URL-encode the content
             String encodedContent = URLEncoder.encode(content, StandardCharsets.UTF_8);
             String response = uploadLog(encodedContent);
@@ -90,6 +96,21 @@ public class LogifyCommand extends AdvancedCommand {
         }
     }
 
+    /**
+     * Replace digits in IPv4 addresses (and optional port) with asterisks.
+     */
+    private String anonymizeIPs(String content) {
+        Pattern ipPattern = Pattern.compile("\\b(?:\\d{1,3}\\.){3}\\d{1,3}(?::\\d+)?\\b");
+        Matcher matcher = ipPattern.matcher(content);
+        StringBuffer sb = new StringBuffer();
+        while (matcher.find()) {
+            String ipPart = matcher.group();
+            String anonymized = ipPart.replaceAll("\\d", "*");
+            matcher.appendReplacement(sb, Matcher.quoteReplacement(anonymized));
+        }
+        matcher.appendTail(sb);
+        return sb.toString();
+    }
 
     private String uploadLog(String encodedContent) {
         try {
