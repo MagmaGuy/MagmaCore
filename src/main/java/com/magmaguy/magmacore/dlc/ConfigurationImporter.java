@@ -116,7 +116,7 @@ public class ConfigurationImporter {
                 File importsFile = importsPath.toFile();
                 if (!importsFile.getParentFile().exists())
                     importsPath.toFile().mkdirs();
-                Files.createDirectory(importsPath);
+                Files.createDirectories(importsPath);
                 return true;
             } catch (Exception exception) {
                 Logger.warn("Failed to create import directory! Tell the dev!");
@@ -458,6 +458,7 @@ public class ConfigurationImporter {
         BETTERSTRUCTURES,
         FREEMINECRAFTMODELS,
         ETERNALTD,
+        RESURRECTIONCHEST,
         NONE
     }
 }
