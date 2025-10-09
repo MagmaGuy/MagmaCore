@@ -32,7 +32,8 @@ public class ItemStackGenerator {
         SkullMeta skullMeta = (SkullMeta) itemStack.getItemMeta();
 
         if (cachedPlayerProfiles.containsKey(username)) {
-            skullMeta.setOwnerProfile(cachedPlayerProfiles.get(username));
+            if (cachedPlayerProfiles.get(username).getName() != null)
+                skullMeta.setOwnerProfile(cachedPlayerProfiles.get(username));
         } else if (playerUUID != null) {
             String sessionServerURL = "https://sessionserver.mojang.com/session/minecraft/profile/" + playerUUID;
             try {
@@ -68,7 +69,8 @@ public class ItemStackGenerator {
                         PlayerProfile playerProfile = Bukkit.createPlayerProfile(playerUUID);
                         PlayerTextures textures = playerProfile.getTextures();
                         textures.setSkin(skinUrl);
-                        skullMeta.setOwnerProfile(playerProfile);
+                        if (playerProfile.getName() != null)
+                            skullMeta.setOwnerProfile(playerProfile);
                         cachedPlayerProfiles.put(username, playerProfile);
                         break;
                     }
