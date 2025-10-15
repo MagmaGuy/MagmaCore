@@ -27,7 +27,7 @@ public class ChunkLocationChecker {
 
     public static boolean chunkAtLocationIsLoaded(Location location) {
         return location != null && location.getWorld() != null &&
-                location.getWorld().isChunkLoaded(location.getBlock().getX() >> 4, location.getBlock().getZ() >> 4);
+                location.getWorld().isChunkLoaded(location.getBlockX() >> 4, location.getBlockZ() >> 4);
     }
 
     // NEW METHODS FOR STRING CONVERSION

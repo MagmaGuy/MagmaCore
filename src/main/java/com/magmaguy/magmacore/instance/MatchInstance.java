@@ -37,7 +37,7 @@ public abstract class MatchInstance implements MatchInstanceInterface {
     protected InstanceState state = InstanceState.WAITING;
     @Getter
     protected String permission = null;
-    private InstanceWatchdogTask instanceWatchdogTask = null;
+    private TickTask tick = null;
 
     public MatchInstance(MatchInstanceConfiguration matchInstanceConfiguration) {
         this.matchInstanceConfiguration = matchInstanceConfiguration;
@@ -56,8 +56,8 @@ public abstract class MatchInstance implements MatchInstanceInterface {
             return matchInstantiateEvent;
         }
 
-        instanceWatchdogTask = new InstanceWatchdogTask();
-        instanceWatchdogTask.runTaskTimer(MagmaCore.getInstance().getRequestingPlugin(), 0, 1);
+        tick = new TickTask();
+        tick.runTaskTimer(MagmaCore.getInstance().getRequestingPlugin(), 0, 1);
 
         countdownMatch();
         return matchInstantiateEvent;
@@ -291,8 +291,8 @@ public abstract class MatchInstance implements MatchInstanceInterface {
         spectators.clear();
 //        deathBanners.values().forEach(deathLocation -> deathLocation.clear(false));
 //        deathBanners.clear();
-        if (instanceWatchdogTask != null && !instanceWatchdogTask.isCancelled())
-            instanceWatchdogTask.cancel();
+        if (tick != null && !tick.isCancelled())
+            tick.cancel();
         Bukkit.getPluginManager().callEvent(new MatchDestroyEvent(this));
     }
 
@@ -344,7 +344,7 @@ public abstract class MatchInstance implements MatchInstanceInterface {
         }
     }
 
-    private class InstanceWatchdogTask extends BukkitRunnable {
+    private class TickTask extends BukkitRunnable {
         @Override
         public void run() {
             playerWatchdog();

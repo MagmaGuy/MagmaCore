@@ -1,9 +1,6 @@
 package com.magmaguy.magmacore.config;
 
-import com.magmaguy.magmacore.util.ChatColorConverter;
-import com.magmaguy.magmacore.util.ConfigurationLocation;
-import com.magmaguy.magmacore.util.ItemStackGenerator;
-import com.magmaguy.magmacore.util.Logger;
+import com.magmaguy.magmacore.util.*;
 import lombok.Getter;
 import lombok.Setter;
 import org.bukkit.*;
@@ -269,6 +266,8 @@ public abstract class CustomConfigFields {
             return value;
         }
         try {
+            if (!VersionChecker.serverVersionOlderThan(21, 9) && fileConfiguration.getString(path).toUpperCase(Locale.ROOT).equals("CHAIN"))
+                return Enum.valueOf(enumClass, "IRON_CHAIN");
             return Enum.valueOf(enumClass, fileConfiguration.getString(path).toUpperCase(Locale.ROOT));
         } catch (Exception ex) {
             Logger.warn("File " + filename + " has an incorrect entry for " + path);

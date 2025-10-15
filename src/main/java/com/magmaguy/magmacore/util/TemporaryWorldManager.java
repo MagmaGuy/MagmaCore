@@ -14,7 +14,6 @@ import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Random;
-import java.util.logging.Filter;
 
 public class TemporaryWorldManager {
     /**
@@ -34,23 +33,61 @@ public class TemporaryWorldManager {
         }
         Logger.info("Loading world " + worldName + " !");
 
-        Filter filter = newFilter -> false;
-        Filter previousFilter = Bukkit.getLogger().getFilter();
-        Bukkit.getLogger().setFilter(filter);
+//        Filter filter = newFilter -> false;
+//        Filter previousFilter = Bukkit.getLogger().getFilter();
+//        Bukkit.getLogger().setFilter(filter);
 
         try {
+            Logger.info("Creating world " + worldName + " !");
             WorldCreator worldCreator = new WorldCreator(worldName);
             worldCreator.environment(environment);
-            worldCreator.keepSpawnInMemory(false);
             worldCreator.generator(new VoidGenerator());
             World world = Bukkit.createWorld(worldCreator);
             if (world != null) world.setKeepSpawnInMemory(false);
             world.setDifficulty(Difficulty.HARD);
-            world.setAutoSave(false);
-            Bukkit.getLogger().setFilter(previousFilter);
+//            world.setAutoSave(false);
+            Logger.info("Successfully loaded world " + worldName + " !");
+//            Bukkit.getLogger().setFilter(previousFilter);
             return world;
         } catch (Exception exception) {
-            Bukkit.getLogger().setFilter(previousFilter);
+//            Bukkit.getLogger().setFilter(previousFilter);
+            Logger.warn("Failed to load world " + worldName + " !");
+            exception.printStackTrace();
+        }
+        return null;
+    }
+
+    /**
+     * Generates a world which does not save, does not keep spawn loaded and is a void world
+     *
+     * @param worldName
+     * @param environment
+     * @return
+     */
+    public static World createVoidTemporaryWorld(String worldName, World.Environment environment) {
+        //Case where the world is already loaded
+        int identifier = 1;
+        while (Bukkit.getWorld(worldName + "_" + identifier) != null) identifier++;
+        worldName += "_" + identifier;
+
+//        Filter filter = newFilter -> false;
+//        Filter previousFilter = Bukkit.getLogger().getFilter();
+//        Bukkit.getLogger().setFilter(filter);
+
+        try {
+            Logger.info("Creating world " + worldName + " !");
+            WorldCreator worldCreator = new WorldCreator(worldName);
+            worldCreator.environment(environment);
+            worldCreator.generator(new VoidGenerator());
+            World world = Bukkit.createWorld(worldCreator);
+            world.setKeepSpawnInMemory(false);
+            world.setDifficulty(Difficulty.HARD);
+            world.setAutoSave(false);
+            Logger.info("Successfully loaded world " + worldName + " !");
+//            Bukkit.getLogger().setFilter(previousFilter);
+            return world;
+        } catch (Exception exception) {
+//            Bukkit.getLogger().setFilter(previousFilter);
             Logger.warn("Failed to load world " + worldName + " !");
             exception.printStackTrace();
         }
@@ -61,30 +98,24 @@ public class TemporaryWorldManager {
      * Whenever possible, use this async method over the sync method. This works well during runtime, but will not work on shutdown.
      *
      * @param world
-     * @param worldDirectory
      */
-    public static void asyncPermanentlyDeleteWorld(World world, File worldDirectory) {
+    public static void asyncPermanentlyDeleteWorld(World world) {
         if (!Bukkit.unloadWorld(world, false)) {
             Logger.warn("Failed to unload world " + world.getName() + " ! This is bad, report this to the developer!");
         }
         new BukkitRunnable() {
             @Override
             public void run() {
-                try {
-                    FileUtils.deleteDirectory(worldDirectory);
-                    Logger.info("Successfully deleted temporary world " + world.getName());
-                } catch (Exception e) {
-                    Logger.warn("Failed to delete " + worldDirectory.toString() + " ! This is bad, report this to the developer!");
-                }
+                syncPermanentlyDeleteWorld(world);
             }
         }.runTaskAsynchronously(MagmaCore.getInstance().getRequestingPlugin());
     }
 
-    public static void permanentlyDeleteWorld(World world, File worldDirectory) {
+    public static void permanentlyDeleteWorld(World world) {
         if (MagmaCore.getInstance().getRequestingPlugin().isEnabled())
-            asyncPermanentlyDeleteWorld(world, worldDirectory);
+            asyncPermanentlyDeleteWorld(world);
         else
-            syncPermanentlyDeleteWorld(world, worldDirectory);
+            syncPermanentlyDeleteWorld(world);
     }
 
 
@@ -93,17 +124,16 @@ public class TemporaryWorldManager {
      * async tasks while shutting down, nor would it be desirable
      *
      * @param world
-     * @param worldDirectory
      */
-    public static void syncPermanentlyDeleteWorld(World world, File worldDirectory) {
+    public static void syncPermanentlyDeleteWorld(World world) {
         if (!Bukkit.unloadWorld(world, false)) {
             Logger.warn("Failed to unload world " + world.getName() + " ! This is bad, report this to the developer!");
         }
         try {
-            FileUtils.deleteDirectory(worldDirectory);
+            FileUtils.deleteDirectory(new File(Bukkit.getWorldContainer().getAbsolutePath() + File.separatorChar + world.getName()));
             Logger.info("Successfully deleted temporary world " + world.getName());
         } catch (Exception e) {
-            Logger.warn("Failed to delete " + worldDirectory.toString() + " ! This is bad, report this to the developer!");
+            Logger.warn("Failed to delete " + world.getName() + " ! This is bad, report this to the developer!");
         }
     }
 

@@ -42,7 +42,7 @@ public class MatchInstanceWorld extends MatchInstance implements MatchInstanceIn
     @Override
     public void destroyMatch() {
         super.destroyMatch();
-        TemporaryWorldManager.permanentlyDeleteWorld(world, worldDirectory); //todo: invest time to make async once I implement a way to see if the plugin is shutting down at destruction time
+        TemporaryWorldManager.permanentlyDeleteWorld(world); //todo: invest time to make async once I implement a way to see if the plugin is shutting down at destruction time
     }
 
     @Override
