@@ -1,6 +1,7 @@
 package com.magmaguy.magmacore.instance;
 
 import com.magmaguy.magmacore.events.MatchInstantiateEvent;
+import com.magmaguy.magmacore.util.Logger;
 import com.magmaguy.magmacore.util.TemporaryWorldManager;
 import lombok.Getter;
 import org.bukkit.Location;
@@ -11,24 +12,26 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerTeleportEvent;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
 
 import static com.magmaguy.magmacore.instance.MatchInstance.MatchInstanceEvents.teleportBypass;
 
 public class MatchInstanceWorld extends MatchInstance implements MatchInstanceInterface {
     @Getter
-    private World world;
+    private List<World> worlds;
     private File worldDirectory;
 
-    public MatchInstanceWorld(MatchInstanceConfiguration matchInstanceConfiguration, World world, File worldDirectory) {
+    public MatchInstanceWorld(MatchInstanceConfiguration matchInstanceConfiguration, World worlds, File worldDirectory) {
         super(matchInstanceConfiguration);
-        this.world = world;
+        this.worlds = new ArrayList<>(List.of(worlds));
         this.worldDirectory = worldDirectory;
         if (matchInstanceConfiguration.isProtected())
-            InstanceProtector.addProtectedWorld(world);
+            InstanceProtector.addProtectedWorld(worlds);
         if (matchInstanceConfiguration.isPvpPrevented())
-            InstanceProtector.addPvpPreventedWorld(world);
+            InstanceProtector.addPvpPreventedWorld(worlds);
         if (matchInstanceConfiguration.isRedstonePrevented())
-            InstanceProtector.addRedstonePreventedWorld(world);
+            InstanceProtector.addRedstonePreventedWorld(worlds);
     }
 
     @Override
@@ -42,25 +45,32 @@ public class MatchInstanceWorld extends MatchInstance implements MatchInstanceIn
     @Override
     public void destroyMatch() {
         super.destroyMatch();
-        TemporaryWorldManager.permanentlyDeleteWorld(world); //todo: invest time to make async once I implement a way to see if the plugin is shutting down at destruction time
+        for (World world : worlds) {
+            TemporaryWorldManager.permanentlyDeleteWorld(world);
+        }
     }
 
     @Override
     public boolean isInRegion(Location location) {
-        return location.getWorld().equals(world);
+        for (World world : worlds) {
+            if (location.getWorld().equals(world)) return true;
+        }
+        return false;
     }
 
     public static class MatchInstanceWorldEvents implements Listener {
         @EventHandler(ignoreCancelled = true, priority = EventPriority.LOW)
         public void onPlayerTeleport(PlayerTeleportEvent event) {
+            Logger.debug("Player " + event.getPlayer().getName() + " teleported to " + event.getTo().getWorld().getName());
+
             if (teleportBypass) {
                 teleportBypass = false;
                 return;
             }
 
             for (MatchInstance instance : instances) {
-                if (((MatchInstanceWorld) instance).world == null) continue;
-                if (((MatchInstanceWorld) instance).world.equals(event.getFrom()) || ((MatchInstanceWorld) instance).world.equals(event.getTo())) {
+                if (((MatchInstanceWorld) instance).worlds == null) continue;
+                if (((MatchInstanceWorld) instance).worlds.equals(event.getFrom()) || ((MatchInstanceWorld) instance).worlds.equals(event.getTo())) {
                     event.setCancelled(true);
                     return;
                 }

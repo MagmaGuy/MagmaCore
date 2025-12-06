@@ -66,7 +66,7 @@ public class MatchPlayer {
     }
 
     public void revive() {
-        player.teleport(deathLocation.block.getLocation());
+        teleport(deathLocation.block.getLocation());
         deathLocation.block.setType(Material.AIR, false);
         deathLocation = null;
         player.setGameMode(GameMode.SURVIVAL);
@@ -91,7 +91,6 @@ public class MatchPlayer {
         if (matchInstance.getMatchInstanceConfiguration().getExitLocation() != null)
             teleport(matchInstance.getMatchInstanceConfiguration().getExitLocation());
         else if (previousLocation != null && previousLocation.getWorld() != null) {
-            Logger.debug("teleporting to previous location");
             teleport(previousLocation);
         } else teleport(fallbackLocation);
 

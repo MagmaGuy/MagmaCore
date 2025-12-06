@@ -55,6 +55,7 @@ public final class MagmaCore {
     }
 
     public static void enableMatchSystem() {
+        Logger.info("Enabling match system...");
         Bukkit.getPluginManager().registerEvents(new InstanceProtector(), instance.requestingPlugin);
         Bukkit.getPluginManager().registerEvents(new MatchPlayer.MatchPlayerEvents(), instance.requestingPlugin);
         Bukkit.getPluginManager().registerEvents(new MatchInstance.MatchInstanceEvents(), instance.requestingPlugin);

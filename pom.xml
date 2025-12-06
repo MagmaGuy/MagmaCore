@@ -6,7 +6,7 @@
 
     <groupId>com.magmaguy</groupId>
     <artifactId>MagmaCore</artifactId>
-    <version>1.19-SNAPSHOT</version>
+    <version>1.22-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>MagmaCore</name>
@@ -59,6 +59,10 @@
             <name>MagmaGuy's Repository</name>
             <url>https://repo.magmaguy.com/releases</url>
         </repository>
+        <repository>
+            <id>enginehub</id>
+            <url>https://maven.enginehub.org/repo/</url>
+        </repository>
     </repositories>
 
     <dependencies>
@@ -85,6 +89,12 @@
             <groupId>com.magmaguy</groupId>
             <artifactId>FreeMinecraftModels</artifactId>
             <version>1.4.2</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.sk89q.worldedit</groupId>
+            <artifactId>worldedit-bukkit</artifactId>
+            <version>7.3.0</version>
             <scope>provided</scope>
         </dependency>
     </dependencies>
