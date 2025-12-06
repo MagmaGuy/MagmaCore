@@ -5,6 +5,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import org.bukkit.Bukkit;
+import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 
 import java.util.*;
@@ -1646,5 +1647,9 @@ public class DialogManager {
             obj.addProperty("text", text);
             return obj;
         }
+    }
+
+    public static void sendDialog(Player player, DialogBuilder builder) {
+        Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "minecraft:dialog show " + player.getName() + " " + builder.build().toString());
     }
 }

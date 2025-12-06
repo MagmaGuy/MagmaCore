@@ -369,6 +369,9 @@ public class ConfigurationImporter {
             case "loot_tables":
                 if (platform == PluginPlatform.EXTRACTIONCRAFT)
                     return extractioncraftPath.resolve("loot_tables");
+            case "resource_pack":
+                if (platform == PluginPlatform.ELITEMOBS)
+                    return eliteMobsPath.resolve("resource_pack");
             default:
                 Logger.warn("Directory " + folder + " for zipped file was not recognized! Was the zipped file packaged correctly?");
                 return null;
@@ -405,12 +408,18 @@ public class ConfigurationImporter {
 
         Map<?, ?> jsonMap = readerGson.fromJson(reader, Map.class);
 
+        // Detect version and merge groups with outliner
+        int blockBenchVersion = detectVersion(jsonMap);
+        List mergedOutliner = mergeGroupsAndOutliner(jsonMap, blockBenchVersion);
+
         Gson writerGson = new Gson();
         HashMap<String, Object> minifiedMap = new HashMap<>();
 
+        minifiedMap.put("meta", jsonMap.get("meta"));
         minifiedMap.put("resolution", jsonMap.get("resolution"));
         minifiedMap.put("elements", jsonMap.get("elements"));
-        minifiedMap.put("outliner", jsonMap.get("outliner"));
+        minifiedMap.put("outliner", mergedOutliner);  // Use merged outliner instead of raw
+        // Note: We don't put "groups" in minifiedMap since they're now merged into outliner
 
         ArrayList<Map> minifiedTextures = new ArrayList<>();
         ((ArrayList) jsonMap.get("textures")).forEach(innerMap -> minifiedTextures.add(Map.of(
@@ -450,6 +459,110 @@ public class ConfigurationImporter {
             e.printStackTrace();
             throw new RuntimeException(e);
         }
+    }
+
+    /**
+     * Detect the major version from the meta field
+     */
+    private int detectVersion(Map<?, ?> bbmodelData) {
+        try {
+            Map<?, ?> meta = (Map<?, ?>) bbmodelData.get("meta");
+            if (meta == null) {
+                Logger.warn("Missing 'meta' field in model. Defaulting to version 4.");
+                return 4;
+            }
+
+            Object versionObj = meta.get("format_version");
+            if (versionObj == null) {
+                Logger.warn("Missing 'format_version' in meta. Defaulting to version 4.");
+                return 4;
+            }
+
+            String versionStr = versionObj.toString();
+            String[] parts = versionStr.split("\\.");
+            return Integer.parseInt(parts[0]);
+
+        } catch (Exception e) {
+            Logger.warn("Failed to parse format_version. Error: " + e.getMessage() + ". Defaulting to version 4.");
+            return 4;
+        }
+    }
+
+    /**
+     * For v4: just return the old all in one outliner
+     * For v5: Merge groups array with outliner
+     */
+    private List mergeGroupsAndOutliner(Map<?, ?> bbmodelData, int blockBenchVersion) {
+        List outlinerValues = (ArrayList) bbmodelData.get("outliner");
+
+        if (blockBenchVersion < 5) {
+            // v4 doesn't need merging
+            return outlinerValues;
+        }
+
+        // v5: groups are separate
+        List groupsList = (ArrayList) bbmodelData.get("groups");
+        if (groupsList == null) {
+            return outlinerValues;
+        }
+
+        // Create a map of group UUIDs to group objects for easy lookup
+        HashMap<String, Map> groupsMap = new HashMap<>();
+        for (Object groupObj : groupsList) {
+            if (groupObj instanceof Map) {
+                Map group = (Map) groupObj;
+                String uuid = (String) group.get("uuid");
+                if (uuid != null) {
+                    groupsMap.put(uuid, group);
+                }
+            }
+        }
+
+        // Process outliner recursively and merge with group data
+        return processOutlinerItems(outlinerValues, groupsMap);
+    }
+
+    /**
+     * Recursively process outliner items and merge with group data from the groups array.
+     * This traverses the entire tree structure, processing all children at every level.
+     */
+    private List processOutlinerItems(List items, HashMap<String, Map> groupsMap) {
+        List result = new ArrayList();
+
+        for (Object item : items) {
+            if (item instanceof String) {
+                // Direct UUID reference to an element (not a group)
+                // These are leaf nodes that don't need merging
+                result.add(item);
+            } else if (item instanceof Map) {
+                Map outlinerItem = (Map) item;
+                String uuid = (String) outlinerItem.get("uuid");
+
+                Map mergedItem;
+
+                if (uuid != null && groupsMap.containsKey(uuid)) {
+                    // Found matching group data - merge it in
+                    Map groupData = groupsMap.get(uuid);
+                    mergedItem = new HashMap(groupData);
+                } else {
+                    // No matching group, use outliner data as-is
+                    mergedItem = new HashMap(outlinerItem);
+                }
+
+                // Recursively process children if they exist
+                if (outlinerItem.containsKey("children")) {
+                    List children = (List) outlinerItem.get("children");
+                    if (children != null && !children.isEmpty()) {
+                        List processedChildren = processOutlinerItems(children, groupsMap);
+                        mergedItem.put("children", processedChildren);
+                    }
+                }
+
+                result.add(mergedItem);
+            }
+        }
+
+        return result;
     }
 
     private enum PluginPlatform {

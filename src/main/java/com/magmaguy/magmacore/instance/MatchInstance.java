@@ -16,8 +16,6 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.event.block.BlockBreakEvent;
-import org.bukkit.event.block.BlockDamageEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.scheduler.BukkitRunnable;
 
@@ -101,6 +99,39 @@ public abstract class MatchInstance implements MatchInstanceInterface {
         return initializeNewPlayerOrSpectator(matchPlayer, players);
     }
 
+    public boolean addNewPlayer(MatchPlayer matchPlayer) {
+        Player player = matchPlayer.getPlayer();
+        MatchJoinEvent event = new MatchJoinEvent(this, player);
+        Bukkit.getPluginManager().callEvent(event);
+        if (event.isCancelled()) return false;
+
+        if (getMatchInstanceConfiguration().getMatchGamemode() != null)
+            player.setGameMode(getMatchInstanceConfiguration().getMatchGamemode());
+
+        //Check permissions
+        if (getMatchInstanceConfiguration().getDungeonPermission() != null && !player.hasPermission(getMatchInstanceConfiguration().getDungeonPermission())) {
+            player.sendMessage(matchInstanceConfiguration.getFailedToJoinOngoingMatchAsPlayerNoPermission());
+            return false;
+        }
+
+        //New players can't join ongoing instances
+        if (!state.equals(InstanceState.WAITING)) {
+            event.setCancelled(true);
+            player.sendMessage(matchInstanceConfiguration.getFailedToJoinOngoingMatchAsPlayerMessage());
+            return false;
+        }
+
+        //Check if match is full
+        if (players.size() + 1 > matchInstanceConfiguration.getMaxPlayers()) {
+            player.sendMessage(matchInstanceConfiguration.getFailedToJoinOngoingMatchAsPlayerInstanceIsFull());
+            return false;
+        }
+
+        players.add(matchPlayer);
+
+        return initializeNewPlayerOrSpectator(matchPlayer, players);
+    }
+
     public boolean addNewSpectator(Player player) {
         if (!getMatchInstanceConfiguration().isSpectatable()) return false;
 
@@ -157,10 +188,6 @@ public abstract class MatchInstance implements MatchInstanceInterface {
             matchPlayer.removeMatchPlayer();
         }
     }
-
-//    public void revivePlayer(MatchPlayer matchPlayer, InstanceDeathLocation deathLocation) {
-//        InstancePlayerManager.revivePlayer(this, matchPlayer, deathLocation);
-//    }
 
     public void makeSpectator(MatchPlayer matchPlayer) {
         if (!matchInstanceConfiguration.isSpectatable()) return;
@@ -252,23 +279,23 @@ public abstract class MatchInstance implements MatchInstanceInterface {
 
     public abstract boolean isInRegion(Location location);
 
-    protected void startMatch() {
+    protected void finishStarting() {
         state = InstanceState.ONGOING;
         players.forEach(matchPlayer -> {
             if (matchInstanceConfiguration.getStartLocation() != null)
-                matchPlayer.getPlayer().teleport(matchInstanceConfiguration.getStartLocation());
+                matchPlayer.teleport(matchInstanceConfiguration.getStartLocation());
         });
     }
 
     /*
     This is useful for extending behavior down the line like the enchanted dungeon loot
      */
-    protected void victory() {
+    public void victory() {
         state = InstanceState.COMPLETED_VICTORY;
         endMatch();
     }
 
-    protected void defeat() {
+    public void defeat() {
         state = InstanceState.COMPLETED_DEFEAT;
         endMatch();
     }
@@ -289,19 +316,10 @@ public abstract class MatchInstance implements MatchInstanceInterface {
         copy.forEach(MatchPlayer::removeMatchPlayer);
         players.clear();
         spectators.clear();
-//        deathBanners.values().forEach(deathLocation -> deathLocation.clear(false));
-//        deathBanners.clear();
         if (tick != null && !tick.isCancelled())
             tick.cancel();
         Bukkit.getPluginManager().callEvent(new MatchDestroyEvent(this));
     }
-
-//    protected InstanceDeathLocation getDeathLocationByPlayer(Player player) {
-//        for (InstanceDeathLocation deathLocation : deathBanners.values())
-//            if (deathLocation.getDeadPlayer().equals(player))
-//                return deathLocation;
-//        return null;
-//    }
 
     public enum InstanceState {
         WAITING, STARTING, ONGOING, COMPLETED, COMPLETED_VICTORY, COMPLETED_DEFEAT
@@ -309,22 +327,6 @@ public abstract class MatchInstance implements MatchInstanceInterface {
 
     public static class MatchInstanceEvents implements Listener {
         public static boolean teleportBypass = false;
-
-        @EventHandler
-        public void onPlayerBreakBlockEvent(BlockBreakEvent event) {
-//            for (MatchInstance matchInstance : instances)
-//                if (matchInstance.state.equals(InstancedRegionState.ONGOING))
-//                    if (matchInstance.getDeathBanners().get(event.getBlock()) != null)
-//                        matchInstance.getDeathBanners().get(event.getBlock()).clear(true);
-        }
-
-        @EventHandler
-        public void onPlayerHitFlagEvent(BlockDamageEvent event) {
-//            for (MatchInstance matchInstance : instances)
-//                if (matchInstance.state.equals(InstancedRegionState.ONGOING))
-//                    if (matchInstance.getDeathBanners().get(event.getBlock()) != null)
-//                        matchInstance.getDeathBanners().get(event.getBlock()).clear(true);
-        }
 
         /**
          * This event scans for damage that would kill the player and cancels it with custom behavior it if would
@@ -367,7 +369,7 @@ public abstract class MatchInstance implements MatchInstanceInterface {
             players.forEach(matchPlayer -> startMessage(counter, matchPlayer));
             spectators.forEach(matchPlayer -> startMessage(counter, matchPlayer));
             if (counter >= 3) {
-                startMatch();
+                finishStarting();
                 cancel();
             }
         }
