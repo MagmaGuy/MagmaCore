@@ -213,11 +213,11 @@ public class ConfigurationImporter {
         if (targetPath == null) {
             return;
         }
-        if (targetPath.toFile().getParentFile() != null && !targetPath.toFile().getParentFile().exists()) {
-            targetPath.toFile().getParentFile().mkdirs();
-        }
-        if (targetPath.toFile().exists()) {
-            targetPath.toFile().mkdir();
+        // Create target directory and all parent directories if they don't exist
+        // This ensures directories like plugins/EliteMobs/custombosses are created
+        // even when EliteMobs isn't installed, so files are ready when it is
+        if (!targetPath.toFile().exists()) {
+            targetPath.toFile().mkdirs();
         }
 
         if (unzippedFile.isDirectory()) {

@@ -30,7 +30,10 @@ public class ZipFile {
         ZipEntry zipEntry = zipInputStream.getNextEntry();
         while (zipEntry != null) {
             File newFile = newFile(destinationUnzippedFile, zipEntry);
-            if (zipEntry.isDirectory()) {
+            // Check if directory - isDirectory() only checks for trailing '/', but Windows zips may use '\'
+            String entryName = zipEntry.getName();
+            boolean isDirectory = zipEntry.isDirectory() || entryName.endsWith("\\") || entryName.endsWith("/");
+            if (isDirectory) {
                 if (!newFile.isDirectory() && !newFile.mkdirs()) {
                     throw new IOException("Failed to create directory " + newFile);
                 }
@@ -49,7 +52,8 @@ public class ZipFile {
                 }
                 fileOutputStream.close();
             }
-            newFile.setLastModified(zipEntry.getTime());
+            long entryTime = zipEntry.getTime();
+            if (entryTime >= 0) newFile.setLastModified(entryTime);
             zipEntry = zipInputStream.getNextEntry();
         }
         zipInputStream.closeEntry();
@@ -58,7 +62,12 @@ public class ZipFile {
     }
 
     private static File newFile(File destinationDir, ZipEntry zipEntry) throws IOException {
-        File destFile = new File(destinationDir, zipEntry.getName());
+        // Normalize path separators and remove trailing slashes for proper File creation
+        String entryName = zipEntry.getName().replace('\\', '/');
+        if (entryName.endsWith("/")) {
+            entryName = entryName.substring(0, entryName.length() - 1);
+        }
+        File destFile = new File(destinationDir, entryName);
 
         String destDirPath = destinationDir.getCanonicalPath();
         String destFilePath = destFile.getCanonicalPath();
