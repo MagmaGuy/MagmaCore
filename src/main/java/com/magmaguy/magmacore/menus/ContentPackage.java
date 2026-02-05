@@ -13,6 +13,7 @@ public abstract class ContentPackage extends MenuButton {
             case PARTIALLY_INSTALLED -> getPartiallyInstalledItemStack();
             case NOT_INSTALLED -> getNotInstalledItemStack();
             case NOT_DOWNLOADED -> getNotDownloadedItemStack();
+            case NEEDS_ACCESS -> getNeedsAccessItemStack();
         };
     }
 
@@ -30,6 +31,10 @@ public abstract class ContentPackage extends MenuButton {
 
     protected abstract void doDownload(Player player);
 
+    protected abstract void doShowAccessInfo(Player player);
+
+    protected abstract ItemStack getNeedsAccessItemStack();
+
     protected abstract ContentState getContentState();
 
     @Override
@@ -39,6 +44,7 @@ public abstract class ContentPackage extends MenuButton {
             case PARTIALLY_INSTALLED -> doDownload(player);
             case NOT_INSTALLED -> doInstall(player);
             case NOT_DOWNLOADED -> doDownload(player);
+            case NEEDS_ACCESS -> doShowAccessInfo(player);
         }
     }
 
@@ -46,6 +52,7 @@ public abstract class ContentPackage extends MenuButton {
         INSTALLED,
         PARTIALLY_INSTALLED,
         NOT_INSTALLED,
-        NOT_DOWNLOADED
+        NOT_DOWNLOADED,
+        NEEDS_ACCESS  // User doesn't have Nightbreak access to this content
     }
 }
