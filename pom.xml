@@ -6,7 +6,7 @@
 
     <groupId>com.magmaguy</groupId>
     <artifactId>MagmaCore</artifactId>
-    <version>1.23-SNAPSHOT</version>
+    <version>1.26-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>MagmaCore</name>

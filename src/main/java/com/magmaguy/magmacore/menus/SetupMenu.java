@@ -48,7 +48,15 @@ public class SetupMenu {
                      MenuButton infoButton,
                      List<? extends ContentPackage> mainContentList,
                      List<SetupMenuFilter> filterList) {
-        this.inventory = Bukkit.createInventory(player, 54, "Setup menu");
+        this(player, infoButton, mainContentList, filterList, "Setup menu");
+    }
+
+    public SetupMenu(Player player,
+                     MenuButton infoButton,
+                     List<? extends ContentPackage> mainContentList,
+                     List<SetupMenuFilter> filterList,
+                     String title) {
+        this.inventory = Bukkit.createInventory(player, 54, title);
         this.player = player;
         this.contentPackages = mainContentList;
         this.displayedContentPackages = contentPackages;

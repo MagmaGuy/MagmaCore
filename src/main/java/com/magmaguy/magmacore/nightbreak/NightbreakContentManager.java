@@ -97,7 +97,7 @@ public class NightbreakContentManager {
      */
     public static void downloadAsync(String slug, File destinationFolder, Player player, Consumer<Boolean> onComplete) {
         if (!NightbreakAccount.hasToken()) {
-            if (player != null) {
+            if (player != null && player.isOnline()) {
                 player.sendMessage("§c[Nightbreak] No token registered. Use /nightbreakLogin <token> first.");
             }
             onComplete.accept(false);
@@ -107,7 +107,7 @@ public class NightbreakContentManager {
         // First check access
         checkAccessAsync(slug, accessInfo -> {
             if (accessInfo == null || !accessInfo.hasAccess) {
-                if (player != null) {
+                if (player != null && player.isOnline()) {
                     player.sendMessage("§c[Nightbreak] You don't have access to this content.");
                     if (accessInfo != null) {
                         showAccessLinks(player, accessInfo);
@@ -125,7 +125,7 @@ public class NightbreakContentManager {
 
             File destinationFile = new File(destinationFolder, fileName);
 
-            if (player != null) {
+            if (player != null && player.isOnline()) {
                 player.sendMessage("§a[Nightbreak] Starting download of " + slug + "...");
             }
 
@@ -135,13 +135,15 @@ public class NightbreakContentManager {
                 boolean success = NightbreakAccount.getInstance().download(slug, destinationFile, null,
                     (bytesDownloaded, totalBytes) -> {
                         // Throttle progress updates to every 2 seconds
-                        if (player != null && System.currentTimeMillis() - lastUpdate[0] > 2000) {
+                        if (player != null && player.isOnline() && System.currentTimeMillis() - lastUpdate[0] > 2000) {
                             lastUpdate[0] = System.currentTimeMillis();
                             String progress = totalBytes > 0
                                 ? String.format("%.1f%%", (bytesDownloaded * 100.0 / totalBytes))
                                 : formatBytes(bytesDownloaded);
                             Bukkit.getScheduler().runTask(MagmaCore.getInstance().getRequestingPlugin(), () -> {
-                                player.sendMessage("§7[Nightbreak] Downloading... " + progress);
+                                if (player.isOnline()) {
+                                    player.sendMessage("§7[Nightbreak] Downloading... " + progress);
+                                }
                             });
                         }
                     });
@@ -149,12 +151,12 @@ public class NightbreakContentManager {
                 // Return to main thread for callback
                 Bukkit.getScheduler().runTask(MagmaCore.getInstance().getRequestingPlugin(), () -> {
                     if (success) {
-                        if (player != null) {
+                        if (player != null && player.isOnline()) {
                             player.sendMessage("§a[Nightbreak] Download complete! File saved to imports folder.");
                             player.sendMessage("§a[Nightbreak] Use /em reload (or plugin reload) to install the content.");
                         }
                     } else {
-                        if (player != null) {
+                        if (player != null && player.isOnline()) {
                             player.sendMessage("§c[Nightbreak] Download failed. Please try again later.");
                         }
                     }

@@ -296,9 +296,18 @@ public abstract class CustomConfigFields {
                 playerHead.setItemMeta(skullMeta);
                 return playerHead;
             }
+            String baseMaterial = materialString.contains(":") ? materialString.split(":")[0] : materialString;
+            Material material = Material.getMaterial(baseMaterial);
+
+            // Materials for future versions (e.g. spears) may not exist yet — skip silently
+            if (material == null) {
+                if (baseMaterial.endsWith("_SPEAR")) return null;
+                throw new IllegalArgumentException("Unknown material: " + baseMaterial);
+            }
+
             if (materialString.contains(":")) {
-                ItemStack itemStack = ItemStackGenerator.generateItemStack(Material.getMaterial(materialString.split(":")[0]));
-                if (materialString.split(":")[0].contains("leather_") || materialString.split(":")[0].contains("LEATHER_")) {
+                ItemStack itemStack = ItemStackGenerator.generateItemStack(material);
+                if (baseMaterial.contains("leather_") || baseMaterial.contains("LEATHER_")) {
                     LeatherArmorMeta leatherArmorMeta = (LeatherArmorMeta) itemStack.getItemMeta();
                     leatherArmorMeta.setColor(Color.fromRGB(Integer.parseInt(materialString.split(":")[1], 16)));
                     itemStack.setItemMeta(leatherArmorMeta);
@@ -309,7 +318,7 @@ public abstract class CustomConfigFields {
                 }
                 return itemStack;
             } else
-                return ItemStackGenerator.generateItemStack(Material.getMaterial(materialString));
+                return ItemStackGenerator.generateItemStack(material);
         } catch (Exception ex) {
             Logger.warn("File " + filename + " has an incorrect entry for " + path);
             Logger.warn("Entry: " + value);
