@@ -3,6 +3,7 @@ package com.magmaguy.magmacore;
 import com.magmaguy.magmacore.command.AdvancedCommand;
 import com.magmaguy.magmacore.command.CommandManager;
 import com.magmaguy.magmacore.command.LogifyCommand;
+import com.magmaguy.magmacore.command.NightbreakLoginCommand;
 import com.magmaguy.magmacore.dlc.ConfigurationImporter;
 import com.magmaguy.magmacore.instance.InstanceProtector;
 import com.magmaguy.magmacore.instance.MatchInstance;
@@ -10,6 +11,7 @@ import com.magmaguy.magmacore.instance.MatchInstanceWorld;
 import com.magmaguy.magmacore.instance.MatchPlayer;
 import com.magmaguy.magmacore.menus.AdvancedMenuHandler;
 import com.magmaguy.magmacore.menus.SetupMenu;
+import com.magmaguy.magmacore.nightbreak.NightbreakAccount;
 import com.magmaguy.magmacore.thirdparty.CustomBiomeCompatibility;
 import com.magmaguy.magmacore.util.Logger;
 import com.magmaguy.magmacore.util.VersionChecker;
@@ -38,6 +40,8 @@ public final class MagmaCore {
         CustomBiomeCompatibility.initializeMappings();
         Logger.info("MagmaCore v1.13-SNAPSHOT initialized!");
         instance.registerLogify();
+        instance.registerNightbreakLogin();
+        NightbreakAccount.initialize(requestingPlugin);
     }
 
     public static void checkVersionUpdate(String resourceID, String downloadURL) {
@@ -124,5 +128,45 @@ public final class MagmaCore {
 
 
         Logger.info("Registered /logify command");
+    }
+
+    private void registerNightbreakLogin() {
+        // 1) grab the server's CommandMap by reflection
+        SimpleCommandMap commandMap = null;
+        try {
+            Field f = Bukkit.getServer().getClass().getDeclaredField("commandMap");
+            f.setAccessible(true);
+            commandMap = (SimpleCommandMap) f.get(Bukkit.getServer());
+        } catch (ReflectiveOperationException e) {
+            requestingPlugin.getLogger().warning("Couldn't access CommandMap: " + e.getMessage());
+            return;
+        }
+
+        // 2) check if /nightbreakLogin is already registered
+        if (commandMap.getCommand("nightbreakLogin") != null) {
+            requestingPlugin.getLogger().info("/nightbreakLogin is already registered, skipping.");
+            return;
+        }
+
+        // 3) register the permission (if it doesn't exist in PManager)
+        if (Bukkit.getPluginManager().getPermission("nightbreak.login") == null) {
+            Permission perm = new Permission(
+                    "nightbreak.login",
+                    "Lets admins register their Nightbreak account token for DLC access.",
+                    PermissionDefault.OP
+            );
+            Bukkit.getPluginManager().addPermission(perm);
+        }
+
+        // 4) register the command with case-insensitive alias
+        Command wrapper = AdvancedCommand.toBukkitCommand(
+                requestingPlugin,
+                new NightbreakLoginCommand(requestingPlugin),
+                "nightbreakLogin",
+                List.of("nightbreaklogin")
+        );
+        commandMap.register(requestingPlugin.getName(), wrapper);
+
+        Logger.info("Registered /nightbreakLogin command");
     }
 }

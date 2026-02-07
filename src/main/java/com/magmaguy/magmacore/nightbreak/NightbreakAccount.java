@@ -6,7 +6,10 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 
-import java.io.*;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -308,12 +311,14 @@ public class NightbreakAccount {
                         errorResponse.append(scanner.nextLine());
                     }
                     scanner.close();
-                    Logger.warn("API error (" + responseCode + "): " + errorResponse);
+                    Logger.warn("API error (" + responseCode + ") for " + urlString + ": " + errorResponse);
+                } else {
+                    Logger.warn("API error (" + responseCode + ") for " + urlString + " (no error body)");
                 }
                 return null;
             }
         } catch (IOException e) {
-            Logger.warn("HTTP request failed: " + e.getMessage());
+            Logger.warn("HTTP request failed for " + urlString + ": " + e.getMessage());
             return null;
         }
     }
@@ -355,12 +360,14 @@ public class NightbreakAccount {
                         errorResponse.append(scanner.nextLine());
                     }
                     scanner.close();
-                    Logger.warn("Download failed (" + responseCode + "): " + errorResponse);
+                    Logger.warn("Download failed (" + responseCode + ") for " + urlString + ": " + errorResponse);
+                } else {
+                    Logger.warn("Download failed (" + responseCode + ") for " + urlString + " (no error body)");
                 }
                 return false;
             }
         } catch (IOException e) {
-            Logger.warn("Download failed: " + e.getMessage());
+            Logger.warn("Download failed for " + urlString + ": " + e.getMessage());
             return false;
         }
     }
@@ -407,12 +414,14 @@ public class NightbreakAccount {
                         errorResponse.append(scanner.nextLine());
                     }
                     scanner.close();
-                    Logger.warn("Download failed (" + responseCode + "): " + errorResponse);
+                    Logger.warn("Download failed (" + responseCode + ") for " + urlString + ": " + errorResponse);
+                } else {
+                    Logger.warn("Download failed (" + responseCode + ") for " + urlString + " (no error body)");
                 }
                 return false;
             }
         } catch (IOException e) {
-            Logger.warn("Download failed: " + e.getMessage());
+            Logger.warn("Download failed for " + urlString + ": " + e.getMessage());
             return false;
         }
     }

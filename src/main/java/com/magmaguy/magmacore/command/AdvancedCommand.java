@@ -142,7 +142,7 @@ public abstract class AdvancedCommand {
 
     public List<String> onTabComplete(String[] args) {
         int index = args.length - 2;
-        if (argumentsList.size() <= index) return Collections.emptyList();
+        if (index < 0 || argumentsList.size() <= index) return Collections.emptyList();
         if (argumentsList.get(index) instanceof List list) {
             return list;
         } else if (!argumentsList.get(index).toString().isEmpty()) {
