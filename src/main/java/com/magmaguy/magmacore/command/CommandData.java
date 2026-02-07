@@ -5,6 +5,7 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
 public class CommandData {
+    @Getter
     private final String[] args;
     @Getter
     private final CommandSender commandSender;

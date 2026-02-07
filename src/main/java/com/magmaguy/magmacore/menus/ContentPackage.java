@@ -14,6 +14,8 @@ public abstract class ContentPackage extends MenuButton {
             case NOT_INSTALLED -> getNotInstalledItemStack();
             case NOT_DOWNLOADED -> getNotDownloadedItemStack();
             case NEEDS_ACCESS -> getNeedsAccessItemStack();
+            case OUT_OF_DATE_UPDATABLE -> getOutOfDateUpdatableItemStack();
+            case OUT_OF_DATE_NO_ACCESS -> getOutOfDateNoAccessItemStack();
         };
     }
 
@@ -35,16 +37,23 @@ public abstract class ContentPackage extends MenuButton {
 
     protected abstract ItemStack getNeedsAccessItemStack();
 
+    protected abstract ItemStack getOutOfDateUpdatableItemStack();
+
+    protected abstract ItemStack getOutOfDateNoAccessItemStack();
+
     protected abstract ContentState getContentState();
 
     @Override
     public void onClick(Player player) {
+        player.closeInventory();
         switch (getContentState()) {
             case INSTALLED -> doUninstall(player);
             case PARTIALLY_INSTALLED -> doDownload(player);
             case NOT_INSTALLED -> doInstall(player);
             case NOT_DOWNLOADED -> doDownload(player);
             case NEEDS_ACCESS -> doShowAccessInfo(player);
+            case OUT_OF_DATE_UPDATABLE -> doDownload(player);
+            case OUT_OF_DATE_NO_ACCESS -> doShowAccessInfo(player);
         }
     }
 
@@ -53,6 +62,8 @@ public abstract class ContentPackage extends MenuButton {
         PARTIALLY_INSTALLED,
         NOT_INSTALLED,
         NOT_DOWNLOADED,
-        NEEDS_ACCESS  // User doesn't have Nightbreak access to this content
+        NEEDS_ACCESS,  // User doesn't have Nightbreak access to this content
+        OUT_OF_DATE_UPDATABLE,  // Content has update and user can auto-update (has access)
+        OUT_OF_DATE_NO_ACCESS   // Content has update but user needs to purchase/get access
     }
 }
