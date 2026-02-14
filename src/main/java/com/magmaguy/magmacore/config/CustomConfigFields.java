@@ -161,6 +161,9 @@ public abstract class CustomConfigFields {
                 try {
                     newList.add(Enum.valueOf(enumClass, string.toUpperCase(Locale.ROOT)));
                 } catch (Exception ex) {
+                    // Materials for future versions (e.g. spears) may not exist yet — skip silently
+                    if (string != null && string.toUpperCase(Locale.ROOT).endsWith("_SPEAR"))
+                        return;
                     Logger.warn(filename + " : " + "Value " + string + " is not a valid for " + path + " ! This may be due to your server version, or due to an invalid value!");
                 }
             });
@@ -266,12 +269,17 @@ public abstract class CustomConfigFields {
             return value;
         }
         try {
-            if (!VersionChecker.serverVersionOlderThan(21, 9) && fileConfiguration.getString(path).toUpperCase(Locale.ROOT).equals("CHAIN"))
+            String rawValue = fileConfiguration.getString(path).toUpperCase(Locale.ROOT);
+            if (!VersionChecker.serverVersionOlderThan(21, 9) && rawValue.equals("CHAIN"))
                 return Enum.valueOf(enumClass, "IRON_CHAIN");
-            return Enum.valueOf(enumClass, fileConfiguration.getString(path).toUpperCase(Locale.ROOT));
+            return Enum.valueOf(enumClass, rawValue);
         } catch (Exception ex) {
+            String rawValue = fileConfiguration.getString(path);
+            // Materials for future versions (e.g. spears) may not exist yet — skip silently
+            if (rawValue != null && rawValue.toUpperCase(Locale.ROOT).endsWith("_SPEAR"))
+                return pluginDefault;
             Logger.warn("File " + filename + " has an incorrect entry for " + path);
-            Logger.warn("Entry: " + fileConfiguration.getString(path));
+            Logger.warn("Entry: " + rawValue);
             value = null;
         }
         if (value == null)
