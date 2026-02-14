@@ -163,7 +163,7 @@ public final class MagmaCore {
                 requestingPlugin,
                 new NightbreakLoginCommand(requestingPlugin),
                 "nightbreakLogin",
-                List.of("nightbreaklogin")
+                List.of("nightbreakLogin")
         );
         commandMap.register(requestingPlugin.getName(), wrapper);
 
