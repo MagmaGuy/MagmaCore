@@ -142,9 +142,9 @@ public final class MagmaCore {
             return;
         }
 
-        // 2) check if /nightbreakLogin is already registered
-        if (commandMap.getCommand("nightbreakLogin") != null) {
-            requestingPlugin.getLogger().info("/nightbreakLogin is already registered, skipping.");
+        // 2) check if /nightbreaklogin is already registered
+        if (commandMap.getCommand("nightbreaklogin") != null) {
+            requestingPlugin.getLogger().info("/nightbreaklogin is already registered, skipping.");
             return;
         }
 
@@ -162,11 +162,11 @@ public final class MagmaCore {
         Command wrapper = AdvancedCommand.toBukkitCommand(
                 requestingPlugin,
                 new NightbreakLoginCommand(requestingPlugin),
-                "nightbreakLogin",
-                List.of("nightbreakLogin")
+                "nightbreaklogin",
+                List.of("nightbreaklogin")
         );
         commandMap.register(requestingPlugin.getName(), wrapper);
 
-        Logger.info("Registered /nightbreakLogin command");
+        Logger.info("Registered /nightbreaklogin command");
     }
 }
