@@ -9,7 +9,7 @@ import java.util.ArrayList;
 
 /**
  * Command to register a Nightbreak account token.
- * Usage: /nightbreakLogin <token>
+ * Usage: /nightbreaklogin <token>
  * <p>
  * This command saves the token to a shared MagmaCore config folder
  * that is accessible by all MagmaGuy plugins.
@@ -19,7 +19,7 @@ public class NightbreakLoginCommand extends AdvancedCommand {
 
     public NightbreakLoginCommand(JavaPlugin plugin) {
         super(new ArrayList<>());
-        setUsage("/nightbreakLogin <token>");
+        setUsage("/nightbreaklogin <token>");
         setDescription("Register your Nightbreak account token for DLC access");
         setSenderType(SenderType.ANY);
         setPermission("nightbreak.login");
@@ -40,7 +40,7 @@ public class NightbreakLoginCommand extends AdvancedCommand {
 
         // Basic token validation
         if (args.length < 1 || args[0] == null || args[0].isEmpty()) {
-            Logger.sendMessage(commandData.getCommandSender(), "&cUsage: /nightbreakLogin <token>");
+            Logger.sendMessage(commandData.getCommandSender(), "&cUsage: /nightbreaklogin <token>");
             Logger.sendMessage(commandData.getCommandSender(), "&7Get your token at: &9https://nightbreak.io/account");
             return;
         }

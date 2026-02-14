@@ -98,7 +98,7 @@ public class NightbreakContentManager {
     public static void downloadAsync(String slug, File destinationFolder, Player player, Consumer<Boolean> onComplete) {
         if (!NightbreakAccount.hasToken()) {
             if (player != null && player.isOnline()) {
-                player.sendMessage("§c[Nightbreak] No token registered. Use /nightbreakLogin <token> first.");
+                player.sendMessage("§c[Nightbreak] No token registered. Use /nightbreaklogin <token> first.");
             }
             onComplete.accept(false);
             return;

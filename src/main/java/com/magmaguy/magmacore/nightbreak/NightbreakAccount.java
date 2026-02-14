@@ -52,7 +52,7 @@ public class NightbreakAccount {
     public static NightbreakAccount initialize(JavaPlugin plugin) {
         File configFile = getConfigFile(plugin);
         if (!configFile.exists()) {
-            Logger.info("No Nightbreak token found. Use /nightbreakLogin <token> to register your token.");
+            Logger.info("No Nightbreak token found. Use /nightbreaklogin <token> to register your token.");
             return null;
         }
 
@@ -60,7 +60,7 @@ public class NightbreakAccount {
         String token = config.getString("token");
 
         if (token == null || token.isEmpty() || token.equals("YOUR_TOKEN_HERE")) {
-            Logger.info("No Nightbreak token configured. Use /nightbreakLogin <token> to register your token.");
+            Logger.info("No Nightbreak token configured. Use /nightbreaklogin <token> to register your token.");
             return null;
         }
 
@@ -194,7 +194,7 @@ public class NightbreakAccount {
      */
     public AccessInfo checkAccess(String slug) {
         if (!hasToken()) {
-            Logger.warn("Cannot check access: No Nightbreak token registered. Use /nightbreakLogin <token> first.");
+            Logger.warn("Cannot check access: No Nightbreak token registered. Use /nightbreaklogin <token> first.");
             return null;
         }
 
@@ -234,7 +234,7 @@ public class NightbreakAccount {
      */
     public boolean download(String slug, File destinationFile, String version) {
         if (!hasToken()) {
-            Logger.warn("Cannot download: No Nightbreak token registered. Use /nightbreakLogin <token> first.");
+            Logger.warn("Cannot download: No Nightbreak token registered. Use /nightbreaklogin <token> first.");
             return false;
         }
 
@@ -263,7 +263,7 @@ public class NightbreakAccount {
      */
     public boolean download(String slug, File destinationFile, String version, DownloadProgressCallback progressCallback) {
         if (!hasToken()) {
-            Logger.warn("Cannot download: No Nightbreak token registered. Use /nightbreakLogin <token> first.");
+            Logger.warn("Cannot download: No Nightbreak token registered. Use /nightbreaklogin <token> first.");
             return false;
         }
         try {
