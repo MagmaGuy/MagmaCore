@@ -11,8 +11,6 @@ import org.bukkit.generator.WorldInfo;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import java.io.File;
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.util.Random;
 
 public class TemporaryWorldManager {
@@ -26,9 +24,9 @@ public class TemporaryWorldManager {
     public static World loadVoidTemporaryWorld(String worldName, World.Environment environment) {
         //Case where the world is already loaded
         if (Bukkit.getWorld(worldName) != null) return Bukkit.getWorld(worldName);
-        File folder = new File(Bukkit.getWorldContainer().getAbsolutePath());
-        if (!Files.exists(Paths.get(folder.getAbsolutePath() + File.separatorChar + worldName))) {
-            Logger.warn("File  " + folder.getAbsolutePath() + File.separatorChar + worldName + " does not exist!");
+        File worldFolder = new File(Bukkit.getWorldContainer(), worldName);
+        if (!worldFolder.exists()) {
+            Logger.warn("File " + worldFolder.getAbsolutePath() + " does not exist!");
             return null;
         }
         Logger.info("Loading world " + worldName + " !");
@@ -100,13 +98,14 @@ public class TemporaryWorldManager {
      * @param world
      */
     public static void asyncPermanentlyDeleteWorld(World world) {
+        world.setAutoSave(false);
         if (!Bukkit.unloadWorld(world, false)) {
             Logger.warn("Failed to unload world " + world.getName() + " ! This is bad, report this to the developer!");
         }
         new BukkitRunnable() {
             @Override
             public void run() {
-                syncPermanentlyDeleteWorld(world);
+                deleteWorldDirectory(world.getName());
             }
         }.runTaskAsynchronously(MagmaCore.getInstance().getRequestingPlugin());
     }
@@ -126,14 +125,19 @@ public class TemporaryWorldManager {
      * @param world
      */
     public static void syncPermanentlyDeleteWorld(World world) {
+        world.setAutoSave(false);
         if (!Bukkit.unloadWorld(world, false)) {
             Logger.warn("Failed to unload world " + world.getName() + " ! This is bad, report this to the developer!");
         }
+        deleteWorldDirectory(world.getName());
+    }
+
+    private static void deleteWorldDirectory(String worldName) {
         try {
-            FileUtils.deleteDirectory(new File(Bukkit.getWorldContainer().getAbsolutePath() + File.separatorChar + world.getName()));
-            Logger.info("Successfully deleted temporary world " + world.getName());
+            FileUtils.deleteDirectory(new File(Bukkit.getWorldContainer(), worldName));
+            Logger.info("Successfully deleted temporary world " + worldName);
         } catch (Exception e) {
-            Logger.warn("Failed to delete " + world.getName() + " ! This is bad, report this to the developer!");
+            Logger.warn("Failed to delete " + worldName + " ! This is bad, report this to the developer!");
         }
     }
 

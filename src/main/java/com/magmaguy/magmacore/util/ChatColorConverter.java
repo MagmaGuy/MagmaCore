@@ -193,10 +193,20 @@ public class ChatColorConverter {
         for (int i = 0; i < length; i++) {
             char c = text.charAt(i);
 
-            // Skip existing color codes
+            // Skip existing color codes (& prefix)
             if (c == '&' && i + 1 < length) {
                 char next = text.charAt(i + 1);
                 if ("0123456789AaBbCcDdEeFfKkLlMmNnOoRr".indexOf(next) != -1) {
+                    result.append(c).append(next);
+                    i++;
+                    continue;
+                }
+            }
+
+            // Skip already-processed color codes (section sign prefix)
+            if (c == '\u00A7' && i + 1 < length) {
+                char next = text.charAt(i + 1);
+                if ("0123456789AaBbCcDdEeFfKkLlMmNnOoRrXx".indexOf(next) != -1) {
                     result.append(c).append(next);
                     i++;
                     continue;
@@ -208,7 +218,7 @@ public class ChatColorConverter {
 
             // Determine which two colors to interpolate between
             float scaledPosition = position * (colors.length - 1);
-            int colorIdx1 = (int) scaledPosition;
+            int colorIdx1 = Math.min((int) scaledPosition, colors.length - 1);
             int colorIdx2 = Math.min(colorIdx1 + 1, colors.length - 1);
             float localRatio = scaledPosition - colorIdx1;
 

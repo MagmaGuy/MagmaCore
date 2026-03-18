@@ -280,12 +280,17 @@ public class NightbreakAccount {
 
     // ==================== HTTP HELPERS ====================
 
+    private static final int CONNECT_TIMEOUT_MS = 10000;
+    private static final int READ_TIMEOUT_MS = 10000;
+
     private String httpGet(String urlString, boolean withAuth) {
         try {
             URL url = new URL(urlString);
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("GET");
             connection.setRequestProperty("Accept", "application/json");
+            connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
+            connection.setReadTimeout(READ_TIMEOUT_MS);
 
             if (withAuth && token != null) {
                 connection.setRequestProperty("Authorization", "Bearer " + token);
@@ -328,6 +333,8 @@ public class NightbreakAccount {
             URL url = new URL(urlString);
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("GET");
+            connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
+            connection.setReadTimeout(READ_TIMEOUT_MS);
 
             if (token != null) {
                 connection.setRequestProperty("Authorization", "Bearer " + token);
@@ -348,6 +355,10 @@ public class NightbreakAccount {
                     while ((bytesRead = in.read(buffer)) != -1) {
                         out.write(buffer, 0, bytesRead);
                     }
+                } catch (IOException e) {
+                    // Clean up partial file on failure
+                    if (destinationFile.exists()) destinationFile.delete();
+                    throw e;
                 }
                 return true;
             } else {
@@ -367,6 +378,8 @@ public class NightbreakAccount {
                 return false;
             }
         } catch (IOException e) {
+            // Clean up partial file on failure
+            if (destinationFile.exists()) destinationFile.delete();
             Logger.warn("Download failed for " + urlString + ": " + e.getMessage());
             return false;
         }
@@ -377,6 +390,8 @@ public class NightbreakAccount {
             URL url = new URL(urlString);
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("GET");
+            connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
+            connection.setReadTimeout(READ_TIMEOUT_MS);
             if (token != null) {
                 connection.setRequestProperty("Authorization", "Bearer " + token);
             }
@@ -403,6 +418,10 @@ public class NightbreakAccount {
                     if (callback != null) {
                         callback.onProgress(bytesDownloaded, totalBytes);
                     }
+                } catch (IOException e) {
+                    // Clean up partial file on failure
+                    if (destinationFile.exists()) destinationFile.delete();
+                    throw e;
                 }
                 return true;
             } else {
@@ -421,6 +440,8 @@ public class NightbreakAccount {
                 return false;
             }
         } catch (IOException e) {
+            // Clean up partial file on failure
+            if (destinationFile.exists()) destinationFile.delete();
             Logger.warn("Download failed for " + urlString + ": " + e.getMessage());
             return false;
         }

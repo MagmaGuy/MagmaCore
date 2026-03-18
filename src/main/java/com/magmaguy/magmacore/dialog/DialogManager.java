@@ -68,6 +68,14 @@ public class DialogManager {
                 components.add("minecraft:unbreakable", unbreakable);
             }
 
+            // For damageable items (tools, weapons, armor), explicitly include max_stack_size
+            // to prevent "Item cannot be both damageable and stackable" encoding error in dialogs.
+            // When custom components are specified, the dialog encoder may default max_stack_size
+            // to 64 instead of the item type's actual default (1 for damageable items).
+            if (itemStack.getType().getMaxDurability() > 0) {
+                components.addProperty("minecraft:max_stack_size", itemStack.getType().getMaxStackSize());
+            }
+
             return components;
 
         } catch (Exception e) {
@@ -616,15 +624,11 @@ public class DialogManager {
         public JsonObject build() {
             JsonObject obj = buildBase();
             if (!dialogs.isEmpty()) {
-                if (dialogs.size() == 1) {
-                    obj.add("dialogs", dialogs.get(0).toJsonElement());
-                } else {
-                    JsonArray arr = new JsonArray();
-                    for (DialogReference ref : dialogs) {
-                        arr.add(ref.toJsonElement());
-                    }
-                    obj.add("dialogs", arr);
+                JsonArray arr = new JsonArray();
+                for (DialogReference ref : dialogs) {
+                    arr.add(ref.toJsonElement());
                 }
+                obj.add("dialogs", arr);
             }
             if (exitAction != null) {
                 obj.add("exit_action", exitAction.toJson());
