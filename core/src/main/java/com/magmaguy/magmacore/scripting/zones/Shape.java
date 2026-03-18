@@ -1,0 +1,25 @@
+package com.magmaguy.magmacore.scripting.zones;
+
+import org.bukkit.Location;
+import org.bukkit.Particle;
+import org.bukkit.entity.LivingEntity;
+
+import java.util.List;
+
+public abstract class Shape {
+    public abstract boolean contains(Location position);
+
+    public abstract boolean contains(LivingEntity livingEntity);
+
+    public abstract boolean borderContains(Location position);
+
+    public abstract boolean borderContains(LivingEntity livingEntity);
+
+    public abstract void visualize(Particle particle);
+
+    public abstract Location getCenter();
+
+    public abstract List<Location> getEdgeLocations();
+
+    public abstract List<Location> getLocations();
+}
