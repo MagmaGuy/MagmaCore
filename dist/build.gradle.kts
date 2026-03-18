@@ -9,7 +9,31 @@ tasks.withType<GenerateModuleMetadata> {
 
 dependencies {
     implementation(project(":core"))
-    // NMS modules will be added in Task 2
+    implementation(project(":nms:core"))
+    implementation(project(":nms:v1_19_R3"))
+    implementation(project(":nms:v1_20_R1"))
+    implementation(project(":nms:v1_20_R2"))
+    implementation(project(":nms:v1_20_R3"))
+    implementation(project(":nms:v1_20_R4"))
+    implementation(project(":nms:v1_21_R1"))
+    implementation(project(":nms:v1_21_R2"))
+    implementation(project(":nms:v1_21_R3"))
+    implementation(project(":nms:v1_21_R4"))
+    implementation(project(":nms:v1_21_R5"))
+    implementation(project(":nms:v1_21_R6"))
+    implementation(project(":nms:v1_21_R7_spigot"))
+    // Don't include v1_21_R7_paper via normal dependency - we'll add the reobfJar directly
+}
+
+// Get the reobfJar output from v1_21_R7_paper after projects are evaluated
+gradle.projectsEvaluated {
+    val reobfJar = project(":nms:v1_21_R7_paper").tasks.named<io.papermc.paperweight.tasks.RemapJar>("reobfJar")
+
+    tasks.named<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar>("shadowJar") {
+        dependsOn(reobfJar)
+        // Include the reobfJar output directly
+        from(zipTree(reobfJar.flatMap { it.outputJar }))
+    }
 }
 
 val packagePath = "com.magmaguy.shaded"
@@ -20,6 +44,9 @@ tasks.shadowJar {
     archiveBaseName.set("MagmaCore")
     archiveClassifier.set(null as String?)
     archiveVersion.set(project.version.toString())
+
+    exclude("**/package-info.class")
+    exclude("META-INF/MANIFEST.MF")
 }
 
 // Configure publishing to use shadow jar
