@@ -1,9 +1,8 @@
 plugins {
     java
     `maven-publish`
-    // NMS plugins - added when nms modules are included
-    // id("io.github.patrick.remapper") version "1.4.2" apply false
-    // id("io.papermc.paperweight.userdev") version "2.0.0-beta.19" apply false
+    id("io.github.patrick.remapper") version "1.4.2" apply false
+    id("io.papermc.paperweight.userdev") version "2.0.0-beta.19" apply false
     id("com.gradleup.shadow") version "9.0.0-beta12" apply false
 }
 
