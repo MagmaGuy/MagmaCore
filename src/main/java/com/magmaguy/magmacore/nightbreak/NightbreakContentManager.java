@@ -5,10 +5,11 @@ import com.magmaguy.magmacore.util.Logger;
 import lombok.Getter;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
+import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.File;
-import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
 /**
@@ -18,9 +19,9 @@ import java.util.function.Consumer;
 public class NightbreakContentManager {
 
     @Getter
-    private static final Map<String, NightbreakAccount.AccessInfo> accessCache = new HashMap<>();
+    private static final Map<String, NightbreakAccount.AccessInfo> accessCache = new ConcurrentHashMap<>();
     @Getter
-    private static final Map<String, NightbreakAccount.VersionInfo> versionCache = new HashMap<>();
+    private static final Map<String, NightbreakAccount.VersionInfo> versionCache = new ConcurrentHashMap<>();
 
     private static long lastCacheRefresh = 0;
     private static final long CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -46,6 +47,10 @@ public class NightbreakContentManager {
      * Should be called async.
      */
     public static void refreshVersionCache() {
+        refreshVersionCache(MagmaCore.getInstance().getRequestingPlugin());
+    }
+
+    public static void refreshVersionCache(JavaPlugin ownerPlugin) {
         if (!NightbreakAccount.hasToken()) return;
 
         Map<String, NightbreakAccount.VersionInfo> versions = NightbreakAccount.getInstance().getAllVersions();
@@ -64,6 +69,10 @@ public class NightbreakContentManager {
      * @param callback Called with the AccessInfo result (may be null on error)
      */
     public static void checkAccessAsync(String slug, Consumer<NightbreakAccount.AccessInfo> callback) {
+        checkAccessAsync(MagmaCore.getInstance().getRequestingPlugin(), slug, callback);
+    }
+
+    public static void checkAccessAsync(JavaPlugin ownerPlugin, String slug, Consumer<NightbreakAccount.AccessInfo> callback) {
         if (!NightbreakAccount.hasToken()) {
             callback.accept(null);
             return;
@@ -75,13 +84,13 @@ public class NightbreakContentManager {
             return;
         }
 
-        Bukkit.getScheduler().runTaskAsynchronously(MagmaCore.getInstance().getRequestingPlugin(), () -> {
+        Bukkit.getScheduler().runTaskAsynchronously(ownerPlugin, () -> {
             NightbreakAccount.AccessInfo info = NightbreakAccount.getInstance().checkAccess(slug);
             if (info != null) {
                 accessCache.put(slug, info);
             }
             // Return to main thread for callback
-            Bukkit.getScheduler().runTask(MagmaCore.getInstance().getRequestingPlugin(), () -> {
+            Bukkit.getScheduler().runTask(ownerPlugin, () -> {
                 callback.accept(info);
             });
         });
@@ -96,6 +105,14 @@ public class NightbreakContentManager {
      * @param onComplete Called when download completes (true = success)
      */
     public static void downloadAsync(String slug, File destinationFolder, Player player, Consumer<Boolean> onComplete) {
+        downloadAsync(MagmaCore.getInstance().getRequestingPlugin(), slug, destinationFolder, player, onComplete);
+    }
+
+    public static void downloadAsync(JavaPlugin ownerPlugin,
+                                     String slug,
+                                     File destinationFolder,
+                                     Player player,
+                                     Consumer<Boolean> onComplete) {
         if (!NightbreakAccount.hasToken()) {
             if (player != null && player.isOnline()) {
                 player.sendMessage("§c[Nightbreak] No token registered. Use /nightbreaklogin <token> first.");
@@ -105,7 +122,7 @@ public class NightbreakContentManager {
         }
 
         // First check access
-        checkAccessAsync(slug, accessInfo -> {
+        checkAccessAsync(ownerPlugin, slug, accessInfo -> {
             if (accessInfo == null || !accessInfo.hasAccess) {
                 if (player != null && player.isOnline()) {
                     player.sendMessage("§c[Nightbreak] You don't have access to this content.");
@@ -130,7 +147,7 @@ public class NightbreakContentManager {
             }
 
             // Run download async
-            Bukkit.getScheduler().runTaskAsynchronously(MagmaCore.getInstance().getRequestingPlugin(), () -> {
+            Bukkit.getScheduler().runTaskAsynchronously(ownerPlugin, () -> {
                 final long[] lastUpdate = {0};
                 boolean success = NightbreakAccount.getInstance().download(slug, destinationFile, null,
                     (bytesDownloaded, totalBytes) -> {
@@ -140,7 +157,7 @@ public class NightbreakContentManager {
                             String progress = totalBytes > 0
                                 ? String.format("%.1f%%", (bytesDownloaded * 100.0 / totalBytes))
                                 : formatBytes(bytesDownloaded);
-                            Bukkit.getScheduler().runTask(MagmaCore.getInstance().getRequestingPlugin(), () -> {
+                            Bukkit.getScheduler().runTask(ownerPlugin, () -> {
                                 if (player.isOnline()) {
                                     player.sendMessage("§7[Nightbreak] Downloading... " + progress);
                                 }
@@ -149,11 +166,10 @@ public class NightbreakContentManager {
                     });
 
                 // Return to main thread for callback
-                Bukkit.getScheduler().runTask(MagmaCore.getInstance().getRequestingPlugin(), () -> {
+                Bukkit.getScheduler().runTask(ownerPlugin, () -> {
                     if (success) {
                         if (player != null && player.isOnline()) {
                             player.sendMessage("§a[Nightbreak] Download complete! File saved to imports folder.");
-                            player.sendMessage("§a[Nightbreak] Use /em reload (or plugin reload) to install the content.");
                         }
                     } else {
                         if (player != null && player.isOnline()) {

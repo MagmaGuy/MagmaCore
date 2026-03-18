@@ -5,6 +5,10 @@ import com.magmaguy.magmacore.command.CommandManager;
 import com.magmaguy.magmacore.command.LogifyCommand;
 import com.magmaguy.magmacore.command.NightbreakLoginCommand;
 import com.magmaguy.magmacore.dlc.ConfigurationImporter;
+import com.magmaguy.magmacore.initialization.PluginInitializationConfig;
+import com.magmaguy.magmacore.initialization.PluginInitializationContext;
+import com.magmaguy.magmacore.initialization.PluginInitializationManager;
+import com.magmaguy.magmacore.initialization.PluginInitializationState;
 import com.magmaguy.magmacore.instance.InstanceProtector;
 import com.magmaguy.magmacore.instance.MatchInstance;
 import com.magmaguy.magmacore.instance.MatchInstanceWorld;
@@ -12,6 +16,7 @@ import com.magmaguy.magmacore.instance.MatchPlayer;
 import com.magmaguy.magmacore.menus.AdvancedMenuHandler;
 import com.magmaguy.magmacore.menus.SetupMenu;
 import com.magmaguy.magmacore.nightbreak.NightbreakAccount;
+import com.magmaguy.magmacore.nightbreak.NightbreakPluginStateRegistry;
 import com.magmaguy.magmacore.thirdparty.CustomBiomeCompatibility;
 import com.magmaguy.magmacore.util.Logger;
 import com.magmaguy.magmacore.util.VersionChecker;
@@ -25,11 +30,20 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Consumer;
 
 public final class MagmaCore {
     @Getter
     private static MagmaCore instance;
+    private static final Map<String, JavaPlugin> registeredPlugins = new HashMap<>();
+    private static final Set<String> listenerRegistrations = new HashSet<>();
     @Getter
     private final JavaPlugin requestingPlugin;
 
@@ -38,7 +52,7 @@ public final class MagmaCore {
         this.requestingPlugin = requestingPlugin;
         new AdvancedMenuHandler();
         CustomBiomeCompatibility.initializeMappings();
-        Logger.info("MagmaCore v1.13-SNAPSHOT initialized!");
+        Logger.info("MagmaCore v1.29-SNAPSHOT initialized!");
         instance.registerLogify();
         instance.registerNightbreakLogin();
         NightbreakAccount.initialize(requestingPlugin);
@@ -51,24 +65,38 @@ public final class MagmaCore {
     }
 
     public static void onEnable() {
+        onEnable(instance.requestingPlugin);
+    }
+
+    public static void onEnable(JavaPlugin plugin) {
         //Register listeners
-        Bukkit.getPluginManager().registerEvents(new SetupMenu.SetupMenuListeners(), instance.requestingPlugin);
-        Bukkit.getPluginManager().registerEvents(new AdvancedMenuHandler.AdvancedMenuListeners(), instance.requestingPlugin);
+        if (plugin == null) return;
+        if (!listenerRegistrations.add(plugin.getName())) return;
+        Bukkit.getPluginManager().registerEvents(new SetupMenu.SetupMenuListeners(), plugin);
+        Bukkit.getPluginManager().registerEvents(new AdvancedMenuHandler.AdvancedMenuListeners(), plugin);
 //        CommandManager commandManager = new CommandManager(instance.requestingPlugin, "logify");
 //        commandManager.registerCommand(new LogifyCommand(instance.requestingPlugin));
     }
 
     public static void enableMatchSystem() {
+        enableMatchSystem(instance.requestingPlugin);
+    }
+
+    public static void enableMatchSystem(JavaPlugin plugin) {
         Logger.info("Enabling match system...");
-        Bukkit.getPluginManager().registerEvents(new InstanceProtector(), instance.requestingPlugin);
-        Bukkit.getPluginManager().registerEvents(new MatchPlayer.MatchPlayerEvents(), instance.requestingPlugin);
-        Bukkit.getPluginManager().registerEvents(new MatchInstance.MatchInstanceEvents(), instance.requestingPlugin);
-        Bukkit.getPluginManager().registerEvents(new MatchInstanceWorld.MatchInstanceWorldEvents(), instance.requestingPlugin);
+        Bukkit.getPluginManager().registerEvents(new InstanceProtector(), plugin);
+        Bukkit.getPluginManager().registerEvents(new MatchPlayer.MatchPlayerEvents(), plugin);
+        Bukkit.getPluginManager().registerEvents(new MatchInstance.MatchInstanceEvents(), plugin);
+        Bukkit.getPluginManager().registerEvents(new MatchInstanceWorld.MatchInstanceWorldEvents(), plugin);
     }
 
     public static MagmaCore createInstance(JavaPlugin requestingPlugin) {
-        if (instance == null) return new MagmaCore(requestingPlugin);
-        else return instance;
+        registeredPlugins.put(requestingPlugin.getName(), requestingPlugin);
+        if (instance == null) {
+            return new MagmaCore(requestingPlugin);
+        }
+        NightbreakAccount.initialize(requestingPlugin);
+        return instance;
     }
 
     public static void shutdown() {
@@ -77,12 +105,55 @@ public final class MagmaCore {
         MatchInstance.shutdown();
     }
 
+    public static void shutdown(JavaPlugin plugin) {
+        if (plugin != null) {
+            registeredPlugins.remove(plugin.getName());
+            listenerRegistrations.remove(plugin.getName());
+            PluginInitializationManager.shutdown(plugin);
+            NightbreakPluginStateRegistry.clear(plugin);
+        }
+        shutdown();
+    }
+
     public static void initializeImporter() {
+        initializeImporter(instance.requestingPlugin);
+    }
+
+    public static void initializeImporter(JavaPlugin plugin) {
         if (instance == null) {
             Bukkit.getLogger().warning("Attempted to initialize importer without first instantiating MagmaCore!");
             return;
         }
-        new ConfigurationImporter();
+        new ConfigurationImporter(plugin);
+    }
+
+    public static JavaPlugin getRegisteredPlugin(String pluginName) {
+        return registeredPlugins.get(pluginName);
+    }
+
+    public static Collection<JavaPlugin> getRegisteredPlugins() {
+        return Collections.unmodifiableCollection(registeredPlugins.values());
+    }
+
+    public static void startInitialization(JavaPlugin plugin,
+                                           PluginInitializationConfig config,
+                                           Consumer<PluginInitializationContext> asyncInitialization,
+                                           Consumer<PluginInitializationContext> syncInitialization,
+                                           Runnable onSuccess,
+                                           Consumer<Throwable> onFailure) {
+        PluginInitializationManager.run(plugin, config, asyncInitialization, syncInitialization, onSuccess, onFailure);
+    }
+
+    public static PluginInitializationState getInitializationState(String pluginName) {
+        return PluginInitializationManager.getState(pluginName);
+    }
+
+    public static boolean isPluginReady(String pluginName) {
+        return PluginInitializationManager.isPluginReady(pluginName);
+    }
+
+    public static void requestInitializationShutdown(JavaPlugin plugin) {
+        PluginInitializationManager.requestShutdown(plugin);
     }
 
     private void registerLogify() {

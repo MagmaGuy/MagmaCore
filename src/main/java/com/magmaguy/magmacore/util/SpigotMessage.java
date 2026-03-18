@@ -1,5 +1,6 @@
 package com.magmaguy.magmacore.util;
 
+import net.md_5.bungee.api.chat.BaseComponent;
 import net.md_5.bungee.api.chat.ClickEvent;
 import net.md_5.bungee.api.chat.HoverEvent;
 import net.md_5.bungee.api.chat.TextComponent;
@@ -10,12 +11,16 @@ public class SpigotMessage {
     }
 
     public static TextComponent simpleMessage(String message) {
-        return new TextComponent(ChatColorConverter.convert(message));
+        TextComponent wrapper = new TextComponent();
+        for (BaseComponent component : TextComponent.fromLegacyText(ChatColorConverter.convert(message)))
+            wrapper.addExtra(component);
+        return wrapper;
     }
 
     public static TextComponent hoverMessage(String message, String hoverMessage) {
         TextComponent textComponent = simpleMessage(message);
-        textComponent.setHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, new Text(hoverMessage)));
+        textComponent.setHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,
+                new Text(TextComponent.fromLegacyText(hoverMessage))));
         return textComponent;
     }
 

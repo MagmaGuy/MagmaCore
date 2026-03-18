@@ -8,6 +8,7 @@ import com.magmaguy.magmacore.util.Logger;
 import com.magmaguy.magmacore.util.ZipFile;
 import org.apache.commons.io.FileUtils;
 import org.bukkit.Bukkit;
+import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.File;
 import java.io.IOException;
@@ -18,26 +19,49 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.*;
+import java.util.concurrent.ExecutionException;
 
 public class ConfigurationImporter {
-    private final Path eliteMobsPath = Path.of(MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getParentFile().getAbsolutePath()).resolve("EliteMobs");
-    private final Path extractioncraftPath = Path.of(MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getParentFile().getAbsolutePath()).resolve("Extractioncraft");
-    private final Path betterStructuresPath = Path.of(MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getParentFile().getAbsolutePath()).resolve("BetterStructures");
-    private final Path freeMinecraftModelsPath = Path.of(MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getParentFile().getAbsolutePath()).resolve("FreeMinecraftModels");
-    private final Path modelEnginePath = Path.of(MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getParentFile().getAbsolutePath()).resolve("ModelEngine");
-    private final Path eternalTDPath = Path.of(MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getParentFile().getAbsolutePath()).resolve("EternalTD");
+    private final JavaPlugin ownerPlugin;
+    private final Path eliteMobsPath;
+    private final Path extractioncraftPath;
+    private final Path betterStructuresPath;
+    private final Path resurrectionChestPath;
+    private final Path freeMinecraftModelsPath;
+    private final Path modelEnginePath;
+    private final Path eternalTDPath;
+    private final Path megaBlockSurvivorsPath;
+    private final Path worldCannonPath;
     private PluginPlatform pluginPlatform;
     private File importsFolder;
     private boolean modelsInstalled = false;
 
-    public ConfigurationImporter() {
+    public ConfigurationImporter(JavaPlugin ownerPlugin) {
+        this.ownerPlugin = ownerPlugin == null ? MagmaCore.getInstance().getRequestingPlugin() : ownerPlugin;
+        Path pluginsDirectory = Path.of(this.ownerPlugin.getDataFolder().getParentFile().getAbsolutePath());
+        eliteMobsPath = pluginsDirectory.resolve("EliteMobs");
+        extractioncraftPath = pluginsDirectory.resolve("Extractioncraft");
+        betterStructuresPath = pluginsDirectory.resolve("BetterStructures");
+        resurrectionChestPath = pluginsDirectory.resolve("ResurrectionChest");
+        freeMinecraftModelsPath = pluginsDirectory.resolve("FreeMinecraftModels");
+        modelEnginePath = pluginsDirectory.resolve("ModelEngine");
+        eternalTDPath = pluginsDirectory.resolve("EternalTD");
+        megaBlockSurvivorsPath = pluginsDirectory.resolve("MegaBlockSurvivors");
+        worldCannonPath = pluginsDirectory.resolve("CannonRTP");
         if (!createImportsDirectory()) return;
         importsFolder = getImportsDirectory();
         if (importsFolder == null || importsFolder.listFiles().length == 0) return;
-        pluginPlatform = getPluginPlatform(MagmaCore.getInstance().getRequestingPlugin().getName());
+        pluginPlatform = getPluginPlatform(this.ownerPlugin.getName());
         processImportsFolder();
-        if (Bukkit.getPluginManager().isPluginEnabled("FreeMinecraftModels"))
-            if (modelsInstalled) Bukkit.getPluginManager().callEvent(new ModelInstallationEvent());
+        if (Bukkit.getPluginManager().isPluginEnabled("FreeMinecraftModels") && modelsInstalled
+                && !this.ownerPlugin.getName().equals("FreeMinecraftModels")) {
+            if (Bukkit.isPrimaryThread()) {
+                Bukkit.getPluginManager().callEvent(new ModelInstallationEvent());
+            } else {
+                Bukkit.getScheduler().runTask(this.ownerPlugin,
+                        () -> Bukkit.getPluginManager().callEvent(new ModelInstallationEvent()));
+            }
+        }
     }
 
     private static void deleteDirectory(File file) {
@@ -51,7 +75,7 @@ public class ConfigurationImporter {
         file.delete();
     }
 
-    private static void moveWorlds(File worldcontainerFile) {
+    private void moveWorlds(File worldcontainerFile) {
         for (File file : worldcontainerFile.listFiles()) {
             try {
                 File worldContainer = Bukkit.getWorldContainer().getCanonicalFile();
@@ -62,7 +86,19 @@ public class ConfigurationImporter {
                 if (destinationFile.exists()) {
                     Logger.info("Overriding existing directory " + destinationFile.getPath());
                     if (Bukkit.getWorld(file.getName()) != null) {
-                        Bukkit.unloadWorld(file.getName(), false);
+                        if (Bukkit.isPrimaryThread()) {
+                            Bukkit.unloadWorld(file.getName(), false);
+                        } else {
+                            try {
+                                Bukkit.getScheduler().callSyncMethod(
+                                        ownerPlugin,
+                                        () -> Bukkit.unloadWorld(file.getName(), false)
+                                ).get();
+                            } catch (InterruptedException | ExecutionException e) {
+                                Logger.warn("Failed to unload world " + file.getName() + " on main thread!");
+                                e.printStackTrace();
+                            }
+                        }
                         Logger.warn("Unloaded world " + file.getName() + " for safe replacement!");
                     }
                     deleteDirectory(destinationFile);
@@ -109,7 +145,7 @@ public class ConfigurationImporter {
     }
 
     private boolean createImportsDirectory() {
-        Path configurationsPath = Paths.get(MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getAbsolutePath());
+        Path configurationsPath = Paths.get(ownerPlugin.getDataFolder().getAbsolutePath());
         Path importsPath = configurationsPath.normalize().resolve("imports");
         if (!Files.isDirectory(importsPath)) {
             try {
@@ -129,7 +165,7 @@ public class ConfigurationImporter {
 
     private File getImportsDirectory() {
         try {
-            File dir = Paths.get(MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getCanonicalPath()).resolve("imports").toFile();
+            File dir = Paths.get(ownerPlugin.getDataFolder().getCanonicalPath()).resolve("imports").toFile();
             return dir;
         } catch (Exception ex) {
             Logger.warn("Failed to get imports folder! Report this to the dev!");
@@ -147,10 +183,18 @@ public class ConfigurationImporter {
                 return PluginPlatform.EXTRACTIONCRAFT;
             case "betterstructures":
                 return PluginPlatform.BETTERSTRUCTURES;
+            case "resurrectionchest":
+                return PluginPlatform.RESURRECTIONCHEST;
             case "freeminecraftmodels":
                 return PluginPlatform.FREEMINECRAFTMODELS;
             case "eternaltd":
                 return PluginPlatform.ETERNALTD;
+            case "megablocksurvivors":
+                return PluginPlatform.MEGABLOCKSURVIVORS;
+            case "cannonrtp":
+            case "worldcannon":
+            case "world_cannon":
+                return PluginPlatform.WORLDCANNON;
             default:
                 return PluginPlatform.NONE;
         }
@@ -231,153 +275,47 @@ public class ConfigurationImporter {
     }
 
     private Path getTargetPath(String folder, PluginPlatform platform) {
-        if (platform == PluginPlatform.FREEMINECRAFTMODELS)
-            return freeMinecraftModelsPath.resolve("models");
-        switch (folder) {
-            case "custombosses":
-                if (platform == PluginPlatform.ELITEMOBS ||
-                        //BetterStructures content sometimes has bosses, this reserves it
-                        platform == PluginPlatform.BETTERSTRUCTURES ||
-                        platform == PluginPlatform.EXTRACTIONCRAFT)
-                    return eliteMobsPath.resolve("custombosses");
-                break;
-            case "customitems":
-                if (platform == PluginPlatform.ELITEMOBS ||
-                        //BetterStructures content sometimes has elite loot, this reserves it
-                        platform == PluginPlatform.BETTERSTRUCTURES ||
-                        platform == PluginPlatform.EXTRACTIONCRAFT)
-                    return eliteMobsPath.resolve("customitems");
-                break;
-            case "customtreasurechests":
-                if (platform == PluginPlatform.ELITEMOBS ||
-                        //BetterStructures content sometimes has treasure chests (future?), this reserves it
-                        platform == PluginPlatform.BETTERSTRUCTURES ||
-                        platform == PluginPlatform.EXTRACTIONCRAFT)
-                    return eliteMobsPath.resolve("customtreasurechests");
-                break;
-            case "dungeonpackages":
-            case "content_packages":
-                if (platform == PluginPlatform.ELITEMOBS)
-                    return eliteMobsPath.resolve("content_packages");
-                if (platform == PluginPlatform.BETTERSTRUCTURES)
-                    return betterStructuresPath.resolve("content_packages");
-                if (platform == PluginPlatform.EXTRACTIONCRAFT)
-                    return extractioncraftPath.resolve("content_packages");
-                break;
-            case "customevents":
-                if (platform == PluginPlatform.ELITEMOBS)
-                    return eliteMobsPath.resolve("customevents");
-                break;
-            case "customspawns":
-                if (platform == PluginPlatform.ELITEMOBS)
-                    return eliteMobsPath.resolve("customspawns");
-                break;
-            case "customquests":
-                if (platform == PluginPlatform.ELITEMOBS ||
-                        platform == PluginPlatform.EXTRACTIONCRAFT)
-                    return eliteMobsPath.resolve("customquests");
-                break;
-            case "customarenas":
-                if (platform == PluginPlatform.ELITEMOBS)
-                    return eliteMobsPath.resolve("customarenas");
-                break;
-            case "npcs":
-                if (platform == PluginPlatform.ELITEMOBS ||
-                        platform == PluginPlatform.EXTRACTIONCRAFT)
-                    return eliteMobsPath.resolve("npcs");
-                if (platform == PluginPlatform.ETERNALTD)
-                    return eternalTDPath.resolve("npcs");
-                break;
-            case "wormholes":
-                if (platform == PluginPlatform.ELITEMOBS)
-                    return eliteMobsPath.resolve("wormholes");
-                break;
-            case "powers":
-                if (platform == PluginPlatform.ELITEMOBS ||
-                        platform == PluginPlatform.BETTERSTRUCTURES ||
-                        platform == PluginPlatform.EXTRACTIONCRAFT)
-                    return eliteMobsPath.resolve("powers");
-                break;
-            case "worldcontainer":
-                try {
-                    File wc = Bukkit.getWorldContainer().getCanonicalFile();
-                    return wc.toPath().normalize().toAbsolutePath();
-                } catch (IOException e) {
-                    Logger.warn("Failed to resolve world container path canonically!");
-                    e.printStackTrace();
-                    return null;
-                }
-            case "world_blueprints":
-                if (platform == PluginPlatform.ELITEMOBS)
-                    return eliteMobsPath.resolve("world_blueprints");
-                break;
-            case "ModelEngine":
-            case "models":
-                modelsInstalled = true;
-                if (Bukkit.getPluginManager().isPluginEnabled("FreeMinecraftModels"))
-                    return freeMinecraftModelsPath.resolve("models");
-                else if (Bukkit.getPluginManager().isPluginEnabled("ModelEngine"))
-                    return modelEnginePath.resolve("blueprints");
-                else
-                    return freeMinecraftModelsPath.resolve("models");
-            case "schematics":
-                if (platform == PluginPlatform.ELITEMOBS) {
-                    Logger.warn("You just tried to import legacy content! Schematic dungeons no longer exist as of EliteMobs 9.0, use BetterStructures shrines instead!");
-                    break;
-                }
-                if (platform == PluginPlatform.BETTERSTRUCTURES)
-                    return betterStructuresPath.resolve("schematics");
-                break;
-            case "levels":
-                if (platform == PluginPlatform.ETERNALTD)
-                    return eternalTDPath.resolve("levels");
-                break;
-            case "waves":
-                if (platform == PluginPlatform.ETERNALTD)
-                    return eternalTDPath.resolve("waves");
-                break;
-            case "worlds":
-                if (platform == PluginPlatform.ETERNALTD)
-                    return eternalTDPath.resolve("worlds");
-                break;
-            case "elitemobs":
-                if (platform == PluginPlatform.BETTERSTRUCTURES)
-                    return eliteMobsPath;
-                break;
-            case "pack.meta":
-                // Only for tagging purposes
-                return null;
-            case "spawn_pools":
-                if (platform == PluginPlatform.BETTERSTRUCTURES ||
-                        platform == PluginPlatform.EXTRACTIONCRAFT)
-                    return betterStructuresPath.resolve("spawn_pools");
-            case "components":
-                if (platform == PluginPlatform.BETTERSTRUCTURES ||
-                        platform == PluginPlatform.EXTRACTIONCRAFT)
-                    return betterStructuresPath.resolve("components");
-            case "modules":
-                if (platform == PluginPlatform.BETTERSTRUCTURES ||
-                        platform == PluginPlatform.EXTRACTIONCRAFT)
-                    return betterStructuresPath.resolve("modules");
-            case "module_generators":
-                if (platform == PluginPlatform.BETTERSTRUCTURES ||
-                        platform == PluginPlatform.EXTRACTIONCRAFT)
-                    return betterStructuresPath.resolve("module_generators");
-            case "loot_pools":
-                if (platform == PluginPlatform.EXTRACTIONCRAFT)
-                    return extractioncraftPath.resolve("loot_pools");
-            case "loot_tables":
-                if (platform == PluginPlatform.EXTRACTIONCRAFT)
-                    return extractioncraftPath.resolve("loot_tables");
-            case "resource_pack":
-                if (platform == PluginPlatform.ELITEMOBS)
-                    return eliteMobsPath.resolve("resource_pack");
-            default:
-                Logger.warn("Directory " + folder + " for zipped file was not recognized! Was the zipped file packaged correctly?");
-                return null;
-        }
-        Logger.warn("Directory " + folder + " for zipped file was not recognized! Was the zipped file packaged correctly?");
-        return null;
+        return ConfigurationImportProfiles.resolve(this, folder, platform);
+    }
+
+    Path getEliteMobsPath() {
+        return eliteMobsPath;
+    }
+
+    Path getExtractioncraftPath() {
+        return extractioncraftPath;
+    }
+
+    Path getBetterStructuresPath() {
+        return betterStructuresPath;
+    }
+
+    Path getResurrectionChestPath() {
+        return resurrectionChestPath;
+    }
+
+    Path getFreeMinecraftModelsPath() {
+        return freeMinecraftModelsPath;
+    }
+
+    Path getModelEnginePath() {
+        return modelEnginePath;
+    }
+
+    Path getEternalTDPath() {
+        return eternalTDPath;
+    }
+
+    Path getMegaBlockSurvivorsPath() {
+        return megaBlockSurvivorsPath;
+    }
+
+    Path getWorldCannonPath() {
+        return worldCannonPath;
+    }
+
+    void markModelsInstalled() {
+        modelsInstalled = true;
     }
 
     private String readPackMeta(File packMetaFile) {
@@ -565,12 +503,14 @@ public class ConfigurationImporter {
         return result;
     }
 
-    private enum PluginPlatform {
+    enum PluginPlatform {
         ELITEMOBS,
         EXTRACTIONCRAFT,
         BETTERSTRUCTURES,
         FREEMINECRAFTMODELS,
         ETERNALTD,
+        MEGABLOCKSURVIVORS,
+        WORLDCANNON,
         RESURRECTIONCHEST,
         NONE
     }
