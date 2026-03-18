@@ -1,7 +1,6 @@
 package com.magmaguy.magmacore.config;
 
 import com.magmaguy.magmacore.util.Logger;
-import org.bukkit.Bukkit;
 import org.bukkit.configuration.Configuration;
 import org.bukkit.configuration.file.FileConfiguration;
 
@@ -24,7 +23,6 @@ public class UnusedNodeHandler {
 
             if (!keyExists) {
                 configuration.set(actual, null);
-                Bukkit.getLogger().warning(actual);
                 Logger.info("Deleting unused config values.");
             }
         }

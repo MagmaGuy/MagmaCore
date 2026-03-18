@@ -67,7 +67,7 @@ public abstract class CustomConfigFields {
             return value;
         }
         try {
-            return ChatColorConverter.convert(fileConfiguration.getString(path));
+            return fileConfiguration.getString(path);
         } catch (Exception ex) {
             Logger.warn("File " + filename + " has an incorrect entry for " + path);
             Logger.warn("Entry: " + value);
@@ -98,10 +98,7 @@ public abstract class CustomConfigFields {
             return value;
         }
         try {
-            List<String> list = new ArrayList<>();
-            for (String string : fileConfiguration.getStringList(path))
-                list.add(ChatColorConverter.convert(string));
-            return list;
+            return new ArrayList<>(fileConfiguration.getStringList(path));
         } catch (Exception ex) {
             Logger.warn("File " + filename + " has an incorrect entry for " + path);
             Logger.warn("Entry: " + value);
@@ -162,7 +159,8 @@ public abstract class CustomConfigFields {
                     newList.add(Enum.valueOf(enumClass, string.toUpperCase(Locale.ROOT)));
                 } catch (Exception ex) {
                     // Materials for future versions (e.g. spears) may not exist yet — skip silently
-                    if (string != null && string.toUpperCase(Locale.ROOT).endsWith("_SPEAR"))
+                    if (string != null && string.toUpperCase(Locale.ROOT).endsWith("_SPEAR")
+                            && VersionChecker.serverVersionOlderThan(21, 11))
                         return;
                     Logger.warn(filename + " : " + "Value " + string + " is not a valid for " + path + " ! This may be due to your server version, or due to an invalid value!");
                 }
@@ -276,7 +274,8 @@ public abstract class CustomConfigFields {
         } catch (Exception ex) {
             String rawValue = fileConfiguration.getString(path);
             // Materials for future versions (e.g. spears) may not exist yet — skip silently
-            if (rawValue != null && rawValue.toUpperCase(Locale.ROOT).endsWith("_SPEAR"))
+            if (rawValue != null && rawValue.toUpperCase(Locale.ROOT).endsWith("_SPEAR")
+                    && VersionChecker.serverVersionOlderThan(21, 11))
                 return pluginDefault;
             Logger.warn("File " + filename + " has an incorrect entry for " + path);
             Logger.warn("Entry: " + rawValue);
@@ -305,11 +304,12 @@ public abstract class CustomConfigFields {
                 return playerHead;
             }
             String baseMaterial = materialString.contains(":") ? materialString.split(":")[0] : materialString;
+            baseMaterial = mapLegacyMaterialName(baseMaterial);
             Material material = Material.getMaterial(baseMaterial);
 
             // Materials for future versions (e.g. spears) may not exist yet — skip silently
             if (material == null) {
-                if (baseMaterial.endsWith("_SPEAR")) return null;
+                if (baseMaterial.endsWith("_SPEAR") && VersionChecker.serverVersionOlderThan(21, 11)) return null;
                 throw new IllegalArgumentException("Unknown material: " + baseMaterial);
             }
 
@@ -332,6 +332,14 @@ public abstract class CustomConfigFields {
             Logger.warn("Entry: " + value);
         }
         return value;
+    }
+
+    private static String mapLegacyMaterialName(String material) {
+        if (material.startsWith("GOLD_"))
+            return "GOLDEN_" + material.substring(5);
+        if (material.startsWith("CHAIN_"))
+            return "CHAINMAIL_" + material.substring(6);
+        return material;
     }
 
     public Map<String, Object> processMap(String path, Map<String, Object> value) {

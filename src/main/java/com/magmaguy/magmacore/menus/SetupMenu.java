@@ -13,6 +13,7 @@ import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -29,11 +30,11 @@ public class SetupMenu {
             9, 10, 11, 12, 13, 14, 15, 16, 17,
             18, 19, 20, 21, 22, 23, 24, 25, 26,
             27, 28, 29, 30, 31, 32, 33, 34, 35,
-            36, 37, 38, 39, 40, 41, 42, 43, 44,
-            45, 46, 47, 48, 49, 50, 51, 52, 53));
+            36, 37, 38, 39, 40, 41, 42, 43, 44));
     private final HashMap<Integer, ContentPackage> contentMap = new HashMap<>();
     private final HashMap<Integer, MenuButton> inventoryMap = new HashMap<>();
     private final Player player;
+    private final JavaPlugin ownerPlugin;
     private final MenuButton infoButton;
     private final List<? extends ContentPackage> contentPackages;
     private final List<SetupMenuFilter> filterList;
@@ -48,7 +49,7 @@ public class SetupMenu {
                      MenuButton infoButton,
                      List<? extends ContentPackage> mainContentList,
                      List<SetupMenuFilter> filterList) {
-        this(player, infoButton, mainContentList, filterList, "Setup menu");
+        this(MagmaCore.getInstance().getRequestingPlugin(), player, infoButton, mainContentList, filterList, "Setup menu");
     }
 
     public SetupMenu(Player player,
@@ -56,8 +57,26 @@ public class SetupMenu {
                      List<? extends ContentPackage> mainContentList,
                      List<SetupMenuFilter> filterList,
                      String title) {
-        this.inventory = Bukkit.createInventory(player, 54, title);
+        this(MagmaCore.getInstance().getRequestingPlugin(), player, infoButton, mainContentList, filterList, title);
+    }
+
+    public SetupMenu(JavaPlugin ownerPlugin,
+                     Player player,
+                     MenuButton infoButton,
+                     List<? extends ContentPackage> mainContentList,
+                     List<SetupMenuFilter> filterList) {
+        this(ownerPlugin, player, infoButton, mainContentList, filterList, "Setup menu");
+    }
+
+    public SetupMenu(JavaPlugin ownerPlugin,
+                     Player player,
+                     MenuButton infoButton,
+                     List<? extends ContentPackage> mainContentList,
+                     List<SetupMenuFilter> filterList,
+                     String title) {
+        this.inventory = Bukkit.createInventory(player, 45, title);
         this.player = player;
+        this.ownerPlugin = ownerPlugin;
         this.contentPackages = mainContentList;
         this.displayedContentPackages = contentPackages;
         this.filterList = filterList;
@@ -131,7 +150,7 @@ public class SetupMenu {
                             if (inventory.getItem(slot) == null) return;
                             inventory.getItem(slot).addUnsafeEnchantment(Enchantment.CHANNELING, 1);
                         }
-                    }.runTaskLater(MagmaCore.getInstance().getRequestingPlugin(), 1);
+                    }.runTaskLater(ownerPlugin, 1);
                 }
             };
             inventory.setItem(filterSlots.get(counter), setupMenuFilter.itemStack);

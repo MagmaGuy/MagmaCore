@@ -25,39 +25,38 @@ public class ZipFile {
     }
 
     public static File unzip(File zippedFile, File destinationUnzippedFile) throws IOException {
-        byte[] buffer = new byte[1024];
-        ZipInputStream zipInputStream = new ZipInputStream(new FileInputStream(zippedFile));
-        ZipEntry zipEntry = zipInputStream.getNextEntry();
-        while (zipEntry != null) {
-            File newFile = newFile(destinationUnzippedFile, zipEntry);
-            // Check if directory - isDirectory() only checks for trailing '/', but Windows zips may use '\'
-            String entryName = zipEntry.getName();
-            boolean isDirectory = zipEntry.isDirectory() || entryName.endsWith("\\") || entryName.endsWith("/");
-            if (isDirectory) {
-                if (!newFile.isDirectory() && !newFile.mkdirs()) {
-                    throw new IOException("Failed to create directory " + newFile);
-                }
-            } else {
-                // Fix for Windows-created archives
-                File parent = newFile.getParentFile();
-                if (!parent.isDirectory() && !parent.mkdirs()) {
-                    throw new IOException("Failed to create directory " + parent);
-                }
+        byte[] buffer = new byte[8192];
+        try (ZipInputStream zipInputStream = new ZipInputStream(new BufferedInputStream(new FileInputStream(zippedFile)))) {
+            ZipEntry zipEntry = zipInputStream.getNextEntry();
+            while (zipEntry != null) {
+                File newFile = newFile(destinationUnzippedFile, zipEntry);
+                // Check if directory - isDirectory() only checks for trailing '/', but Windows zips may use '\'
+                String entryName = zipEntry.getName();
+                boolean isDirectory = zipEntry.isDirectory() || entryName.endsWith("\\") || entryName.endsWith("/");
+                if (isDirectory) {
+                    if (!newFile.isDirectory() && !newFile.mkdirs()) {
+                        throw new IOException("Failed to create directory " + newFile);
+                    }
+                } else {
+                    // Fix for Windows-created archives
+                    File parent = newFile.getParentFile();
+                    if (!parent.isDirectory() && !parent.mkdirs()) {
+                        throw new IOException("Failed to create directory " + parent);
+                    }
 
-                // Write file content
-                FileOutputStream fileOutputStream = new FileOutputStream(newFile);
-                int len;
-                while ((len = zipInputStream.read(buffer)) > 0) {
-                    fileOutputStream.write(buffer, 0, len);
+                    // Write file content
+                    try (FileOutputStream fileOutputStream = new FileOutputStream(newFile)) {
+                        int len;
+                        while ((len = zipInputStream.read(buffer)) > 0) {
+                            fileOutputStream.write(buffer, 0, len);
+                        }
+                    }
                 }
-                fileOutputStream.close();
+                long entryTime = zipEntry.getTime();
+                if (entryTime >= 0) newFile.setLastModified(entryTime);
+                zipEntry = zipInputStream.getNextEntry();
             }
-            long entryTime = zipEntry.getTime();
-            if (entryTime >= 0) newFile.setLastModified(entryTime);
-            zipEntry = zipInputStream.getNextEntry();
         }
-        zipInputStream.closeEntry();
-        zipInputStream.close();
         return destinationUnzippedFile;
     }
 
