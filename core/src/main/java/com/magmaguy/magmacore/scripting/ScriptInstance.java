@@ -3,20 +3,24 @@ package com.magmaguy.magmacore.scripting;
 import com.magmaguy.magmacore.MagmaCore;
 import com.magmaguy.magmacore.scripting.tables.LuaTableSupport;
 import com.magmaguy.magmacore.scripting.tables.LuaWorldTable;
+import com.magmaguy.magmacore.scripting.zones.Cuboid;
+import com.magmaguy.magmacore.scripting.zones.Cylinder;
+import com.magmaguy.magmacore.scripting.zones.ScriptZone;
+import com.magmaguy.magmacore.scripting.zones.Sphere;
 import com.magmaguy.magmacore.util.Logger;
 import lombok.Getter;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.World;
 import org.bukkit.entity.LivingEntity;
+import org.bukkit.entity.Player;
 import org.bukkit.event.Event;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 import org.luaj.vm2.*;
 import org.luaj.vm2.lib.VarArgFunction;
 
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.util.*;
 
 /**
  * Represents a running instance of a Lua script bound to a {@link ScriptableEntity}.
@@ -32,6 +36,9 @@ public class ScriptInstance {
     private final ScriptableEntity entity;
     private final LuaTable stateTable = new LuaTable();
     private final Map<Integer, OwnedTask> ownedTasks = new LinkedHashMap<>();
+
+    private final Map<Integer, ScriptZone> zoneWatches = new LinkedHashMap<>();
+    private int nextZoneHandle = 1;
 
     private LuaTable scriptTable;
     private Integer tickTaskId = null;
@@ -87,6 +94,7 @@ public class ScriptInstance {
             shutdown();
             return;
         }
+        tickZoneWatches();
         if (definition.supportsHook(ScriptHook.ON_TICK)) {
             handleEvent(ScriptHook.ON_TICK, null, null, null);
         }
@@ -111,6 +119,11 @@ public class ScriptInstance {
             task.cancel();
         }
         ownedTasks.clear();
+
+        for (ScriptZone zone : zoneWatches.values()) {
+            zone.shutdown();
+        }
+        zoneWatches.clear();
 
         entity.onShutdown();
     }
@@ -160,6 +173,7 @@ public class ScriptInstance {
                         ? LuaWorldTable.build(loc.getWorld())
                         : LuaValue.NIL;
             }
+            case "zones" -> createZonesTable();
             default -> {
                 // Entity's own context table
                 if (key.equals(entity.getContextKey())) {
@@ -276,6 +290,98 @@ public class ScriptInstance {
             Logger.warn("[Lua] " + definition.getFileName() + " took " + elapsedMillis + "ms in '"
                     + "scheduled callback' (limit: 50ms) — script disabled to prevent lag.");
             shutdown();
+        }
+    }
+
+    // ── Zones table ─────────────────────────────────────────────────────
+
+    private LuaTable createZonesTable() {
+        LuaTable zones = new LuaTable();
+
+        // create_sphere(x, y, z, radius) -> zone handle
+        zones.set("create_sphere", method(zones, args -> {
+            double x = args.checkdouble(1);
+            double y = args.checkdouble(2);
+            double z = args.checkdouble(3);
+            double radius = args.checkdouble(4);
+            Location loc = entity.getLocation();
+            World world = loc != null ? loc.getWorld() : null;
+            if (world == null) return LuaValue.NIL;
+            Sphere shape = new Sphere(radius, new Location(world, x, y, z), 1);
+            return LuaValue.valueOf(registerZone(new ScriptZone(shape)));
+        }));
+
+        // create_cylinder(x, y, z, radius, height) -> zone handle
+        zones.set("create_cylinder", method(zones, args -> {
+            double x = args.checkdouble(1);
+            double y = args.checkdouble(2);
+            double z = args.checkdouble(3);
+            double radius = args.checkdouble(4);
+            double height = args.checkdouble(5);
+            Location loc = entity.getLocation();
+            World world = loc != null ? loc.getWorld() : null;
+            if (world == null) return LuaValue.NIL;
+            Cylinder shape = new Cylinder(new Location(world, x, y, z), radius, height, 1);
+            return LuaValue.valueOf(registerZone(new ScriptZone(shape)));
+        }));
+
+        // create_cuboid(x, y, z, xSize, ySize, zSize) -> zone handle
+        zones.set("create_cuboid", method(zones, args -> {
+            double x = args.checkdouble(1);
+            double y = args.checkdouble(2);
+            double z = args.checkdouble(3);
+            float xSize = (float) args.checkdouble(4);
+            float ySize = (float) args.checkdouble(5);
+            float zSize = (float) args.checkdouble(6);
+            Location loc = entity.getLocation();
+            World world = loc != null ? loc.getWorld() : null;
+            if (world == null) return LuaValue.NIL;
+            Cuboid shape = new Cuboid(xSize, ySize, zSize, 0f, 0f, 0f, new Location(world, x, y, z));
+            return LuaValue.valueOf(registerZone(new ScriptZone(shape)));
+        }));
+
+        // watch(zone_handle, on_enter_callback, on_leave_callback) -> starts tracking
+        zones.set("watch", method(zones, args -> {
+            int handle = args.checkint(1);
+            LuaFunction onEnter = args.isfunction(2) ? args.checkfunction(2) : null;
+            LuaFunction onLeave = args.isfunction(3) ? args.checkfunction(3) : null;
+            ScriptZone zone = zoneWatches.get(handle);
+            if (zone == null) return LuaValue.NIL;
+            if (onEnter != null) {
+                zone.setOnEnter((player, z) ->
+                        handleEvent(ScriptHook.ON_ZONE_ENTER, null, player, null));
+            }
+            if (onLeave != null) {
+                zone.setOnLeave((player, z) ->
+                        handleEvent(ScriptHook.ON_ZONE_LEAVE, null, player, null));
+            }
+            return LuaValue.TRUE;
+        }));
+
+        // unwatch(zone_handle) -> stops tracking
+        zones.set("unwatch", method(zones, args -> {
+            int handle = args.checkint(1);
+            ScriptZone zone = zoneWatches.remove(handle);
+            if (zone != null) zone.shutdown();
+            return LuaValue.NIL;
+        }));
+
+        return zones;
+    }
+
+    private int registerZone(ScriptZone zone) {
+        int handle = nextZoneHandle++;
+        zoneWatches.put(handle, zone);
+        return handle;
+    }
+
+    private void tickZoneWatches() {
+        if (zoneWatches.isEmpty()) return;
+        Location loc = entity.getLocation();
+        if (loc == null || loc.getWorld() == null) return;
+        Collection<Player> nearby = loc.getWorld().getPlayers();
+        for (ScriptZone zone : zoneWatches.values()) {
+            zone.tick(nearby);
         }
     }
 
