@@ -14,6 +14,7 @@ import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
+import org.bukkit.event.Cancellable;
 import org.bukkit.event.Event;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
@@ -43,6 +44,7 @@ public class ScriptInstance {
     private LuaTable scriptTable;
     private Integer tickTaskId = null;
     private boolean closed = false;
+    private Event currentEvent = null;
 
     public ScriptInstance(ScriptDefinition definition, ScriptableEntity entity) {
         this.definition = definition;
@@ -69,12 +71,15 @@ public class ScriptInstance {
         if (!definition.getHooks().contains(hook) || !function.isfunction()) return;
 
         long startNanos = System.nanoTime();
+        currentEvent = event;
         try {
             function.checkfunction().call(buildContext(event, directTarget, eventActor));
         } catch (Exception exception) {
             logLuaError(hook.getKey(), exception);
             shutdown();
             return;
+        } finally {
+            currentEvent = null;
         }
 
         long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000L;
@@ -174,6 +179,7 @@ public class ScriptInstance {
                         : LuaValue.NIL;
             }
             case "zones" -> createZonesTable();
+            case "event" -> createEventTable();
             default -> {
                 // Entity's own context table
                 if (key.equals(entity.getContextKey())) {
@@ -367,6 +373,33 @@ public class ScriptInstance {
         }));
 
         return zones;
+    }
+
+    // ── Event table ──────────────────────────────────────────────────────
+
+    private LuaValue createEventTable() {
+        if (currentEvent == null) return LuaValue.NIL;
+        LuaTable eventTable = new LuaTable();
+        if (currentEvent instanceof Cancellable cancellable) {
+            eventTable.set("is_cancelled", LuaValue.valueOf(cancellable.isCancelled()));
+            eventTable.set("cancel", new VarArgFunction() {
+                @Override
+                public Varargs invoke(Varargs args) {
+                    cancellable.setCancelled(true);
+                    return LuaValue.NIL;
+                }
+            });
+            eventTable.set("uncancel", new VarArgFunction() {
+                @Override
+                public Varargs invoke(Varargs args) {
+                    cancellable.setCancelled(false);
+                    return LuaValue.NIL;
+                }
+            });
+        } else {
+            eventTable.set("is_cancelled", LuaValue.FALSE);
+        }
+        return eventTable;
     }
 
     private int registerZone(ScriptZone zone) {
