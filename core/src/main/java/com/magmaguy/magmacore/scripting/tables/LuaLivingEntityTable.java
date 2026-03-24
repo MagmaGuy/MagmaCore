@@ -122,6 +122,32 @@ public class LuaLivingEntityTable {
                 return LuaTableSupport.vectorToTable(player.getEyeLocation().getDirection());
             }));
 
+            // send_block_change(x, y, z, material) — sends a fake block to this player only
+            table.set("send_block_change", LuaTableSupport.tableMethod(table, args -> {
+                int x = args.checkint(1);
+                int y = args.checkint(2);
+                int z = args.checkint(3);
+                String materialName = args.checkjstring(4).toUpperCase(java.util.Locale.ROOT);
+                org.bukkit.Material material = org.bukkit.Material.matchMaterial(materialName);
+                if (material == null || !material.isBlock()) return LuaValue.FALSE;
+                org.bukkit.Bukkit.getScheduler().runTask(MagmaCore.getInstance().getRequestingPlugin(), () -> {
+                    player.sendBlockChange(new org.bukkit.Location(player.getWorld(), x, y, z), material.createBlockData());
+                });
+                return LuaValue.TRUE;
+            }));
+
+            // reset_block(x, y, z) — resets a fake block back to the real block for this player
+            table.set("reset_block", LuaTableSupport.tableMethod(table, args -> {
+                int x = args.checkint(1);
+                int y = args.checkint(2);
+                int z = args.checkint(3);
+                org.bukkit.Bukkit.getScheduler().runTask(MagmaCore.getInstance().getRequestingPlugin(), () -> {
+                    org.bukkit.block.Block real = player.getWorld().getBlockAt(x, y, z);
+                    player.sendBlockChange(new org.bukkit.Location(player.getWorld(), x, y, z), real.getBlockData());
+                });
+                return LuaValue.TRUE;
+            }));
+
             LuaPlayerUITable.addTo(table, player);
         }
 
