@@ -2,20 +2,30 @@ package com.magmaguy.magmacore.scripting.tables;
 
 import com.magmaguy.magmacore.MagmaCore;
 import org.bukkit.Bukkit;
+import org.bukkit.Color;
+import org.bukkit.FireworkEffect;
+import org.bukkit.FluidCollisionMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.World;
+import org.bukkit.block.Block;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
+import org.bukkit.entity.Firework;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.meta.FireworkMeta;
+import org.bukkit.util.RayTraceResult;
+import org.bukkit.util.Vector;
 import org.luaj.vm2.LuaTable;
 import org.luaj.vm2.LuaValue;
 import org.luaj.vm2.lib.VarArgFunction;
 
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import java.util.Locale;
 
 /**
@@ -173,6 +183,110 @@ public final class LuaWorldTable {
                 }
             }
             return result;
+        }));
+
+        // raycast(from_x, from_y, from_z, dir_x, dir_y, dir_z, max_distance)
+        table.set("raycast", method(table, args -> {
+            double fx = args.checkdouble(1);
+            double fy = args.checkdouble(2);
+            double fz = args.checkdouble(3);
+            double dx = args.checkdouble(4);
+            double dy = args.checkdouble(5);
+            double dz = args.checkdouble(6);
+            double maxDist = args.optdouble(7, 50);
+
+            Location start = new Location(world, fx, fy, fz);
+            Vector direction = new Vector(dx, dy, dz).normalize();
+
+            RayTraceResult result = world.rayTrace(start, direction, maxDist,
+                    FluidCollisionMode.NEVER, true, 0.5, null);
+
+            LuaTable resultTable = new LuaTable();
+            if (result == null) {
+                resultTable.set("hit_entity", LuaValue.NIL);
+                resultTable.set("hit_location", LuaValue.NIL);
+                resultTable.set("hit_block", LuaValue.NIL);
+                return resultTable;
+            }
+
+            if (result.getHitEntity() != null) {
+                Entity hitEntity = result.getHitEntity();
+                if (hitEntity instanceof LivingEntity le) {
+                    resultTable.set("hit_entity", LuaLivingEntityTable.build(le));
+                } else {
+                    resultTable.set("hit_entity", LuaEntityTable.build(hitEntity));
+                }
+            } else {
+                resultTable.set("hit_entity", LuaValue.NIL);
+            }
+
+            if (result.getHitPosition() != null) {
+                Vector hitPos = result.getHitPosition();
+                resultTable.set("hit_location", LuaTableSupport.locationToTable(
+                        new Location(world, hitPos.getX(), hitPos.getY(), hitPos.getZ())));
+            }
+
+            if (result.getHitBlock() != null) {
+                Block hitBlock = result.getHitBlock();
+                LuaTable blockTable = new LuaTable();
+                blockTable.set("x", hitBlock.getX());
+                blockTable.set("y", hitBlock.getY());
+                blockTable.set("z", hitBlock.getZ());
+                blockTable.set("material", hitBlock.getType().name().toLowerCase(Locale.ROOT));
+                resultTable.set("hit_block", blockTable);
+            } else {
+                resultTable.set("hit_block", LuaValue.NIL);
+            }
+
+            return resultTable;
+        }));
+
+        // spawn_firework(x, y, z, colors_table, type, power)
+        table.set("spawn_firework", method(table, args -> {
+            double x = args.checkdouble(1);
+            double y = args.checkdouble(2);
+            double z = args.checkdouble(3);
+            LuaTable colorsTable = args.checktable(4);
+            String typeName = args.optjstring(5, "BALL");
+            int power = args.optint(6, 1);
+
+            Location loc = new Location(world, x, y, z);
+
+            Bukkit.getScheduler().runTask(MagmaCore.getInstance().getRequestingPlugin(), () -> {
+                Firework firework = (Firework) world.spawnEntity(loc, EntityType.FIREWORK_ROCKET);
+                FireworkMeta meta = firework.getFireworkMeta();
+
+                List<Color> colors = new ArrayList<>();
+                for (int i = 1; i <= colorsTable.length(); i++) {
+                    String colorName = colorsTable.get(i).tojstring().toUpperCase(Locale.ROOT);
+                    try {
+                        java.lang.reflect.Field field = Color.class.getField(colorName);
+                        colors.add((Color) field.get(null));
+                    } catch (Exception e) {
+                        // Skip invalid colors
+                    }
+                }
+                if (colors.isEmpty()) colors.add(Color.WHITE);
+
+                FireworkEffect.Type effectType;
+                try {
+                    effectType = FireworkEffect.Type.valueOf(typeName.toUpperCase(Locale.ROOT));
+                } catch (Exception e) {
+                    effectType = FireworkEffect.Type.BALL;
+                }
+
+                FireworkEffect effect = FireworkEffect.builder()
+                        .withColor(colors)
+                        .with(effectType)
+                        .trail(true)
+                        .build();
+
+                meta.addEffect(effect);
+                meta.setPower(power);
+                firework.setFireworkMeta(meta);
+            });
+
+            return LuaValue.NIL;
         }));
 
         return table;
