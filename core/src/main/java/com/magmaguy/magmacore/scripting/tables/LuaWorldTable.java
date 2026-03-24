@@ -150,6 +150,13 @@ public final class LuaWorldTable {
             return LuaValue.TRUE;
         }));
 
+        // get_highest_block_y(x, z) -> y coordinate of highest non-air block
+        table.set("get_highest_block_y", method(table, args -> {
+            int x = args.checkint(1);
+            int z = args.checkint(2);
+            return LuaValue.valueOf(world.getHighestBlockYAt(x, z));
+        }));
+
         // get_nearby_players(x, y, z, radius) -> array of player tables
         table.set("get_nearby_players", method(table, args -> {
             double x = args.checkdouble(1);
