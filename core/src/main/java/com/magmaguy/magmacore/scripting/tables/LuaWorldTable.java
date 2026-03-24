@@ -1,10 +1,14 @@
 package com.magmaguy.magmacore.scripting.tables;
 
+import com.magmaguy.magmacore.MagmaCore;
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.World;
 import org.bukkit.entity.Entity;
+import org.bukkit.entity.EntityType;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.luaj.vm2.LuaTable;
@@ -112,6 +116,38 @@ public final class LuaWorldTable {
                 }
             }
             return result;
+        }));
+
+        // spawn_entity(entity_type, x, y, z) -> entity table (vanilla entities only)
+        table.set("spawn_entity", method(table, args -> {
+            String entityTypeName = args.checkjstring(1).toUpperCase(Locale.ROOT);
+            EntityType entityType;
+            try {
+                entityType = EntityType.valueOf(entityTypeName);
+            } catch (IllegalArgumentException e) {
+                return LuaValue.NIL;
+            }
+            double x = args.checkdouble(2);
+            double y = args.checkdouble(3);
+            double z = args.checkdouble(4);
+            Entity spawned = world.spawnEntity(new Location(world, x, y, z), entityType);
+            if (spawned instanceof LivingEntity livingEntity) {
+                return LuaLivingEntityTable.build(livingEntity);
+            }
+            return LuaEntityTable.build(spawned);
+        }));
+
+        // set_block_at(x, y, z, material) -> true/false
+        table.set("set_block_at", method(table, args -> {
+            int x = args.checkint(1);
+            int y = args.checkint(2);
+            int z = args.checkint(3);
+            String materialName = args.checkjstring(4);
+            Material material = Material.matchMaterial(materialName);
+            if (material == null) return LuaValue.FALSE;
+            Bukkit.getScheduler().runTask(MagmaCore.getInstance().getRequestingPlugin(), () ->
+                    world.getBlockAt(x, y, z).setType(material));
+            return LuaValue.TRUE;
         }));
 
         // get_nearby_players(x, y, z, radius) -> array of player tables

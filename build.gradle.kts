@@ -6,7 +6,7 @@ plugins {
     id("com.gradleup.shadow") version "9.0.0-beta12" apply false
 }
 
-val projectVersion = "2.0.0-SNAPSHOT"
+val projectVersion = "2.1.0-SNAPSHOT"
 
 allprojects {
     group = "com.magmaguy"

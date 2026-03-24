@@ -10,6 +10,7 @@ import com.magmaguy.easyminecraftgoals.internal.PacketTextEntity;
 import com.magmaguy.easyminecraftgoals.v1_21_R1.packets.FakeTextImpl;
 import com.magmaguy.easyminecraftgoals.v1_21_R1.entitydata.BodyRotation;
 import com.magmaguy.easyminecraftgoals.v1_21_R1.hitbox.Hitbox;
+import com.magmaguy.easyminecraftgoals.v1_21_R1.passenger.PassengerOffset;
 import com.magmaguy.easyminecraftgoals.v1_21_R1.massblockedit.MassEditBlocks;
 import com.magmaguy.easyminecraftgoals.v1_21_R1.move.Move;
 import com.magmaguy.easyminecraftgoals.internal.PacketEntityInterface;
@@ -70,6 +71,12 @@ public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter {
     public boolean setCustomHitbox(Entity entity, float width, float height, boolean fixed) {
         if (entity == null) return false;
         return Hitbox.setCustomHitbox(((CraftEntity) entity).getHandle(), width, height, fixed);
+    }
+
+    @Override
+    public boolean setPassengerOffset(Entity entity, double offsetX, double offsetY, double offsetZ) {
+        if (entity == null) return false;
+        return PassengerOffset.setPassengerOffset(((CraftEntity) entity).getHandle(), offsetX, offsetY, offsetZ);
     }
 
     @Override
