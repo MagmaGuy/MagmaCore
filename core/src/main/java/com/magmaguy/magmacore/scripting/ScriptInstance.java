@@ -1,6 +1,7 @@
 package com.magmaguy.magmacore.scripting;
 
 import com.magmaguy.magmacore.MagmaCore;
+import com.magmaguy.magmacore.scripting.tables.LuaLivingEntityTable;
 import com.magmaguy.magmacore.scripting.tables.LuaTableSupport;
 import com.magmaguy.magmacore.scripting.tables.LuaWorldTable;
 import com.magmaguy.magmacore.scripting.zones.Cuboid;
@@ -45,6 +46,7 @@ public class ScriptInstance {
     private Integer tickTaskId = null;
     private boolean closed = false;
     private Event currentEvent = null;
+    private LivingEntity currentEventActor = null;
 
     public ScriptInstance(ScriptDefinition definition, ScriptableEntity entity) {
         this.definition = definition;
@@ -72,6 +74,7 @@ public class ScriptInstance {
 
         long startNanos = System.nanoTime();
         currentEvent = event;
+        currentEventActor = eventActor;
         try {
             function.checkfunction().call(buildContext(event, directTarget, eventActor));
         } catch (Exception exception) {
@@ -80,6 +83,7 @@ public class ScriptInstance {
             return;
         } finally {
             currentEvent = null;
+            currentEventActor = null;
         }
 
         long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000L;
@@ -398,6 +402,9 @@ public class ScriptInstance {
             });
         } else {
             eventTable.set("is_cancelled", LuaValue.FALSE);
+        }
+        if (currentEventActor != null) {
+            eventTable.set("player", LuaLivingEntityTable.build(currentEventActor));
         }
         return eventTable;
     }

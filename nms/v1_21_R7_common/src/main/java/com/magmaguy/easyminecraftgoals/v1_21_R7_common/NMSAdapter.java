@@ -13,6 +13,7 @@ import com.magmaguy.easyminecraftgoals.internal.PacketModelEntity;
 import com.magmaguy.easyminecraftgoals.internal.PacketTextEntity;
 import com.magmaguy.easyminecraftgoals.v1_21_R7_common.entitydata.BodyRotation;
 import com.magmaguy.easyminecraftgoals.v1_21_R7_common.hitbox.Hitbox;
+import com.magmaguy.easyminecraftgoals.v1_21_R7_common.passenger.PassengerOffset;
 import com.magmaguy.easyminecraftgoals.v1_21_R7_common.massblockedit.MassEditBlocks;
 import com.magmaguy.easyminecraftgoals.v1_21_R7_common.move.Move;
 import com.magmaguy.easyminecraftgoals.v1_21_R7_common.packets.FakeItemImpl;
@@ -74,6 +75,12 @@ public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter {
         if (entity == null) return false;
         net.minecraft.world.entity.Entity nmsEntity = CraftBukkitBridge.getNMSEntity(entity);
         return Hitbox.setCustomHitbox(nmsEntity, width, height, fixed);
+    }
+
+    @Override
+    public boolean setPassengerOffset(Entity entity, double offsetX, double offsetY, double offsetZ) {
+        if (entity == null) return false;
+        return PassengerOffset.setPassengerOffset(CraftBukkitBridge.getNMSEntity(entity), offsetX, offsetY, offsetZ);
     }
 
     @Override
