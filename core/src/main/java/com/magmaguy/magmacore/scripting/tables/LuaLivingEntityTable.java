@@ -2,12 +2,15 @@ package com.magmaguy.magmacore.scripting.tables;
 
 import com.magmaguy.magmacore.MagmaCore;
 import org.bukkit.Bukkit;
+import org.bukkit.FluidCollisionMode;
 import org.bukkit.Material;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
+import org.bukkit.util.RayTraceResult;
 import org.bukkit.util.Vector;
 import org.luaj.vm2.LuaTable;
 import org.luaj.vm2.LuaValue;
@@ -94,6 +97,30 @@ public class LuaLivingEntityTable {
             }));
 
             table.set("game_mode", player.getGameMode().name().toLowerCase());
+
+            // get_target_entity(range) -> entity table or nil
+            table.set("get_target_entity", LuaTableSupport.tableMethod(table, args -> {
+                double range = args.optdouble(1, 50);
+                org.bukkit.Location eyeLoc = player.getEyeLocation();
+                RayTraceResult result = player.getWorld().rayTrace(
+                        eyeLoc, eyeLoc.getDirection(), range,
+                        FluidCollisionMode.NEVER, true, 0.5,
+                        e -> !e.equals(player));
+                if (result == null || result.getHitEntity() == null) return LuaValue.NIL;
+                Entity hitEntity = result.getHitEntity();
+                if (hitEntity instanceof LivingEntity le) return LuaLivingEntityTable.build(le);
+                return LuaEntityTable.build(hitEntity);
+            }));
+
+            // get_eye_location() -> location table
+            table.set("get_eye_location", LuaTableSupport.tableMethod(table, args -> {
+                return LuaTableSupport.locationToTable(player.getEyeLocation());
+            }));
+
+            // get_look_direction() -> {x, y, z}
+            table.set("get_look_direction", LuaTableSupport.tableMethod(table, args -> {
+                return LuaTableSupport.vectorToTable(player.getEyeLocation().getDirection());
+            }));
 
             LuaPlayerUITable.addTo(table, player);
         }
