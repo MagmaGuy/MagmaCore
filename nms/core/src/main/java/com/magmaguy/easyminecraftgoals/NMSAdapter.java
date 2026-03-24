@@ -63,6 +63,20 @@ public abstract class NMSAdapter {
      */
     public abstract boolean setCustomHitbox(Entity entity, float width, float height, boolean fixed);
 
+    /**
+     * Sets a custom passenger riding offset for an entity, overriding where
+     * passengers sit. The offset is relative to the entity's position.
+     *
+     * @param entity  The entity whose passenger position should be changed
+     * @param offsetX X offset from entity center
+     * @param offsetY Y offset from entity position (seat height)
+     * @param offsetZ Z offset from entity center
+     * @return true if the offset was successfully applied
+     */
+    public boolean setPassengerOffset(Entity entity, double offsetX, double offsetY, double offsetZ) {
+        return false; // Not supported on older versions
+    }
+
     public abstract float getBodyRotation(Entity entity);
 
     public abstract PacketModelEntity createPacketArmorStandEntity(Location location);

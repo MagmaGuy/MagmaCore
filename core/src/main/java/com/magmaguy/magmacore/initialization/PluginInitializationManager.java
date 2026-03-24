@@ -72,10 +72,13 @@ public class PluginInitializationManager {
         shutdownRequests.put(plugin.getName(), true);
         PluginInitializationProgressBar.complete(plugin);
         setState(plugin, PluginInitializationState.UNINITIALIZED);
+        System.clearProperty("magmacore.init." + plugin.getName());
     }
 
     public static void setState(JavaPlugin plugin, PluginInitializationState state) {
         pluginStates.put(plugin.getName(), state);
+        // Publish state globally so other plugins (even with shaded Magmacore) can read it
+        System.setProperty("magmacore.init." + plugin.getName(), state.name());
     }
 
     private static boolean isDependencyPresent(String dependencyName) {
