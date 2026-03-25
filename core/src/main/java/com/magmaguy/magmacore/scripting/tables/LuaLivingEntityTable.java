@@ -157,6 +157,32 @@ public class LuaLivingEntityTable {
                 return LuaValue.TRUE;
             }));
 
+            // sleep(x, y, z) — makes the player enter a bed at the given location
+            table.set("sleep", LuaTableSupport.tableMethod(table, args -> {
+                double x = args.checkdouble(1);
+                double y = args.checkdouble(2);
+                double z = args.checkdouble(3);
+                Bukkit.getScheduler().runTask(MagmaCore.getInstance().getRequestingPlugin(), () -> {
+                    org.bukkit.Location bedLoc = new org.bukkit.Location(player.getWorld(), x, y, z);
+                    try {
+                        player.sleep(bedLoc, true);
+                    } catch (Exception ignored) {
+                        // May fail if location is invalid or player can't sleep
+                    }
+                });
+                return LuaValue.NIL;
+            }));
+
+            // wake_up() — wakes the player up if they are sleeping
+            table.set("wake_up", LuaTableSupport.tableMethod(table, args -> {
+                Bukkit.getScheduler().runTask(MagmaCore.getInstance().getRequestingPlugin(), () -> {
+                    if (player.isSleeping()) {
+                        player.wakeup(true);
+                    }
+                });
+                return LuaValue.NIL;
+            }));
+
             LuaPlayerUITable.addTo(table, player);
         }
 
