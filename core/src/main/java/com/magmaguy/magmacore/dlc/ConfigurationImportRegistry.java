@@ -148,6 +148,11 @@ final class ConfigurationImportRegistry {
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.WORLDCANNON, "world_cannon", ConfigurationImporter::getWorldCannonPath);
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.WORLDCANNON, "fun_rtps", importer -> importer.getWorldCannonPath().resolve("fun_rtps"));
 
+        registerPlatformFolder(ConfigurationImporter.PluginPlatform.FREEMINECRAFTMODELS,
+                "content_packages", importer -> importer.getFreeMinecraftModelsPath().resolve("content_packages"));
+        registerPlatformFolder(ConfigurationImporter.PluginPlatform.FREEMINECRAFTMODELS,
+                "scripts", importer -> importer.getFreeMinecraftModelsPath().resolve("scripts"));
+
         registerPlatformFallback(ConfigurationImporter.PluginPlatform.FREEMINECRAFTMODELS,
                 importer -> importer.getFreeMinecraftModelsPath().resolve("models"));
     }
