@@ -27,6 +27,8 @@ final class LuaEntityBridge {
     private static Method eliteGetHealthMethod;    // EliteEntity.getHealth() -> double
     private static Method eliteGetMaxHealthMethod; // EliteEntity.getMaxHealth() -> double
     private static Method eliteIsCustomBossMethod; // EliteEntity.isCustomBossEntity() -> boolean
+    private static Method eliteGetHealthMultiplierMethod; // EliteEntity.getHealthMultiplier() -> double
+    private static Method eliteGetDamageMultiplierMethod; // EliteEntity.getDamageMultiplier() -> double
     private static Method eliteRemoveMethod;       // EliteEntity.remove(RemovalReason) -> void
     private static Object removalReasonOther;      // RemovalReason.OTHER enum constant
 
@@ -78,6 +80,8 @@ final class LuaEntityBridge {
             eliteGetHealthMethod = eliteClass.getMethod("getHealth");
             eliteGetMaxHealthMethod = eliteClass.getMethod("getMaxHealth");
             eliteIsCustomBossMethod = eliteClass.getMethod("isCustomBossEntity");
+            eliteGetHealthMultiplierMethod = eliteClass.getMethod("getHealthMultiplier");
+            eliteGetDamageMultiplierMethod = eliteClass.getMethod("getDamageMultiplier");
 
             Class<?> removalReasonClass = Class.forName("com.magmaguy.elitemobs.api.internal.RemovalReason");
             eliteRemoveMethod = eliteClass.getMethod("remove", removalReasonClass);
@@ -94,6 +98,7 @@ final class LuaEntityBridge {
         if (isEliteMobMethod == null) {
             table.set("is_elite", LuaValue.FALSE);
             table.set("is_custom_boss", LuaValue.FALSE);
+            table.set("is_significant_boss", LuaValue.FALSE);
             return;
         }
 
@@ -103,6 +108,7 @@ final class LuaEntityBridge {
 
             if (!isElite) {
                 table.set("is_custom_boss", LuaValue.FALSE);
+                table.set("is_significant_boss", LuaValue.FALSE);
                 return;
             }
 
@@ -120,6 +126,12 @@ final class LuaEntityBridge {
             boolean isCustomBoss = (boolean) eliteIsCustomBossMethod.invoke(eliteEntity);
             eliteTable.set("is_custom_boss", LuaValue.valueOf(isCustomBoss));
             table.set("is_custom_boss", LuaValue.valueOf(isCustomBoss));
+
+            double healthMultiplier = (double) eliteGetHealthMultiplierMethod.invoke(eliteEntity);
+            double damageMultiplier = (double) eliteGetDamageMultiplierMethod.invoke(eliteEntity);
+            eliteTable.set("health_multiplier", LuaValue.valueOf(healthMultiplier));
+            eliteTable.set("damage_multiplier", LuaValue.valueOf(damageMultiplier));
+            table.set("is_significant_boss", LuaValue.valueOf(isCustomBoss && healthMultiplier > 1));
 
             final Object capturedElite = eliteEntity;
             eliteTable.set("remove", LuaTableSupport.tableMethod(eliteTable, args -> {
