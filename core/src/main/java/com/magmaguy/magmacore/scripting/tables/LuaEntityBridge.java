@@ -93,6 +93,7 @@ final class LuaEntityBridge {
 
         if (isEliteMobMethod == null) {
             table.set("is_elite", LuaValue.FALSE);
+            table.set("is_custom_boss", LuaValue.FALSE);
             return;
         }
 
@@ -100,7 +101,10 @@ final class LuaEntityBridge {
             boolean isElite = (boolean) isEliteMobMethod.invoke(null, entity);
             table.set("is_elite", LuaValue.valueOf(isElite));
 
-            if (!isElite) return;
+            if (!isElite) {
+                table.set("is_custom_boss", LuaValue.FALSE);
+                return;
+            }
 
             Object eliteEntity = getEliteMobEntityMethod.invoke(null, entity);
             if (eliteEntity == null) return;
@@ -113,7 +117,9 @@ final class LuaEntityBridge {
 
             eliteTable.set("health", LuaValue.valueOf((double) eliteGetHealthMethod.invoke(eliteEntity)));
             eliteTable.set("max_health", LuaValue.valueOf((double) eliteGetMaxHealthMethod.invoke(eliteEntity)));
-            eliteTable.set("is_custom_boss", LuaValue.valueOf((boolean) eliteIsCustomBossMethod.invoke(eliteEntity)));
+            boolean isCustomBoss = (boolean) eliteIsCustomBossMethod.invoke(eliteEntity);
+            eliteTable.set("is_custom_boss", LuaValue.valueOf(isCustomBoss));
+            table.set("is_custom_boss", LuaValue.valueOf(isCustomBoss));
 
             final Object capturedElite = eliteEntity;
             eliteTable.set("remove", LuaTableSupport.tableMethod(eliteTable, args -> {
