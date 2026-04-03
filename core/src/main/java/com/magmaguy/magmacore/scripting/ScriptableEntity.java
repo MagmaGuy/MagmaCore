@@ -5,6 +5,8 @@ import org.bukkit.entity.Entity;
 import org.luaj.vm2.LuaTable;
 import org.luaj.vm2.LuaValue;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -46,6 +48,18 @@ public abstract class ScriptableEntity {
     public LuaValue resolveExtraContext(String key, ScriptInstance instance) {
         return LuaValue.NIL;
     }
+
+    /**
+     * Returns the shared cooldown store for global cooldowns.
+     * Override to share across multiple ScriptInstances on the same logical owner
+     * (e.g., per-entity for mobs/props, per-player for items).
+     * Default returns a per-instance map (no sharing).
+     */
+    public Map<String, Long> getGlobalCooldownStore() {
+        return globalCooldowns;
+    }
+
+    private final HashMap<String, Long> globalCooldowns = new HashMap<>();
 
     /**
      * Called when ScriptInstance is shut down. Override to clean up.

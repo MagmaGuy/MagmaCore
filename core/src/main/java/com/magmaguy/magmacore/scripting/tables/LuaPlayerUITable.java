@@ -1,6 +1,7 @@
 package com.magmaguy.magmacore.scripting.tables;
 
 import com.magmaguy.magmacore.MagmaCore;
+import com.magmaguy.magmacore.util.ChatColorConverter;
 import net.md_5.bungee.api.ChatMessageType;
 import net.md_5.bungee.api.chat.TextComponent;
 import org.bukkit.Bukkit;
@@ -42,7 +43,7 @@ public class LuaPlayerUITable {
                 BossBar existing = activeBossBars.remove(uuid);
                 if (existing != null) existing.removeAll();
 
-                BossBar bar = Bukkit.createBossBar(text, finalBarColor, BarStyle.SOLID);
+                BossBar bar = Bukkit.createBossBar(ChatColorConverter.convert(text), finalBarColor, BarStyle.SOLID);
                 bar.setProgress(Math.max(0.0, Math.min(1.0, progress)));
                 bar.addPlayer(player);
                 activeBossBars.put(uuid, bar);
@@ -75,12 +76,14 @@ public class LuaPlayerUITable {
 
             if (ticks <= 0) {
                 // One-shot
+                String converted = ChatColorConverter.convert(text);
                 Bukkit.getScheduler().runTask(MagmaCore.getInstance().getRequestingPlugin(), () ->
-                        player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(text)));
+                        player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(converted)));
             } else {
                 // Repeating: re-send every 40 ticks, auto-stop after total ticks
+                String converted = ChatColorConverter.convert(text);
                 BukkitTask task = Bukkit.getScheduler().runTaskTimer(MagmaCore.getInstance().getRequestingPlugin(), () ->
-                        player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(text)), 0L, 40L);
+                        player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(converted)), 0L, 40L);
                 activeActionBars.put(uuid, task);
 
                 Bukkit.getScheduler().runTaskLater(MagmaCore.getInstance().getRequestingPlugin(), () -> {
@@ -98,8 +101,10 @@ public class LuaPlayerUITable {
             int stay = args.checkint(4);
             int fadeOut = args.checkint(5);
 
+            String convertedTitle = ChatColorConverter.convert(title);
+            String convertedSubtitle = ChatColorConverter.convert(subtitle);
             Bukkit.getScheduler().runTask(MagmaCore.getInstance().getRequestingPlugin(), () ->
-                    player.sendTitle(title, subtitle, fadeIn, stay, fadeOut));
+                    player.sendTitle(convertedTitle, convertedSubtitle, fadeIn, stay, fadeOut));
             return LuaValue.NIL;
         }));
     }

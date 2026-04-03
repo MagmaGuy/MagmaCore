@@ -58,6 +58,7 @@ public class NightbreakAccount {
 
         FileConfiguration config = YamlConfiguration.loadConfiguration(configFile);
         String token = config.getString("token");
+        if (token != null) token = token.trim();
 
         if (token == null || token.isEmpty() || token.equals("YOUR_TOKEN_HERE")) {
             Logger.info("No Nightbreak token configured. Use /nightbreaklogin <token> to register your token.");

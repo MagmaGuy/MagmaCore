@@ -19,6 +19,7 @@ import com.magmaguy.magmacore.nightbreak.NightbreakAccount;
 import com.magmaguy.magmacore.nightbreak.NightbreakPluginStateRegistry;
 import com.magmaguy.magmacore.thirdparty.CustomBiomeCompatibility;
 import com.magmaguy.magmacore.util.Logger;
+import com.magmaguy.magmacore.util.TemporaryBlockManager;
 import com.magmaguy.magmacore.util.VersionChecker;
 import lombok.Getter;
 import org.bukkit.Bukkit;
@@ -74,6 +75,7 @@ public final class MagmaCore {
         if (!listenerRegistrations.add(plugin.getName())) return;
         Bukkit.getPluginManager().registerEvents(new SetupMenu.SetupMenuListeners(), plugin);
         Bukkit.getPluginManager().registerEvents(new AdvancedMenuHandler.AdvancedMenuListeners(), plugin);
+        TemporaryBlockManager.initialize(plugin);
 //        CommandManager commandManager = new CommandManager(instance.requestingPlugin, "logify");
 //        commandManager.registerCommand(new LogifyCommand(instance.requestingPlugin));
     }
@@ -103,6 +105,7 @@ public final class MagmaCore {
         CommandManager.shutdown();
         CustomBiomeCompatibility.shutdown();
         MatchInstance.shutdown();
+        TemporaryBlockManager.shutdown();
     }
 
     public static void shutdown(JavaPlugin plugin) {

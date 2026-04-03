@@ -5,6 +5,8 @@ import io.netty.channel.*;
 import net.minecraft.network.Connection;
 import net.minecraft.network.protocol.game.ServerboundInteractPacket;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.phys.Vec3;
 import net.minecraft.server.network.ServerCommonPacketListenerImpl;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
 import org.bukkit.Bukkit;
@@ -223,15 +225,21 @@ public class PacketInteractionListener implements Listener {
     }
 
     private static boolean isAttackAction(ServerboundInteractPacket packet) {
-        try {
-            if (actionField != null) {
-                Object action = actionField.get(packet);
-                // The action's class name contains "Attack" for attack actions
-                return action.getClass().getSimpleName().contains("Attack");
+        boolean[] isAttack = {false};
+        packet.dispatch(new ServerboundInteractPacket.Handler() {
+            @Override
+            public void onAttack() {
+                isAttack[0] = true;
             }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-        return false;
+
+            @Override
+            public void onInteraction(InteractionHand hand) {
+            }
+
+            @Override
+            public void onInteraction(InteractionHand hand, Vec3 interactionLocation) {
+            }
+        });
+        return isAttack[0];
     }
 }
