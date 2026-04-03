@@ -113,7 +113,11 @@ final class LuaEntityBridge {
             }
 
             Object eliteEntity = getEliteMobEntityMethod.invoke(null, entity);
-            if (eliteEntity == null) return;
+            if (eliteEntity == null) {
+                table.set("is_custom_boss", LuaValue.FALSE);
+                table.set("is_significant_boss", LuaValue.FALSE);
+                return;
+            }
 
             LuaTable eliteTable = new LuaTable();
             eliteTable.set("level", LuaValue.valueOf((int) eliteGetLevelMethod.invoke(eliteEntity)));
@@ -131,7 +135,8 @@ final class LuaEntityBridge {
             double damageMultiplier = (double) eliteGetDamageMultiplierMethod.invoke(eliteEntity);
             eliteTable.set("health_multiplier", LuaValue.valueOf(healthMultiplier));
             eliteTable.set("damage_multiplier", LuaValue.valueOf(damageMultiplier));
-            table.set("is_significant_boss", LuaValue.valueOf(isCustomBoss && healthMultiplier > 1));
+            boolean isSignificant = isCustomBoss && healthMultiplier > 1;
+            table.set("is_significant_boss", LuaValue.valueOf(isSignificant));
 
             final Object capturedElite = eliteEntity;
             eliteTable.set("remove", LuaTableSupport.tableMethod(eliteTable, args -> {
@@ -144,6 +149,8 @@ final class LuaEntityBridge {
             table.set("elite", eliteTable);
         } catch (Exception e) {
             table.set("is_elite", LuaValue.FALSE);
+            table.set("is_custom_boss", LuaValue.FALSE);
+            table.set("is_significant_boss", LuaValue.FALSE);
         }
     }
 

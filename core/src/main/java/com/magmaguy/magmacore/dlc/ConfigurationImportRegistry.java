@@ -14,6 +14,17 @@ import java.util.Set;
 import java.util.function.Function;
 
 final class ConfigurationImportRegistry {
+
+    /**
+     * Resolves the FMM models folder, preferring the legacy "Models" name if it
+     * already exists on disk, otherwise using lowercase "models".
+     */
+    static Path resolveFmmModelsFolder(ConfigurationImporter importer) {
+        Path fmmPath = importer.getFreeMinecraftModelsPath();
+        File legacy = fmmPath.resolve("Models").toFile();
+        if (legacy.exists()) return legacy.toPath();
+        return fmmPath.resolve("models");
+    }
     private static final Map<ConfigurationImporter.PluginPlatform, Map<String, Function<ConfigurationImporter, Path>>> platformResolvers =
             new EnumMap<>(ConfigurationImporter.PluginPlatform.class);
     private static final Map<String, Function<ConfigurationImporter, Path>> globalResolvers = new HashMap<>();
@@ -70,22 +81,22 @@ final class ConfigurationImportRegistry {
         registerGlobal("modelengine", importer -> {
             importer.markModelsInstalled();
             if (Bukkit.getPluginManager().isPluginEnabled("FreeMinecraftModels")) {
-                return importer.getFreeMinecraftModelsPath().resolve("models");
+                return resolveFmmModelsFolder(importer);
             }
             if (Bukkit.getPluginManager().isPluginEnabled("ModelEngine")) {
                 return importer.getModelEnginePath().resolve("blueprints");
             }
-            return importer.getFreeMinecraftModelsPath().resolve("models");
+            return resolveFmmModelsFolder(importer);
         });
         registerGlobal("models", importer -> {
             importer.markModelsInstalled();
             if (Bukkit.getPluginManager().isPluginEnabled("FreeMinecraftModels")) {
-                return importer.getFreeMinecraftModelsPath().resolve("models");
+                return resolveFmmModelsFolder(importer);
             }
             if (Bukkit.getPluginManager().isPluginEnabled("ModelEngine")) {
                 return importer.getModelEnginePath().resolve("blueprints");
             }
-            return importer.getFreeMinecraftModelsPath().resolve("models");
+            return resolveFmmModelsFolder(importer);
         });
 
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.ELITEMOBS, "custombosses", importer -> importer.getEliteMobsPath().resolve("custombosses"));
@@ -146,15 +157,18 @@ final class ConfigurationImportRegistry {
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.WORLDCANNON, "cannonrtp", ConfigurationImporter::getWorldCannonPath);
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.WORLDCANNON, "worldcannon", ConfigurationImporter::getWorldCannonPath);
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.WORLDCANNON, "world_cannon", ConfigurationImporter::getWorldCannonPath);
-        registerPlatformFolder(ConfigurationImporter.PluginPlatform.WORLDCANNON, "fun_rtps", importer -> importer.getWorldCannonPath().resolve("fun_rtps"));
+        registerPlatformFolder(ConfigurationImporter.PluginPlatform.WORLDCANNON, "fun_rtps", importer -> importer.getWorldCannonPath().resolve("cannons"));
+        registerPlatformFolder(ConfigurationImporter.PluginPlatform.WORLDCANNON, "cannons", importer -> importer.getWorldCannonPath().resolve("cannons"));
 
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.FREEMINECRAFTMODELS,
                 "content_packages", importer -> importer.getFreeMinecraftModelsPath().resolve("content_packages"));
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.FREEMINECRAFTMODELS,
                 "scripts", importer -> importer.getFreeMinecraftModelsPath().resolve("scripts"));
+        registerPlatformFolder(ConfigurationImporter.PluginPlatform.FREEMINECRAFTMODELS,
+                "recipes", importer -> importer.getFreeMinecraftModelsPath().resolve("recipes"));
 
         registerPlatformFallback(ConfigurationImporter.PluginPlatform.FREEMINECRAFTMODELS,
-                importer -> importer.getFreeMinecraftModelsPath().resolve("models"));
+                ConfigurationImportRegistry::resolveFmmModelsFolder);
     }
 
     private static void registerPlatformFolder(ConfigurationImporter.PluginPlatform platform,

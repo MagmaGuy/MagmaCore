@@ -1,6 +1,7 @@
 package com.magmaguy.magmacore.scripting.tables;
 
 import com.magmaguy.magmacore.MagmaCore;
+import com.magmaguy.magmacore.util.TemporaryBlockManager;
 import org.bukkit.Bukkit;
 import org.bukkit.Color;
 import org.bukkit.FireworkEffect;
@@ -12,10 +13,13 @@ import org.bukkit.Sound;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Entity;
+
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Firework;
+import org.bukkit.entity.Item;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.FireworkMeta;
 import org.bukkit.util.RayTraceResult;
 import org.bukkit.util.Vector;
@@ -239,6 +243,35 @@ public final class LuaWorldTable {
             }
 
             return resultTable;
+        }));
+
+        // place_temporary_block(x, y, z, material, ticks, require_air?)
+        table.set("place_temporary_block", method(table, args -> {
+            int x = args.checkint(1);
+            int y = args.checkint(2);
+            int z = args.checkint(3);
+            String materialName = args.checkjstring(4);
+            int ticks = args.optint(5, 0);
+            boolean requireAir = args.optboolean(6, false);
+            Material material = Material.matchMaterial(materialName);
+            if (material == null) return LuaValue.FALSE;
+            Block block = world.getBlockAt(x, y, z);
+            TemporaryBlockManager.addTemporaryBlock(block, ticks, material, requireAir);
+            return LuaValue.TRUE;
+        }));
+
+        // drop_item(x, y, z, material, amount?) -> dropped item entity table or NIL
+        table.set("drop_item", method(table, args -> {
+            double x = args.checkdouble(1);
+            double y = args.checkdouble(2);
+            double z = args.checkdouble(3);
+            String materialName = args.checkjstring(4);
+            int amount = args.optint(5, 1);
+            Material material = Material.matchMaterial(materialName);
+            if (material == null) return LuaValue.NIL;
+            Location loc = new Location(world, x, y, z);
+            Item dropped = world.dropItemNaturally(loc, new ItemStack(material, amount));
+            return LuaEntityTable.build(dropped);
         }));
 
         // spawn_firework(x, y, z, colors_table, type, power)

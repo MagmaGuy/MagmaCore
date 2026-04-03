@@ -12,6 +12,7 @@ import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.util.RayTraceResult;
 import org.bukkit.util.Vector;
+import com.magmaguy.magmacore.util.ChatColorConverter;
 import org.luaj.vm2.LuaTable;
 import org.luaj.vm2.LuaValue;
 
@@ -58,7 +59,7 @@ public class LuaLivingEntityTable {
 
         if (entity instanceof Player player) {
             table.set("send_message", LuaTableSupport.tableMethod(table, args -> {
-                player.sendMessage(args.checkjstring(1));
+                player.sendMessage(ChatColorConverter.convert(args.checkjstring(1)));
                 return LuaValue.NIL;
             }));
 
@@ -157,18 +158,44 @@ public class LuaLivingEntityTable {
                 return LuaValue.TRUE;
             }));
 
-            // sleep(x, y, z) — makes the player enter a bed at the given location
+            // sleep(x, y, z) — makes the player enter a bed sleep animation at the given location
+            // Places a real bed block, sleeps the player, and monitors until they stop sleeping to clean up
             table.set("sleep", LuaTableSupport.tableMethod(table, args -> {
                 double x = args.checkdouble(1);
                 double y = args.checkdouble(2);
                 double z = args.checkdouble(3);
                 Bukkit.getScheduler().runTask(MagmaCore.getInstance().getRequestingPlugin(), () -> {
-                    org.bukkit.Location bedLoc = new org.bukkit.Location(player.getWorld(), x, y, z);
+                    org.bukkit.Location bedLoc = new org.bukkit.Location(player.getWorld(), (int) Math.floor(x), (int) Math.floor(y), (int) Math.floor(z));
+                    org.bukkit.block.Block block = bedLoc.getBlock();
+                    org.bukkit.block.data.BlockData originalData = block.getBlockData().clone();
+
+                    // Place a bed facing the player's direction
+                    block.setType(org.bukkit.Material.WHITE_BED, false);
+                    if (block.getBlockData() instanceof org.bukkit.block.data.type.Bed bedData) {
+                        // Match bed facing to the direction from bed toward the player
+                        org.bukkit.util.Vector toPlayer = player.getLocation().toVector()
+                                .subtract(bedLoc.toVector()).setY(0).normalize();
+                        float angle = (float) Math.toDegrees(Math.atan2(-toPlayer.getX(), toPlayer.getZ()));
+                        if (angle < 0) angle += 360;
+                        if (angle >= 315 || angle < 45) bedData.setFacing(org.bukkit.block.BlockFace.SOUTH);
+                        else if (angle < 135) bedData.setFacing(org.bukkit.block.BlockFace.WEST);
+                        else if (angle < 225) bedData.setFacing(org.bukkit.block.BlockFace.NORTH);
+                        else bedData.setFacing(org.bukkit.block.BlockFace.EAST);
+                        block.setBlockData(bedData, false);
+                    }
+
                     try {
                         player.sleep(bedLoc, true);
-                    } catch (Exception ignored) {
-                        // May fail if location is invalid or player can't sleep
-                    }
+                    } catch (Exception ignored) {}
+
+                    // Poll every 10 ticks — restore the block once the player stops sleeping
+                    org.bukkit.scheduler.BukkitTask[] cleanupTask = new org.bukkit.scheduler.BukkitTask[1];
+                    cleanupTask[0] = Bukkit.getScheduler().runTaskTimer(MagmaCore.getInstance().getRequestingPlugin(), () -> {
+                        if (!player.isSleeping() || !player.isOnline()) {
+                            block.setBlockData(originalData, false);
+                            cleanupTask[0].cancel();
+                        }
+                    }, 20L, 10L);
                 });
                 return LuaValue.NIL;
             }));

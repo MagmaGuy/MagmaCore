@@ -29,11 +29,12 @@ public class NMSManager {
             String versionName;
             //1.20.0 is fundamentally the same as 1.20.1 so we use R2
             if (Objects.equals(version, "v1_20_R0")) versionName = PACKAGE + "v1_20_R1" + ".NMSAdapter";
-            // For R7+, Paper hard forked and requires separate adapters
+            // For R7, Paper hard forked and requires separate adapters
             else if (Objects.equals(version, "v1_21_R7")) {
                 if (isPaper()) versionName = PACKAGE + "v1_21_R7_paper" + ".NMSAdapter";
                 else versionName = PACKAGE + "v1_21_R7_spigot" + ".NMSAdapter";
             }
+            // v26+ is unified - no Paper/Spigot split needed (fully unobfuscated)
             else versionName = PACKAGE + version + ".NMSAdapter";
 //            plugin.getLogger().info("Loading class: " + versionName);
             adapter = (NMSAdapter) Class.forName(versionName).getDeclaredConstructor().newInstance();
@@ -68,6 +69,7 @@ public class NMSManager {
         }
     }
 
+
     public static NMSAdapter getAdapter() {
         return adapter;
     }
@@ -98,12 +100,27 @@ public class NMSManager {
 
         try {
             String justVersion = versionString.split("-")[0];
-            int major = Integer.parseInt(justVersion.split("\\.")[1]);
+            String[] parts = justVersion.split("\\.");
+
+            int major;
             int minor;
-            try {
-                minor = Integer.parseInt(justVersion.split("\\.")[2]);
-            } catch (Exception e) {
-                minor = 0;
+
+            if (parts[0].equals("1")) {
+                // Legacy format: 1.MAJOR.MINOR (e.g. 1.21.11)
+                major = Integer.parseInt(parts[1]);
+                try {
+                    minor = Integer.parseInt(parts[2]);
+                } catch (Exception e) {
+                    minor = 0;
+                }
+            } else {
+                // New year.drop format: MAJOR.MINOR (e.g. 26.1)
+                major = Integer.parseInt(parts[0]);
+                try {
+                    minor = Integer.parseInt(parts[1]);
+                } catch (Exception e) {
+                    minor = 0;
+                }
             }
             return getInternalsFromRevision(major, minor);
         } catch (Exception e) {
@@ -113,13 +130,11 @@ public class NMSManager {
     }
 
     private static String getInternalsFromRevision(int major, int minor) {
-        String versionString = "v1_";
         if (major == 20) {
-            versionString += "20_";
             if (minor == 6)
-                return versionString + "R4";
+                return "v1_20_R4";
         } else if (major == 21) {
-            versionString += "21_";
+            String versionString = "v1_21_";
             if (minor == 0 || minor == 1)
                 return versionString + "R1";
             if (minor == 2 || minor == 3)
@@ -128,17 +143,20 @@ public class NMSManager {
                 return versionString + "R3";
             if (minor == 5)
                 return versionString + "R4";
-            if (minor == 6 || minor == 7 || minor == 8 )
+            if (minor == 6 || minor == 7 || minor == 8)
                 return versionString + "R5";
             if (minor == 9 || minor == 10)
                 return versionString + "R6";
             if (minor == 11)
                 return versionString + "R7";
+        } else if (major >= 26) {
+            // MC 26.1+ is fully unobfuscated - uses dedicated v26 adapter
+            return "v26";
         }
         pluginProvider.getLogger().warning(
                 "Incompatible Minecraft version detected! [3] Package: " +
                         Bukkit.getServer().getClass().getPackage().getName() +
-                        " version: " + Bukkit.getServer().getVersion() + " and attempted to get " + versionString
+                        " version: " + Bukkit.getServer().getVersion() + " major: " + major + " minor: " + minor
                         + " ! Report this to the developer.");
         return null;
     }

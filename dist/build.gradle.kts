@@ -23,6 +23,7 @@ dependencies {
     implementation(project(":nms:v1_21_R6"))
     implementation(project(":nms:v1_21_R7_spigot"))
     // Don't include v1_21_R7_paper via normal dependency - we'll add the reobfJar directly
+    implementation(project(":nms:v26"))
 }
 
 // Get the reobfJar output from v1_21_R7_paper after projects are evaluated
