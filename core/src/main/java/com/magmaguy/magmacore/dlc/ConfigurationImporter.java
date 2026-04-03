@@ -377,7 +377,7 @@ public class ConfigurationImporter {
             currentFile = parentFile;
         }
 
-        String modelsDirectory = freeMinecraftModelsPath.toFile().getAbsolutePath() + File.separatorChar + "models";
+        String modelsDirectory = ConfigurationImportRegistry.resolveFmmModelsFolder(this).toFile().getAbsolutePath();
         String pathName;
         if (parentFiles.isEmpty()) {
             pathName = modelsDirectory + File.separatorChar + bbmodelFile.getName().replace(".bbmodel", ".fmmodel");

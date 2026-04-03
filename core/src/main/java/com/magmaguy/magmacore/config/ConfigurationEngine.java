@@ -104,6 +104,17 @@ public class ConfigurationEngine {
         return value;
     }
 
+    public static String setRawString(FileConfiguration fileConfiguration, String key, String defaultValue) {
+        fileConfiguration.addDefault(key, defaultValue);
+        return fileConfiguration.getString(key);
+    }
+
+    public static String setRawString(List<String> comments, FileConfiguration fileConfiguration, String key, String defaultValue) {
+        String value = setRawString(fileConfiguration, key, defaultValue);
+        setComments(fileConfiguration, key, comments);
+        return value;
+    }
+
 
     public static int setInt(FileConfiguration fileConfiguration, String key, int defaultValue) {
         fileConfiguration.addDefault(key, defaultValue);

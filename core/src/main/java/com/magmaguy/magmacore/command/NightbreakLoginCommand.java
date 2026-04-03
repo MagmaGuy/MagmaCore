@@ -45,7 +45,7 @@ public class NightbreakLoginCommand extends AdvancedCommand {
             return;
         }
 
-        String token = args[0];
+        String token = args[0].trim();
 
         // Warn if token doesn't look like a Nightbreak token (they typically start with nbk_)
         if (!token.startsWith("nbk_")) {

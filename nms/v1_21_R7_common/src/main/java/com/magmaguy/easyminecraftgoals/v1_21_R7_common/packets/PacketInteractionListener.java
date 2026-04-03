@@ -53,7 +53,7 @@ public class PacketInteractionListener implements Listener {
         }
 
         try {
-            // Get action field from ServerboundInteractPacket
+            // Get action field from ServerboundInteractPacket (pre-26.1 only)
             actionField = ServerboundInteractPacket.class.getDeclaredField("action");
             actionField.setAccessible(true);
         } catch (NoSuchFieldException e) {
@@ -61,7 +61,8 @@ public class PacketInteractionListener implements Listener {
                 actionField = ServerboundInteractPacket.class.getDeclaredField("b");
                 actionField.setAccessible(true);
             } catch (NoSuchFieldException ex) {
-                ex.printStackTrace();
+                // MC 26.1+ refactored the packet to a Record - action field no longer exists.
+                // isAttackAction() uses the usingSecondaryAction() accessor instead.
             }
         }
 
@@ -213,6 +214,12 @@ public class PacketInteractionListener implements Listener {
 
     private static int getEntityId(ServerboundInteractPacket packet) {
         try {
+            // Try record accessor first (MC 26.1+)
+            try {
+                return (int) ServerboundInteractPacket.class.getMethod("entityId").invoke(packet);
+            } catch (NoSuchMethodException ignored) {
+            }
+            // Fall back to reflection field access
             if (entityIdField != null) {
                 return entityIdField.getInt(packet);
             }
@@ -223,14 +230,28 @@ public class PacketInteractionListener implements Listener {
     }
 
     private static boolean isAttackAction(ServerboundInteractPacket packet) {
+        // MC 26.1+: Packet is a Record with usingSecondaryAction boolean and no dispatch()
         try {
-            if (actionField != null) {
-                Object action = actionField.get(packet);
-                // The action's class name contains "Attack" for attack actions
-                return action.getClass().getSimpleName().contains("Attack");
-            }
+            java.lang.reflect.Method m = ServerboundInteractPacket.class.getMethod("usingSecondaryAction");
+            return (boolean) m.invoke(packet);
+        } catch (NoSuchMethodException ignored) {
+            // Pre-26.1: Use the dispatch() + Handler pattern
         } catch (Exception e) {
             e.printStackTrace();
+        }
+
+        // Pre-26.1: Use dispatch with Handler interface
+        try {
+            boolean[] isAttack = {false};
+            java.lang.reflect.Method dispatch = ServerboundInteractPacket.class.getMethod("dispatch", Class.forName(
+                    ServerboundInteractPacket.class.getName() + "$Handler"));
+            // Use the action field to check type name for "attack"
+            if (actionField != null) {
+                Object action = actionField.get(packet);
+                return action != null && action.getClass().getSimpleName().toLowerCase().contains("attack");
+            }
+        } catch (Exception e) {
+            // Last resort fallback
         }
         return false;
     }

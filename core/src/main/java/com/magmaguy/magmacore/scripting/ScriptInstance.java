@@ -40,6 +40,7 @@ public class ScriptInstance {
     private final Map<Integer, OwnedTask> ownedTasks = new LinkedHashMap<>();
 
     private final Map<Integer, ScriptZone> zoneWatches = new LinkedHashMap<>();
+    private final HashMap<String, Long> cooldowns = new HashMap<>();
     private int nextZoneHandle = 1;
 
     private LuaTable scriptTable;
@@ -175,6 +176,7 @@ public class ScriptInstance {
                                          LivingEntity directTarget, LivingEntity eventActor) {
         return switch (key) {
             case "log" -> createLogTable();
+            case "cooldowns" -> createCooldownTable();
             case "scheduler" -> createSchedulerTable();
             case "world" -> {
                 Location loc = entity.getLocation();
@@ -238,6 +240,90 @@ public class ScriptInstance {
             return LuaValue.NIL;
         }));
         return scheduler;
+    }
+
+    // ── Cooldowns ────────────────────────────────────────────────────────
+
+    public boolean isCooldownReady(String key) {
+        Long expiresAt = cooldowns.get(key);
+        if (expiresAt == null) return true;
+        if (expiresAt <= System.nanoTime()) {
+            cooldowns.remove(key);
+            return true;
+        }
+        return false;
+    }
+
+    public long getCooldownRemainingTicks(String key) {
+        Long expiresAt = cooldowns.get(key);
+        if (expiresAt == null) return 0L;
+        long remainingNanos = expiresAt - System.nanoTime();
+        if (remainingNanos <= 0) {
+            cooldowns.remove(key);
+            return 0L;
+        }
+        return Math.max(1L, remainingNanos / 50_000_000L);
+    }
+
+    public void setCooldown(String key, long ticks) {
+        if (ticks <= 0) {
+            cooldowns.remove(key);
+            return;
+        }
+        cooldowns.put(key, System.nanoTime() + ticks * 50_000_000L);
+    }
+
+    private String resolveCooldownKey(Varargs args, int index) {
+        if (args.narg() < index || args.arg(index).isnil()) {
+            return "__lua:" + definition.getFileName();
+        }
+        return args.checkjstring(index);
+    }
+
+    private LuaTable createCooldownTable() {
+        LuaTable cd = new LuaTable();
+        cd.set("local_ready", method(cd, args ->
+                LuaValue.valueOf(isCooldownReady(resolveCooldownKey(args, 1)))));
+        cd.set("local_remaining", method(cd, args ->
+                LuaValue.valueOf(getCooldownRemainingTicks(resolveCooldownKey(args, 1)))));
+        cd.set("check_local", method(cd, args -> {
+            String key = resolveCooldownKey(args, 1);
+            int duration = args.checkint(2);
+            if (!isCooldownReady(key)) return LuaValue.FALSE;
+            setCooldown(key, duration);
+            return LuaValue.TRUE;
+        }));
+        cd.set("set_local", method(cd, args -> {
+            setCooldown(resolveCooldownKey(args, 2), args.checklong(1));
+            return LuaValue.NIL;
+        }));
+        // Global cooldowns — shared across all scripts on the same owner
+        Map<String, Long> globalStore = entity.getGlobalCooldownStore();
+        cd.set("global_ready", method(cd, args ->
+                LuaValue.valueOf(isGlobalCooldownReady(globalStore))));
+        cd.set("set_global", method(cd, args -> {
+            setGlobalCooldown(globalStore, args.checklong(1));
+            return LuaValue.NIL;
+        }));
+        return cd;
+    }
+
+    private static boolean isGlobalCooldownReady(Map<String, Long> store) {
+        Long expiresAt = store.get("__global");
+        if (expiresAt == null) return true;
+        if (expiresAt <= System.nanoTime()) {
+            store.remove("__global");
+            return true;
+        }
+        return false;
+    }
+
+    private static void setGlobalCooldown(Map<String, Long> store, long ticks) {
+        if (ticks <= 0) {
+            store.remove("__global");
+            return;
+        }
+        store.put("__global", System.nanoTime() + ticks * 50_000_000L);
     }
 
     // ── Task management ──────────────────────────────────────────────────
@@ -382,7 +468,7 @@ public class ScriptInstance {
     // ── Event table ──────────────────────────────────────────────────────
 
     private LuaValue createEventTable() {
-        if (currentEvent == null) return LuaValue.NIL;
+        if (currentEvent == null && currentEventActor == null) return LuaValue.NIL;
         LuaTable eventTable = new LuaTable();
         if (currentEvent instanceof Cancellable cancellable) {
             eventTable.set("is_cancelled", LuaValue.valueOf(cancellable.isCancelled()));
