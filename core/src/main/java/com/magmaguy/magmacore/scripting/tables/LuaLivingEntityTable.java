@@ -57,6 +57,19 @@ public class LuaLivingEntityTable {
             return LuaValue.NIL;
         }));
 
+        // get_scale() -> current entity scale (defaults to 1.0 on servers without GENERIC_SCALE)
+        table.set("get_scale", LuaTableSupport.tableMethod(table, args -> {
+            org.bukkit.attribute.AttributeInstance attr = resolveScaleAttribute(entity);
+            return LuaValue.valueOf(attr != null ? attr.getValue() : 1.0);
+        }));
+
+        // set_scale(value) -> sets entity scale via the generic.scale attribute (no-op on <1.20.5)
+        table.set("set_scale", LuaTableSupport.tableMethod(table, args -> {
+            org.bukkit.attribute.AttributeInstance attr = resolveScaleAttribute(entity);
+            if (attr != null) attr.setBaseValue(args.checkdouble(1));
+            return LuaValue.NIL;
+        }));
+
         if (entity instanceof Player player) {
             table.set("send_message", LuaTableSupport.tableMethod(table, args -> {
                 player.sendMessage(ChatColorConverter.convert(args.checkjstring(1)));
@@ -214,5 +227,20 @@ public class LuaLivingEntityTable {
         }
 
         return table;
+    }
+
+    /**
+     * Resolves the generic.scale attribute instance for an entity, or null if the
+     * server version does not expose it (pre-1.20.5).
+     */
+    private static org.bukkit.attribute.AttributeInstance resolveScaleAttribute(LivingEntity entity) {
+        try {
+            org.bukkit.attribute.Attribute attribute = org.bukkit.Registry.ATTRIBUTE.get(
+                    org.bukkit.NamespacedKey.minecraft("generic.scale"));
+            if (attribute == null) return null;
+            return entity.getAttribute(attribute);
+        } catch (Throwable ignored) {
+            return null;
+        }
     }
 }

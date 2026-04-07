@@ -62,6 +62,18 @@ public abstract class ScriptableEntity {
     private final HashMap<String, Long> globalCooldowns = new HashMap<>();
 
     /**
+     * Returns the local cooldown store for a given script definition. Override to
+     * persist local cooldowns across {@link ScriptInstance} lifetimes (e.g. items
+     * that re-instantiate their ScriptInstance every time they are equipped).
+     * Default returns a per-instance map (no persistence beyond the ScriptInstance).
+     */
+    public Map<String, Long> getLocalCooldownStore(ScriptDefinition definition) {
+        return localCooldowns;
+    }
+
+    private final HashMap<String, Long> localCooldowns = new HashMap<>();
+
+    /**
      * Called when ScriptInstance is shut down. Override to clean up.
      */
     public void onShutdown() {
