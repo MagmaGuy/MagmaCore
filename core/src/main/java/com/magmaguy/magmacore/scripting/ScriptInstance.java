@@ -40,7 +40,6 @@ public class ScriptInstance {
     private final Map<Integer, OwnedTask> ownedTasks = new LinkedHashMap<>();
 
     private final Map<Integer, ScriptZone> zoneWatches = new LinkedHashMap<>();
-    private final HashMap<String, Long> cooldowns = new HashMap<>();
     private int nextZoneHandle = 1;
 
     private LuaTable scriptTable;
@@ -245,6 +244,7 @@ public class ScriptInstance {
     // ── Cooldowns ────────────────────────────────────────────────────────
 
     public boolean isCooldownReady(String key) {
+        Map<String, Long> cooldowns = entity.getLocalCooldownStore(definition);
         Long expiresAt = cooldowns.get(key);
         if (expiresAt == null) return true;
         if (expiresAt <= System.nanoTime()) {
@@ -255,6 +255,7 @@ public class ScriptInstance {
     }
 
     public long getCooldownRemainingTicks(String key) {
+        Map<String, Long> cooldowns = entity.getLocalCooldownStore(definition);
         Long expiresAt = cooldowns.get(key);
         if (expiresAt == null) return 0L;
         long remainingNanos = expiresAt - System.nanoTime();
@@ -266,6 +267,7 @@ public class ScriptInstance {
     }
 
     public void setCooldown(String key, long ticks) {
+        Map<String, Long> cooldowns = entity.getLocalCooldownStore(definition);
         if (ticks <= 0) {
             cooldowns.remove(key);
             return;
