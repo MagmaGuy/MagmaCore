@@ -234,9 +234,17 @@ public class LuaLivingEntityTable {
      * server version does not expose it (pre-1.20.5).
      */
     private static org.bukkit.attribute.AttributeInstance resolveScaleAttribute(LivingEntity entity) {
+        // Attribute registry key changed across versions:
+        //   1.20.5 – 1.20.6:  minecraft:generic.scale
+        //   1.21+:            minecraft:scale
+        // Try both so the binding works on every supported server.
         try {
             org.bukkit.attribute.Attribute attribute = org.bukkit.Registry.ATTRIBUTE.get(
-                    org.bukkit.NamespacedKey.minecraft("generic.scale"));
+                    org.bukkit.NamespacedKey.minecraft("scale"));
+            if (attribute == null) {
+                attribute = org.bukkit.Registry.ATTRIBUTE.get(
+                        org.bukkit.NamespacedKey.minecraft("generic.scale"));
+            }
             if (attribute == null) return null;
             return entity.getAttribute(attribute);
         } catch (Throwable ignored) {
