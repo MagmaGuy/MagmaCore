@@ -96,6 +96,45 @@ public class TemporaryWorldManager {
     }
 
     /**
+     * Creates a fresh temporary world using a caller-supplied {@link ChunkGenerator}, with
+     * no template folder on disk. Unlike {@link #createVoidTemporaryWorld(String, World.Environment)},
+     * this does NOT auto-append an identifier — the caller is responsible for choosing a unique
+     * final world name. If a world with {@code worldName} is already loaded, it is returned
+     * immediately (matching {@link #loadVoidTemporaryWorld(String, World.Environment)}).
+     * <p>
+     * Post-create settings mirror {@link #createVoidTemporaryWorld}: spawn not kept in memory,
+     * difficulty HARD, autosave off (these worlds are ephemeral).
+     *
+     * @param worldName   unique world folder name under {@link Bukkit#getWorldContainer()}
+     * @param environment nether / end / normal
+     * @param generator   the {@link ChunkGenerator} responsible for producing surface blocks
+     * @return the created {@link World}, or {@code null} on failure
+     */
+    public static World createTemporaryWorldWithGenerator(String worldName, World.Environment environment, ChunkGenerator generator) {
+        //Case where the world is already loaded
+        if (Bukkit.getWorld(worldName) != null) return Bukkit.getWorld(worldName);
+
+        try {
+            Logger.info("Creating world " + worldName + " with custom generator !");
+            WorldCreator worldCreator = new WorldCreator(worldName);
+            worldCreator.environment(environment);
+            worldCreator.generator(generator);
+            World world = Bukkit.createWorld(worldCreator);
+            if (world != null) {
+                world.setKeepSpawnInMemory(false);
+                world.setDifficulty(Difficulty.HARD);
+                world.setAutoSave(false);
+            }
+            Logger.info("Successfully loaded world " + worldName + " !");
+            return world;
+        } catch (Exception exception) {
+            Logger.warn("Failed to load world " + worldName + " !");
+            exception.printStackTrace();
+        }
+        return null;
+    }
+
+    /**
      * Generates a world which does not save, does not keep spawn loaded and is a void world
      *
      * @param worldName
