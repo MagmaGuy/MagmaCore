@@ -5,12 +5,33 @@ import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.entity.BlockDisplay;
 import org.bukkit.entity.Display;
+import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.Transformation;
 import org.bukkit.util.Vector;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
+import java.util.Iterator;
+import java.util.concurrent.ConcurrentLinkedQueue;
+
 public class DrawLine {
+    /**
+     * Pending auto-removal entries for lines with finite {@code tickDuration}. A single
+     * shared ticker decrements {@code remainingTicks} each server tick, skipping when
+     * {@link #paused} is true. This keeps line lifetimes in lockstep with consumer
+     * pause state (e.g. match time-stop) so telegraph beams and other visuals don't
+     * vanish while the game is frozen. See {@code pauseAll()} / {@code resumeAll()}.
+     */
+    private static final ConcurrentLinkedQueue<PendingRemoval> pendingRemovals = new ConcurrentLinkedQueue<>();
+    private static BukkitTask tickerTask = null;
+    /**
+     * Global pause flag toggled by consumers (MegaBlock Survivors' time-stop path, etc.).
+     * When true, the shared ticker freezes all outstanding {@code tickDuration} countdowns.
+     * Intentionally not match-scoped: DrawLine is a plain utility with no concept of matches.
+     */
+    private static volatile boolean paused = false;
+
     private DrawLine() {
     }
 
@@ -53,14 +74,56 @@ public class DrawLine {
         });
 
         if (tickDuration > 0) {
-            Bukkit.getScheduler().runTaskLater(
-                    MagmaCore.getInstance().getRequestingPlugin(),
-                    display::remove,
-                    tickDuration
-            );
+            pendingRemovals.add(new PendingRemoval(display, tickDuration));
+            ensureTickerRunning();
         }
 
         return new LineData(display, start, end, width);
+    }
+
+    /**
+     * Freezes auto-removal countdowns for lines spawned with a finite {@code tickDuration}.
+     * Consumers (e.g. a Survivors-style match instance) should call this when gameplay is
+     * paused so telegraph beams don't silently expire while the world is frozen.
+     */
+    public static void pauseAll() {
+        paused = true;
+    }
+
+    /**
+     * Resumes auto-removal countdowns. Safe to call when not paused.
+     */
+    public static void resumeAll() {
+        paused = false;
+    }
+
+    public static boolean isPaused() {
+        return paused;
+    }
+
+    private static void ensureTickerRunning() {
+        if (tickerTask != null) return;
+        // Lazy-start the shared ticker. One timer handles all pending removals.
+        tickerTask = new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (paused) return;
+                Iterator<PendingRemoval> it = pendingRemovals.iterator();
+                while (it.hasNext()) {
+                    PendingRemoval pr = it.next();
+                    // Display already removed externally (e.g. LineData.remove()) — forget it.
+                    if (pr.display == null || !pr.display.isValid()) {
+                        it.remove();
+                        continue;
+                    }
+                    pr.remainingTicks--;
+                    if (pr.remainingTicks <= 0) {
+                        pr.display.remove();
+                        it.remove();
+                    }
+                }
+            }
+        }.runTaskTimer(MagmaCore.getInstance().getRequestingPlugin(), 1L, 1L);
     }
 
     public static void updateLine(LineData lineData, Location start, Location end) {
@@ -106,6 +169,16 @@ public class DrawLine {
 
         // Update the stored positions in the LineData
         lineData.updatePositions(start, end);
+    }
+
+    private static final class PendingRemoval {
+        final BlockDisplay display;
+        int remainingTicks;
+
+        PendingRemoval(BlockDisplay display, int remainingTicks) {
+            this.display = display;
+            this.remainingTicks = remainingTicks;
+        }
     }
 
     // Class to hold line data - mutable since we'll be updating it
