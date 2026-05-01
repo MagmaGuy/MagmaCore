@@ -5,6 +5,7 @@ import com.google.gson.internal.LinkedTreeMap;
 import com.magmaguy.magmacore.MagmaCore;
 import com.magmaguy.magmacore.events.ModelInstallationEvent;
 import com.magmaguy.magmacore.util.Logger;
+import com.magmaguy.magmacore.util.WorldFolderResolver;
 import com.magmaguy.magmacore.util.ZipFile;
 import org.apache.commons.io.FileUtils;
 import org.bukkit.Bukkit;
@@ -83,7 +84,7 @@ public class ConfigurationImporter {
                 Path destinationPath = worldContainerPath.resolve(file.getName());
                 File destinationFile = destinationPath.toFile();
 
-                if (destinationFile.exists()) {
+                if (destinationFile.exists() || WorldFolderResolver.hasModernLayout(file.getName())) {
                     Logger.info("Overriding existing directory " + destinationFile.getPath());
                     if (Bukkit.getWorld(file.getName()) != null) {
                         if (Bukkit.isPrimaryThread()) {
@@ -101,7 +102,9 @@ public class ConfigurationImporter {
                         }
                         Logger.warn("Unloaded world " + file.getName() + " for safe replacement!");
                     }
-                    deleteDirectory(destinationFile);
+                    // Clear both layouts so a re-import on Paper 26.1+ doesn't leave the
+                    // modern-layout copy intact and trip mergeMove on the next createWorld.
+                    WorldFolderResolver.deleteAllLayouts(file.getName());
                 }
                 moveDirectory(file, destinationPath);
             } catch (Exception exception) {

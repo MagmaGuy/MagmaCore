@@ -1,7 +1,6 @@
 package com.magmaguy.magmacore.util;
 
 import com.magmaguy.magmacore.MagmaCore;
-import org.apache.commons.io.FileUtils;
 import org.bukkit.Bukkit;
 import org.bukkit.Difficulty;
 import org.bukkit.World;
@@ -10,7 +9,6 @@ import org.bukkit.generator.ChunkGenerator;
 import org.bukkit.generator.WorldInfo;
 import org.bukkit.scheduler.BukkitRunnable;
 
-import java.io.File;
 import java.util.Random;
 
 public class TemporaryWorldManager {
@@ -24,16 +22,16 @@ public class TemporaryWorldManager {
     public static World loadVoidTemporaryWorld(String worldName, World.Environment environment) {
         //Case where the world is already loaded
         if (Bukkit.getWorld(worldName) != null) return Bukkit.getWorld(worldName);
-        File worldFolder = new File(Bukkit.getWorldContainer(), worldName);
-        if (!worldFolder.exists()) {
-            Logger.warn("File " + worldFolder.getAbsolutePath() + " does not exist!");
+        if (!WorldFolderResolver.folderExists(worldName)) {
+            Logger.warn("World folder for " + worldName + " does not exist at "
+                    + WorldFolderResolver.legacyFolder(worldName) + " or "
+                    + WorldFolderResolver.modernFolder(worldName) + "!");
             return null;
         }
+        // Quarantine Paper 26.1+ migration debris (no-op on Spigot / clean states)
+        // so Bukkit.createWorld doesn't throw "Refusing to overwrite existing migrated file".
+        WorldFolderResolver.quarantineMigrationDebris(worldName);
         Logger.info("Loading world " + worldName + " !");
-
-//        Filter filter = newFilter -> false;
-//        Filter previousFilter = Bukkit.getLogger().getFilter();
-//        Bukkit.getLogger().setFilter(filter);
 
         try {
             Logger.info("Creating world " + worldName + " !");
@@ -71,11 +69,13 @@ public class TemporaryWorldManager {
     public static World loadTemporaryWorldWithGenerator(String worldName, World.Environment environment, ChunkGenerator generator) {
         //Case where the world is already loaded
         if (Bukkit.getWorld(worldName) != null) return Bukkit.getWorld(worldName);
-        File worldFolder = new File(Bukkit.getWorldContainer(), worldName);
-        if (!worldFolder.exists()) {
-            Logger.warn("File " + worldFolder.getAbsolutePath() + " does not exist!");
+        if (!WorldFolderResolver.folderExists(worldName)) {
+            Logger.warn("World folder for " + worldName + " does not exist at "
+                    + WorldFolderResolver.legacyFolder(worldName) + " or "
+                    + WorldFolderResolver.modernFolder(worldName) + "!");
             return null;
         }
+        WorldFolderResolver.quarantineMigrationDebris(worldName);
         Logger.info("Loading world " + worldName + " with custom generator !");
 
         try {
@@ -113,6 +113,7 @@ public class TemporaryWorldManager {
     public static World createTemporaryWorldWithGenerator(String worldName, World.Environment environment, ChunkGenerator generator) {
         //Case where the world is already loaded
         if (Bukkit.getWorld(worldName) != null) return Bukkit.getWorld(worldName);
+        WorldFolderResolver.quarantineMigrationDebris(worldName);
 
         try {
             Logger.info("Creating world " + worldName + " with custom generator !");
@@ -144,12 +145,10 @@ public class TemporaryWorldManager {
     public static World createVoidTemporaryWorld(String worldName, World.Environment environment) {
         //Case where the world is already loaded
         int identifier = 1;
-        while (Bukkit.getWorld(worldName + "_" + identifier) != null) identifier++;
+        while (Bukkit.getWorld(worldName + "_" + identifier) != null
+                || WorldFolderResolver.folderExists(worldName + "_" + identifier)) identifier++;
         worldName += "_" + identifier;
-
-//        Filter filter = newFilter -> false;
-//        Filter previousFilter = Bukkit.getLogger().getFilter();
-//        Bukkit.getLogger().setFilter(filter);
+        WorldFolderResolver.quarantineMigrationDebris(worldName);
 
         try {
             Logger.info("Creating world " + worldName + " !");
@@ -212,12 +211,8 @@ public class TemporaryWorldManager {
     }
 
     private static void deleteWorldDirectory(String worldName) {
-        try {
-            FileUtils.deleteDirectory(new File(Bukkit.getWorldContainer(), worldName));
-            Logger.info("Successfully deleted temporary world " + worldName);
-        } catch (Exception e) {
-            Logger.warn("Failed to delete " + worldName + " ! This is bad, report this to the developer!");
-        }
+        WorldFolderResolver.deleteAllLayouts(worldName);
+        Logger.info("Successfully deleted temporary world " + worldName);
     }
 
     private static class VoidGenerator extends ChunkGenerator {
