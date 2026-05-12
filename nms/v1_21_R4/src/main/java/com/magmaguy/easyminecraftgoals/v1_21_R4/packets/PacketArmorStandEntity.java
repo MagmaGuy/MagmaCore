@@ -6,7 +6,9 @@ import com.magmaguy.easyminecraftgoals.internal.PacketTextEntity;
 import com.mojang.datafixers.util.Pair;
 import net.minecraft.core.Rotations;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket;
 import net.minecraft.network.protocol.game.ClientboundSetEquipmentPacket;
+import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.decoration.ArmorStand;
@@ -87,7 +89,21 @@ public class PacketArmorStandEntity extends AbstractPacketEntity<ArmorStand> imp
     @Override
     public AbstractPacketBundle generateLocationAndRotationAndScalePackets(AbstractPacketBundle packetBundle, Location location, EulerAngle eulerAngle, float scale) {
         packetBundle.addPacket(generateMovePacket(location), getViewersAsPlayers());
-        packetBundle.addPacket(createEntityDataPacket(), getViewersAsPlayers());
+        if (eulerAngle != null) {
+            Rotations rotations = new Rotations(
+                    (float) Math.toDegrees(eulerAngle.getX()),
+                    (float) Math.toDegrees(eulerAngle.getY()),
+                    (float) Math.toDegrees(eulerAngle.getZ()));
+            entity.setHeadPose(rotations);
+            // Force-send the HeadPose data value every tick. createEntityDataPacket() uses
+            // getNonDefaultValues() which silently drops the entry when the value equals the
+            // field default OR when SynchedEntityData.set() didn't mark dirty -- either case
+            // breaks bone-rotation animation on Bedrock. Manually packaging the field value
+            // bypasses both filters so Geyser's ArmorStandEntity.setHeadRotation always fires.
+            SynchedEntityData.DataValue<Rotations> dv =
+                    SynchedEntityData.DataValue.create(ArmorStand.DATA_HEAD_POSE, rotations);
+            packetBundle.addPacket(new ClientboundSetEntityDataPacket(entity.getId(), java.util.List.of(dv)), getViewersAsPlayers());
+        }
         return packetBundle;
     }
 
@@ -111,8 +127,20 @@ public void displayTo(Player player) {
 
     private void rotate(EulerAngle eulerAngle) {
         if (eulerAngle == null) return;
-        entity.setHeadPose(new Rotations((float) Math.toDegrees(eulerAngle.getX()), (float) Math.toDegrees(eulerAngle.getY()), (float) Math.toDegrees(eulerAngle.getZ())));
-        sendPacket(createEntityDataPacket());
+        Rotations rotations = new Rotations(
+                (float) Math.toDegrees(eulerAngle.getX()),
+                (float) Math.toDegrees(eulerAngle.getY()),
+                (float) Math.toDegrees(eulerAngle.getZ()));
+        entity.setHeadPose(rotations);
+        // Force-send the HeadPose data value every tick. The default createEntityDataPacket()
+        // uses getNonDefaultValues() which drops the entry when the value equals the field default
+        // OR when SynchedEntityData.set() didn't mark dirty (because the new value equals the
+        // previously-set value). Either case prevents Geyser from receiving HeadPose updates and
+        // breaks bone-rotation animation on Bedrock. Manually packaging the field value bypasses
+        // both filters.
+        SynchedEntityData.DataValue<Rotations> dv =
+                SynchedEntityData.DataValue.create(ArmorStand.DATA_HEAD_POSE, rotations);
+        sendPacket(new ClientboundSetEntityDataPacket(entity.getId(), java.util.List.of(dv)));
     }
 
     @Override
