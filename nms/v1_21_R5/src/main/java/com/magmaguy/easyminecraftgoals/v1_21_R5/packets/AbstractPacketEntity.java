@@ -187,7 +187,7 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
 
     protected Packet<?> generateTeleportPacket() {
         // Need to include the actual yaw and pitch!
-        return new ClientboundTeleportEntityPacket(
+        return new ClientboundEntityPositionSyncPacket(
                 EntityID,
                 new PositionMoveRotation(
                         entity.position(),
@@ -195,7 +195,6 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
                         entity.getYRot(),  // Use actual yaw
                         entity.getXRot()   // Use actual pitch
                 ),
-                new HashSet<>(),
                 true
         );
     }
