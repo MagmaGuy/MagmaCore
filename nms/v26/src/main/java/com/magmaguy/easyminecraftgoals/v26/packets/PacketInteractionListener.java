@@ -4,6 +4,7 @@ import com.magmaguy.easyminecraftgoals.internal.PacketEntityInteractionManager;
 import com.magmaguy.easyminecraftgoals.v26.CraftBukkitBridge;
 import io.netty.channel.*;
 import net.minecraft.network.Connection;
+import net.minecraft.network.protocol.game.ServerboundAttackPacket;
 import net.minecraft.network.protocol.game.ServerboundInteractPacket;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.ServerCommonPacketListenerImpl;
@@ -137,14 +138,29 @@ public class PacketInteractionListener implements Listener {
 
         @Override
         public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-            if (msg instanceof ServerboundInteractPacket packet) {
-                try {
-                    int entityId = packet.entityId();
-                    boolean isAttack = packet.usingSecondaryAction();
+            // MC 26.1+ splits the old ServerboundInteractPacket: attacks now use
+            // ServerboundAttackPacket, while ServerboundInteractPacket covers right-click only.
+            int entityId = -1;
+            boolean isAttack = false;
+            boolean handled = false;
 
+            if (msg instanceof ServerboundAttackPacket packet) {
+                entityId = packet.entityId();
+                isAttack = true;
+                handled = true;
+            } else if (msg instanceof ServerboundInteractPacket packet) {
+                entityId = packet.entityId();
+                isAttack = false;
+                handled = true;
+            }
+
+            if (handled) {
+                try {
                     if (PacketEntityInteractionManager.getInstance().getByEntityId(entityId) != null) {
+                        final int capturedEntityId = entityId;
+                        final boolean capturedIsAttack = isAttack;
                         Bukkit.getScheduler().runTask(plugin, () -> {
-                            PacketEntityInteractionManager.getInstance().handleInteraction(player, entityId, isAttack);
+                            PacketEntityInteractionManager.getInstance().handleInteraction(player, capturedEntityId, capturedIsAttack);
                         });
                         return;
                     }
