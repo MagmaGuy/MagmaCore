@@ -1,5 +1,6 @@
 package com.magmaguy.magmacore.dlc;
 
+import com.magmaguy.magmacore.util.Logger;
 import org.bukkit.Bukkit;
 
 import java.io.File;
@@ -68,6 +69,20 @@ final class ConfigurationImportRegistry {
         return skippedFolders.contains(normalize(folder));
     }
 
+    /**
+     * Returns true if a resolver (global, platform-specific, or platform fallback) is registered
+     * for this folder/platform combination. Used to suppress the "not recognized" warning when a
+     * resolver intentionally returns null (e.g. FMM customitems skipped because EliteMobs is missing).
+     */
+    static boolean hasResolver(String folder, ConfigurationImporter.PluginPlatform platform) {
+        if (folder == null) return false;
+        String normalizedFolder = normalize(folder);
+        if (globalResolvers.containsKey(normalizedFolder)) return true;
+        Map<String, Function<ConfigurationImporter, Path>> platformMap = platformResolvers.get(platform);
+        if (platformMap != null && platformMap.containsKey(normalizedFolder)) return true;
+        return platformFallbackResolvers.containsKey(platform);
+    }
+
     private static void registerDefaults() {
         registerSkipped("pack.meta");
         registerGlobal("worldcontainer", importer -> {
@@ -98,6 +113,13 @@ final class ConfigurationImportRegistry {
             }
             return resolveFmmModelsFolder(importer);
         });
+
+        // Global so packs shipped by ANY platform (EM, BetterStructures, etc.)
+        // route their bundled FMM Lua scripts into FreeMinecraftModels/scripts.
+        // Without this, EM packs that include FMM item scripts have the scripts
+        // folder silently dropped during extraction with a "Directory scripts was
+        // not recognized" warning.
+        registerGlobal("scripts", importer -> importer.getFreeMinecraftModelsPath().resolve("scripts"));
 
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.ELITEMOBS, "custombosses", importer -> importer.getEliteMobsPath().resolve("custombosses"));
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.ELITEMOBS, "customitems", importer -> importer.getEliteMobsPath().resolve("customitems"));
@@ -166,9 +188,17 @@ final class ConfigurationImportRegistry {
                 "scripts", importer -> importer.getFreeMinecraftModelsPath().resolve("scripts"));
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.FREEMINECRAFTMODELS,
                 "recipes", importer -> importer.getFreeMinecraftModelsPath().resolve("recipes"));
-
-        registerPlatformFallback(ConfigurationImporter.PluginPlatform.FREEMINECRAFTMODELS,
-                ConfigurationImportRegistry::resolveFmmModelsFolder);
+        // FMM packs may ship a customitems folder so models can bind to EliteMobs items. Route those
+        // into EM if installed; otherwise skip the folder entirely instead of dumping its contents
+        // into FMM's models directory.
+        registerPlatformFolder(ConfigurationImporter.PluginPlatform.FREEMINECRAFTMODELS,
+                "customitems", importer -> {
+                    if (Bukkit.getPluginManager().isPluginEnabled("EliteMobs")) {
+                        return importer.getEliteMobsPath().resolve("customitems");
+                    }
+                    Logger.info("Skipping customitems folder from FreeMinecraftModels import: EliteMobs is not installed.");
+                    return null;
+                });
     }
 
     private static void registerPlatformFolder(ConfigurationImporter.PluginPlatform platform,

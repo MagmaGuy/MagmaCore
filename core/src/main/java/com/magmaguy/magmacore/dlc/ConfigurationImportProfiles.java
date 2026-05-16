@@ -14,11 +14,17 @@ final class ConfigurationImportProfiles {
             Logger.warn("Directory null for zipped file was not recognized! Was the zipped file packaged correctly?");
             return null;
         }
+        // Skip list runs first so entries like pack.meta are never claimed by a platform fallback.
+        if (ConfigurationImportRegistry.isSkippedFolder(folder)) {
+            return null;
+        }
         Path resolvedPath = ConfigurationImportRegistry.resolve(importer, folder, platform);
         if (resolvedPath != null) {
             return resolvedPath;
         }
-        if (ConfigurationImportRegistry.isSkippedFolder(folder)) {
+        // A resolver was registered but intentionally returned null (e.g. customitems
+        // for an FMM pack when EliteMobs is not installed). Don't warn about it.
+        if (ConfigurationImportRegistry.hasResolver(folder, platform)) {
             return null;
         }
         if ("schematics".equalsIgnoreCase(folder) && platform == ConfigurationImporter.PluginPlatform.ELITEMOBS) {
