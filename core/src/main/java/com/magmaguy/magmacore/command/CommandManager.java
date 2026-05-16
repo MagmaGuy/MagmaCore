@@ -64,9 +64,22 @@ public class CommandManager implements CommandExecutor, TabCompleter {
             if (!command.isEnabled()) continue;
             if (!command.getAliases().contains(args[0])) continue;
 
-            // Check if the number of provided arguments exactly matches what is expected.
-            // (command.getArgumentsList().size() represents the extra arguments after the alias.)
-            if (args.length != command.getArgumentsList().size() + 1) continue;
+            // Check that the number of provided arguments falls inside the
+            // command's required..total range. Required = total when no
+            // argument was registered via addOptionalArgument(), so commands
+            // that don't use optionals keep their exact-match behavior.
+            // Optional args must be trailing; we treat the first optional
+            // arg as the boundary.
+            int totalArgs = command.getArgumentsList().size();
+            int requiredArgs = totalArgs;
+            for (int i = 0; i < totalArgs; i++) {
+                if (command.getArgumentsList().get(i).isOptional()) {
+                    requiredArgs = i;
+                    break;
+                }
+            }
+            int provided = args.length - 1; // exclude the alias itself
+            if (provided < requiredArgs || provided > totalArgs) continue;
 
             boolean valid = true;
             for (int i = 0; i < command.getArgumentsList().size(); i++) {
