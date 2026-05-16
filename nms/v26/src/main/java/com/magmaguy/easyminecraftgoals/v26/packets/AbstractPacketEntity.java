@@ -186,8 +186,13 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
     }
 
     protected Packet<?> generateTeleportPacket() {
-        // Need to include the actual yaw and pitch!
-        return new ClientboundTeleportEntityPacket(
+        // Use ClientboundEntityPositionSyncPacket on 1.21.2+ — Mojang renamed
+        // ClientboundTeleportEntityPacket in 24w40a/1.21.2 and Geyser only translates
+        // the new one for Bedrock viewers. v26 targets MC 26.1, so the legacy packet
+        // (which still exists as a Java-side packet) would have been completely
+        // invisible to Bedrock clients, breaking position updates for every
+        // packet-armor-stand bone and Interaction hitbox on Bedrock.
+        return new ClientboundEntityPositionSyncPacket(
                 EntityID,
                 new PositionMoveRotation(
                         entity.position(),
@@ -195,7 +200,6 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
                         entity.getYRot(),  // Use actual yaw
                         entity.getXRot()   // Use actual pitch
                 ),
-                new HashSet<>(),
                 true
         );
     }

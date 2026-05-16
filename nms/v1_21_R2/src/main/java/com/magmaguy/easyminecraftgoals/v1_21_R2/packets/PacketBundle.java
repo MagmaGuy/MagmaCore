@@ -1,6 +1,7 @@
 package com.magmaguy.easyminecraftgoals.v1_21_R2.packets;
 
 import com.magmaguy.easyminecraftgoals.internal.AbstractPacketBundle;
+import com.magmaguy.easyminecraftgoals.thirdparty.BedrockChecker;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientGamePacketListener;
 import net.minecraft.network.protocol.game.ClientboundBundlePacket;
@@ -43,9 +44,27 @@ public class PacketBundle implements AbstractPacketBundle {
             }
         }
 
-        // Send bundles to each player, splitting into chunks of 3000 if needed
+        // Send bundles to each player, splitting into chunks of 3000 if needed.
+        // For Bedrock viewers, skip the bundle wrapper entirely: Geyser unwraps
+        // ClientboundBundlePacket upstream of its translator dispatch and forwards
+        // each inner packet individually as its own Bedrock packet anyway, so the
+        // wrapper costs an allocation and a HashSet per tick for no benefit. More
+        // importantly, the wrapper has been observed to interact poorly with
+        // freshly-spawned entities on Bedrock: a metadata update for an entity
+        // that Geyser hasn't fully registered yet can be processed out of order
+        // and silently dropped, breaking bone rotation on FMM models until the
+        // entity is destroyed and respawned (the "move away and back to fix it"
+        // symptom). Sending un-bundled gives Geyser one packet at a time, in
+        // order, on the same single Netty flush.
         playerPackets.forEach((player, packets) -> {
             if (packets.isEmpty() || player == null || !player.isOnline()) return;
+
+            if (BedrockChecker.isBedrock(player)) {
+                for (Packet<ClientGamePacketListener> p : packets) {
+                    sendPacketDirect(player, p);
+                }
+                return;
+            }
 
             // Split into chunks of MAX_PACKETS_PER_BUNDLE
             for (int i = 0; i < packets.size(); i += MAX_PACKETS_PER_BUNDLE) {
@@ -72,6 +91,13 @@ public class PacketBundle implements AbstractPacketBundle {
     private void sendPacketBundle(Player player, Packet<?> nmsPacket) {
         if (nmsPacket == null) return;
 
+        ServerPlayer nmsPlayer = ((CraftPlayer) player).getHandle();
+        nmsPlayer.connection.send(nmsPacket);
+    }
+
+    /** Send a single packet directly to a player without bundle wrapping. */
+    private void sendPacketDirect(Player player, Packet<?> nmsPacket) {
+        if (nmsPacket == null) return;
         ServerPlayer nmsPlayer = ((CraftPlayer) player).getHandle();
         nmsPlayer.connection.send(nmsPacket);
     }
