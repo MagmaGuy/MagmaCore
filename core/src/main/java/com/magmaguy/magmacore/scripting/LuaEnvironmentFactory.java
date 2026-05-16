@@ -1,11 +1,18 @@
 package com.magmaguy.magmacore.scripting;
 
+import com.magmaguy.magmacore.location.LocationQueryRegistry;
+import com.magmaguy.magmacore.location.LuaLocations;
+import com.magmaguy.magmacore.location.api.LocationOwnership;
+import org.bukkit.Location;
 import org.luaj.vm2.Globals;
 import org.luaj.vm2.LuaTable;
 import org.luaj.vm2.LuaValue;
 import org.luaj.vm2.Varargs;
 import org.luaj.vm2.lib.VarArgFunction;
 import org.luaj.vm2.lib.jse.JsePlatform;
+
+import java.util.Set;
+import java.util.function.Predicate;
 
 public final class LuaEnvironmentFactory {
 
@@ -64,8 +71,67 @@ public final class LuaEnvironmentFactory {
         zone.set("create_translating_ray_zone", zoneBuilder("translating_ray", "set_origin", "set_destination", "length", "point_radius", "animation_duration"));
         em.set("zone", zone);
 
+        LuaTable location = new LuaTable();
+        location.set("is_in_dungeon", locationPredicate(LocationQueryRegistry::isInAnyDungeon));
+        location.set("is_protected", locationPredicate(LocationQueryRegistry::isInAnyProtectedRegion));
+        location.set("owned_by", new VarArgFunction() {
+            @Override
+            public Varargs invoke(Varargs args) {
+                Location loc = LuaLocations.tableToLocation(args.arg1());
+                String namespace = args.arg(2).optjstring(null);
+                if (loc == null || namespace == null) return LuaValue.FALSE;
+                return LuaValue.valueOf(LocationOwnership.ownedBy(loc, namespace));
+            }
+        });
+        location.set("owners", new VarArgFunction() {
+            @Override
+            public Varargs invoke(Varargs args) {
+                Location loc = LuaLocations.tableToLocation(args.arg1());
+                if (loc == null) return new LuaTable();
+                return toLuaArray(LocationOwnership.ownersAt(loc));
+            }
+        });
+        location.set("kinds_at", new VarArgFunction() {
+            @Override
+            public Varargs invoke(Varargs args) {
+                Location loc = LuaLocations.tableToLocation(args.arg1());
+                if (loc == null) return new LuaTable();
+                return toLuaArray(LocationOwnership.kindsAt(loc));
+            }
+        });
+        location.set("has_kind", new VarArgFunction() {
+            @Override
+            public Varargs invoke(Varargs args) {
+                Location loc = LuaLocations.tableToLocation(args.arg1());
+                String kind = args.arg(2).optjstring(null);
+                if (loc == null || kind == null) return LuaValue.FALSE;
+                return LuaValue.valueOf(LocationOwnership.hasKind(loc, kind));
+            }
+        });
+        em.set("location", location);
+
         globals.set("em", em);
         return globals;
+    }
+
+    private static LuaTable toLuaArray(Set<String> values) {
+        LuaTable table = new LuaTable();
+        int index = 1;
+        for (String value : values) {
+            table.set(index++, LuaValue.valueOf(value));
+        }
+        return table;
+    }
+
+    private static VarArgFunction locationPredicate(Predicate<Location> predicate) {
+        return new VarArgFunction() {
+            @Override
+            public Varargs invoke(Varargs args) {
+                Location loc = LuaLocations.tableToLocation(args.arg1());
+                if (loc == null) return LuaValue.FALSE;
+                return LuaValue.valueOf(predicate.test(loc));
+            }
+        };
     }
 
     private static LuaValue zoneBuilder(String kind, String originMethod, String destinationMethod, String... numericFields) {

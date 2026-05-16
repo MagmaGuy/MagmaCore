@@ -7,7 +7,25 @@ import org.bukkit.entity.Player;
 import org.luaj.vm2.LuaTable;
 import org.luaj.vm2.LuaValue;
 
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.BiConsumer;
+
 public class LuaEntityTable {
+
+    private static final List<BiConsumer<LuaTable, Entity>> enrichers = new CopyOnWriteArrayList<>();
+
+    /**
+     * Registers an enricher that adds plugin-specific fields (e.g. is_elite, is_modeled,
+     * sub-tables) to every built entity table. Consumers should register on plugin enable
+     * using direct class imports — this registry is local to this copy of Magmacore, so
+     * plugins that ship their own shaded copy must register with each other's copies
+     * directly via their public API classes.
+     */
+    public static void registerEnricher(BiConsumer<LuaTable, Entity> enricher) {
+        if (enricher == null) return;
+        enrichers.add(enricher);
+    }
 
     public static LuaTable build(Entity entity) {
         LuaTable table = new LuaTable();
@@ -58,7 +76,13 @@ public class LuaEntityTable {
             return LuaValue.NIL;
         }));
 
-        LuaEntityBridge.addPluginFields(table, entity);
+        for (BiConsumer<LuaTable, Entity> enricher : enrichers) {
+            try {
+                enricher.accept(table, entity);
+            } catch (Throwable ignored) {
+                // Enricher failure must not poison the whole table.
+            }
+        }
 
         return table;
     }

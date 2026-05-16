@@ -46,11 +46,13 @@ public final class LuaWorldTable {
 
         table.set("name", world.getName());
 
-        // get_block_at(x, y, z) -> block material name
+        // get_block_at(x, y, z) -> block material name (or "air" if the chunk is unloaded)
         table.set("get_block_at", method(table, args -> {
             int x = args.checkint(1);
             int y = args.checkint(2);
             int z = args.checkint(3);
+            // Avoid force-loading the chunk synchronously — see set_block_at for the storm this causes.
+            if (!world.isChunkLoaded(x >> 4, z >> 4)) return LuaValue.valueOf("air");
             return LuaValue.valueOf(world.getBlockAt(x, y, z).getType().name().toLowerCase(Locale.ROOT));
         }));
 
@@ -159,8 +161,15 @@ public final class LuaWorldTable {
             String materialName = args.checkjstring(4);
             Material material = Material.matchMaterial(materialName);
             if (material == null) return LuaValue.FALSE;
-            Bukkit.getScheduler().runTask(MagmaCore.getInstance().getRequestingPlugin(), () ->
-                    world.getBlockAt(x, y, z).setType(material));
+            Bukkit.getScheduler().runTask(MagmaCore.getInstance().getRequestingPlugin(), () -> {
+                // Skip if the target chunk is not loaded. Block.setType() on an unloaded
+                // chunk triggers a synchronous chunk load via ServerChunkCache.syncLoad,
+                // which fires ChunkLoadEvent. Scripts that call set_block_at from on_destroy
+                // (e.g. light props cleaning up) would otherwise force the chunk back in
+                // every tick the chunk tries to unload, creating a load/unload storm.
+                if (!world.isChunkLoaded(x >> 4, z >> 4)) return;
+                world.getBlockAt(x, y, z).setType(material);
+            });
             return LuaValue.TRUE;
         }));
 
@@ -255,6 +264,8 @@ public final class LuaWorldTable {
             boolean requireAir = args.optboolean(6, false);
             Material material = Material.matchMaterial(materialName);
             if (material == null) return LuaValue.FALSE;
+            // Skip if the target chunk isn't loaded — see set_block_at for why.
+            if (!world.isChunkLoaded(x >> 4, z >> 4)) return LuaValue.FALSE;
             Block block = world.getBlockAt(x, y, z);
             TemporaryBlockManager.addTemporaryBlock(block, ticks, material, requireAir);
             return LuaValue.TRUE;
