@@ -159,6 +159,17 @@ public final class MagmaCore {
         PluginInitializationManager.requestShutdown(plugin);
     }
 
+    /**
+     * @return true if {@link #requestInitializationShutdown(JavaPlugin)} has been
+     * called for this plugin. Long-running async work (HTTP, file I/O, content
+     * mixing) should poll this between phases and exit early when true so the
+     * plugin's onDisable can return without Bukkit nagging about un-shutdown
+     * async tasks.
+     */
+    public static boolean isShutdownRequested(JavaPlugin plugin) {
+        return PluginInitializationManager.isShutdownRequested(plugin);
+    }
+
     private void registerLogify() {
         // 1) grab the server’s CommandMap by reflection
         SimpleCommandMap commandMap = null;
