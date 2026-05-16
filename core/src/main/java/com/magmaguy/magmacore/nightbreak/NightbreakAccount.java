@@ -118,6 +118,8 @@ public class NightbreakAccount {
         }
 
         instance = new NightbreakAccount(token);
+        // Token changed — give the new token a fresh chance to log auth failures.
+        resetAuthFailureSuppression();
         return instance;
     }
 
@@ -284,6 +286,20 @@ public class NightbreakAccount {
     private static final int CONNECT_TIMEOUT_MS = 10000;
     private static final int READ_TIMEOUT_MS = 10000;
 
+    // Spam control for noisy failure modes. With many DLC slugs being checked
+    // on startup, a dead token or unreachable remote would otherwise spew one
+    // warning per slug.
+    //
+    // Auth failures (401/403): once seen, suppress further auth-failure logs
+    // until the token is replaced — there's no point reporting them per slug.
+    // Network failures (IOException): rate-limit to one summary per window;
+    // counts of suppressed entries are flushed when the window resets.
+    private static volatile boolean suppressAuthFailureLogs = false;
+    private static volatile long networkFailureWindowStart = 0L;
+    private static volatile int networkFailuresInWindow = 0;
+    private static volatile String lastNetworkFailureMessage = null;
+    private static final long NETWORK_FAILURE_WINDOW_MS = 5L * 60L * 1000L; // 5 min
+
     private String httpGet(String urlString, boolean withAuth) {
         try {
             URL url = new URL(urlString);
@@ -308,25 +324,75 @@ public class NightbreakAccount {
                 scanner.close();
                 return response.toString();
             } else {
-                // Read error response
+                // Read error body (always — caller may want to inspect it).
+                String errorResponse = null;
                 InputStream errorStream = connection.getErrorStream();
                 if (errorStream != null) {
                     Scanner scanner = new Scanner(errorStream, StandardCharsets.UTF_8);
-                    StringBuilder errorResponse = new StringBuilder();
+                    StringBuilder sb = new StringBuilder();
                     while (scanner.hasNext()) {
-                        errorResponse.append(scanner.nextLine());
+                        sb.append(scanner.nextLine());
                     }
                     scanner.close();
-                    Logger.warn("API error (" + responseCode + ") for " + urlString + ": " + errorResponse);
-                } else {
-                    Logger.warn("API error (" + responseCode + ") for " + urlString + " (no error body)");
+                    errorResponse = sb.toString();
                 }
+                logHttpError(urlString, responseCode, errorResponse);
                 return null;
             }
         } catch (IOException e) {
-            Logger.warn("HTTP request failed for " + urlString + ": " + e.getMessage());
+            logNetworkFailure(urlString, e.getMessage());
             return null;
         }
+    }
+
+    private static void logHttpError(String urlString, int responseCode, String errorResponse) {
+        // 401/403: token issue. Log the FIRST one with full body so the user
+        // sees what went wrong; suppress everything that follows until the
+        // token is replaced via registerToken() (which clears the flag).
+        if (responseCode == 401 || responseCode == 403) {
+            if (suppressAuthFailureLogs) return;
+            suppressAuthFailureLogs = true;
+            String body = errorResponse != null ? errorResponse : "(no body)";
+            Logger.warn("Nightbreak auth failed (" + responseCode + ") for " + urlString
+                    + ": " + body
+                    + " — suppressing further auth-error logs until token is updated. "
+                    + "Run /nightbreaklogin <token> with a valid token, then retry.");
+            return;
+        }
+        // Other HTTP errors are rare enough to log every time.
+        if (errorResponse != null) {
+            Logger.warn("Nightbreak API error (" + responseCode + ") for " + urlString + ": " + errorResponse);
+        } else {
+            Logger.warn("Nightbreak API error (" + responseCode + ") for " + urlString + " (no error body)");
+        }
+    }
+
+    private static void logNetworkFailure(String urlString, String message) {
+        long now = System.currentTimeMillis();
+        synchronized (NightbreakAccount.class) {
+            if (now - networkFailureWindowStart > NETWORK_FAILURE_WINDOW_MS) {
+                // New window — flush prior suppressed count and start fresh.
+                if (networkFailuresInWindow > 1) {
+                    Logger.warn("Nightbreak: " + (networkFailuresInWindow - 1)
+                            + " more network failures suppressed in the previous window. "
+                            + "Last error: " + lastNetworkFailureMessage);
+                }
+                networkFailureWindowStart = now;
+                networkFailuresInWindow = 1;
+                lastNetworkFailureMessage = message;
+                Logger.warn("Nightbreak unreachable for " + urlString + ": " + message
+                        + " — further network failures will be summarized once per "
+                        + (NETWORK_FAILURE_WINDOW_MS / 60000) + " minutes.");
+            } else {
+                networkFailuresInWindow++;
+                lastNetworkFailureMessage = message;
+            }
+        }
+    }
+
+    /** Re-enables auth-failure logging. Call after a token is replaced. */
+    public static void resetAuthFailureSuppression() {
+        suppressAuthFailureLogs = false;
     }
 
     private boolean httpDownload(String urlString, File destinationFile) {
