@@ -20,5 +20,16 @@ public interface ICommandArgument {
     // Is this argument "literal" (fixed text) or something else?
     boolean isLiteral();
 
-    // Possibly more methods like getName(), isOptional(), etc.
+    /**
+     * Whether this argument may be omitted by the user. Optional arguments
+     * must be trailing (you can't have a required arg after an optional one).
+     * Default is {@code false} — implementations don't have to override.
+     *
+     * <p>{@link com.magmaguy.magmacore.command.AdvancedCommand#addOptionalArgument}
+     * wraps any {@code ICommandArgument} in an internal decorator that
+     * flips this flag, so callers usually don't implement it directly.
+     */
+    default boolean isOptional() {
+        return false;
+    }
 }
