@@ -8,6 +8,8 @@ import net.minecraft.network.protocol.game.ServerboundInteractPacket;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.ServerCommonPacketListenerImpl;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.phys.Vec3;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -28,13 +30,19 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class PacketInteractionListener implements Listener {
 
-    private static final String HANDLER_NAME = "emg_packet_interaction";
+    // Per-plugin handler name. Multiple plugins shade EMG independently, each
+    // installing its own netty handler. With a shared name, every plugin's
+    // injection overwrites the previous one and only the last-enabled plugin's
+    // handler stays in the pipeline — but each plugin's handler only checks
+    // ITS OWN shaded PacketEntityInteractionManager singleton, so all the
+    // overwritten plugins' packet entities silently stop receiving clicks.
+    // Suffixing with the plugin name lets each plugin's handler co-exist.
+    private final String handlerName;
     private final Plugin plugin;
     private final Map<UUID, Channel> playerChannels = new ConcurrentHashMap<>();
 
     // Reflection fields for accessing packet data
     private static Field entityIdField;
-    private static Field actionField;
     private static Field connectionField;
     private static Field channelField;
 
@@ -49,20 +57,6 @@ public class PacketInteractionListener implements Listener {
                 entityIdField.setAccessible(true);
             } catch (NoSuchFieldException ex) {
                 ex.printStackTrace();
-            }
-        }
-
-        try {
-            // Get action field from ServerboundInteractPacket (pre-26.1 only)
-            actionField = ServerboundInteractPacket.class.getDeclaredField("action");
-            actionField.setAccessible(true);
-        } catch (NoSuchFieldException e) {
-            try {
-                actionField = ServerboundInteractPacket.class.getDeclaredField("b");
-                actionField.setAccessible(true);
-            } catch (NoSuchFieldException ex) {
-                // MC 26.1+ refactored the packet to a Record - action field no longer exists.
-                // isAttackAction() uses the usingSecondaryAction() accessor instead.
             }
         }
 
@@ -87,6 +81,7 @@ public class PacketInteractionListener implements Listener {
 
     public PacketInteractionListener(Plugin plugin) {
         this.plugin = plugin;
+        this.handlerName = "emg_packet_interaction_" + plugin.getName();
     }
 
     /**
@@ -140,12 +135,12 @@ public class PacketInteractionListener implements Listener {
             }
 
             // Remove existing handler if present
-            if (channel.pipeline().get(HANDLER_NAME) != null) {
-                channel.pipeline().remove(HANDLER_NAME);
+            if (channel.pipeline().get(handlerName) != null) {
+                channel.pipeline().remove(handlerName);
             }
 
             // Add our handler before the packet_handler
-            channel.pipeline().addBefore("packet_handler", HANDLER_NAME, new PacketHandler(player));
+            channel.pipeline().addBefore("packet_handler", handlerName, new PacketHandler(player));
             playerChannels.put(player.getUniqueId(), channel);
 
         } catch (Exception e) {
@@ -167,9 +162,9 @@ public class PacketInteractionListener implements Listener {
 
     private void uninjectPlayer(Player player) {
         Channel channel = playerChannels.remove(player.getUniqueId());
-        if (channel != null && channel.pipeline().get(HANDLER_NAME) != null) {
+        if (channel != null && channel.pipeline().get(handlerName) != null) {
             try {
-                channel.pipeline().remove(HANDLER_NAME);
+                channel.pipeline().remove(handlerName);
             } catch (Exception ignored) {
                 // Channel might already be closed
             }
@@ -230,29 +225,21 @@ public class PacketInteractionListener implements Listener {
     }
 
     private static boolean isAttackAction(ServerboundInteractPacket packet) {
-        // MC 26.1+: Packet is a Record with usingSecondaryAction boolean and no dispatch()
-        try {
-            java.lang.reflect.Method m = ServerboundInteractPacket.class.getMethod("usingSecondaryAction");
-            return (boolean) m.invoke(packet);
-        } catch (NoSuchMethodException ignored) {
-            // Pre-26.1: Use the dispatch() + Handler pattern
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-
-        // Pre-26.1: Use dispatch with Handler interface
-        try {
-            boolean[] isAttack = {false};
-            java.lang.reflect.Method dispatch = ServerboundInteractPacket.class.getMethod("dispatch", Class.forName(
-                    ServerboundInteractPacket.class.getName() + "$Handler"));
-            // Use the action field to check type name for "attack"
-            if (actionField != null) {
-                Object action = actionField.get(packet);
-                return action != null && action.getClass().getSimpleName().toLowerCase().contains("attack");
+        boolean[] isAttack = {false};
+        packet.dispatch(new ServerboundInteractPacket.Handler() {
+            @Override
+            public void onAttack() {
+                isAttack[0] = true;
             }
-        } catch (Exception e) {
-            // Last resort fallback
-        }
-        return false;
+
+            @Override
+            public void onInteraction(InteractionHand hand) {
+            }
+
+            @Override
+            public void onInteraction(InteractionHand hand, Vec3 interactionLocation) {
+            }
+        });
+        return isAttack[0];
     }
 }
