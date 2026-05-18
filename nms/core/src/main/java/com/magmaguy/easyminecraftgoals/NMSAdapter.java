@@ -3,6 +3,7 @@ package com.magmaguy.easyminecraftgoals;
 import com.magmaguy.easyminecraftgoals.constants.OverridableWanderPriority;
 import com.magmaguy.easyminecraftgoals.internal.AbstractPacketBundle;
 import com.magmaguy.easyminecraftgoals.internal.AbstractWanderBackToPoint;
+import com.magmaguy.easyminecraftgoals.internal.DamageIndicatorClamp;
 import com.magmaguy.easyminecraftgoals.internal.FakeItem;
 import com.magmaguy.easyminecraftgoals.internal.FakeItemSettings;
 import com.magmaguy.easyminecraftgoals.internal.FakeText;
@@ -175,6 +176,29 @@ public abstract class NMSAdapter {
     public void shutdownPacketInteractionListener() {
         // Default no-op
         PacketEntityInteractionManager.getInstance().shutdown();
+    }
+
+    /**
+     * Sets the maximum number of {@code DAMAGE_INDICATOR} particles that
+     * outbound {@code ClientboundLevelParticlesPacket} packets may carry.
+     * <p>
+     * Vanilla {@code Player.attack(Entity)} spawns one particle per two HP of
+     * damage dealt and packs the count into a single packet, so plugins that
+     * scale player melee damage into the millions broadcast packets that ask
+     * the client to instantiate hundreds of thousands of particles locally and
+     * freeze. Setting a small positive cap (e.g. {@code 16}) collapses the
+     * visual to a normal-looking puff without altering damage or any other
+     * game state. Pass {@code 0} or a negative value to disable.
+     * <p>
+     * Only takes effect on server versions whose adapter installs the netty
+     * write interceptor (currently 1.21+).
+     */
+    public void setDamageIndicatorParticleCap(int max) {
+        DamageIndicatorClamp.setMaxParticles(max);
+    }
+
+    public int getDamageIndicatorParticleCap() {
+        return DamageIndicatorClamp.getMaxParticles();
     }
 
     /**
