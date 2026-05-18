@@ -1,6 +1,5 @@
 package com.magmaguy.easyminecraftgoals.v26.passenger;
 
-import com.magmaguy.easyminecraftgoals.v26.CraftBukkitBridge;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityAttachment;
 import net.minecraft.world.entity.EntityAttachments;
@@ -13,16 +12,21 @@ import java.util.List;
 import java.util.Map;
 
 public class PassengerOffset {
+    // Cached field reference + lookup-was-attempted flag so a single mapping
+    // miss doesn't reprint the same stack trace once per spawn.
     private static Field dimensionsField = null;
+    private static boolean dimensionsFieldLookupTried = false;
 
     private PassengerOffset() {
     }
 
     public static boolean setPassengerOffset(Entity entity, double offsetX, double offsetY, double offsetZ) {
+        if (!dimensionsFieldLookupTried) {
+            dimensionsFieldLookupTried = true;
+            dimensionsField = findDimensionsField();
+        }
+        if (dimensionsField == null) return false;
         try {
-            if (dimensionsField == null) {
-                dimensionsField = findDimensionsField();
-            }
             EntityDimensions currentDimensions = (EntityDimensions) dimensionsField.get(entity);
 
             EntityAttachments currentAttachments = currentDimensions.attachments();
@@ -58,10 +62,20 @@ public class PassengerOffset {
         }
     }
 
-    private static Field findDimensionsField() throws NoSuchFieldException {
-        String fieldName = CraftBukkitBridge.isPaper() ? "dimensions" : "bz";
-        Field field = Entity.class.getDeclaredField(fieldName);
-        field.setAccessible(true);
-        return field;
+    /**
+     * MC 26.1+ is fully unobfuscated on both Paper and Spigot, so find the
+     * {@code EntityDimensions} field by type — survives field renames and
+     * works on any 26+ fork. Returns null on failure so the caller can
+     * record that and stop retrying.
+     */
+    private static Field findDimensionsField() {
+        for (Field f : Entity.class.getDeclaredFields()) {
+            if (f.getType() == EntityDimensions.class) {
+                f.setAccessible(true);
+                return f;
+            }
+        }
+        new RuntimeException("PassengerOffset: no EntityDimensions field on Entity.class; passenger offsets disabled this session").printStackTrace();
+        return null;
     }
 }
