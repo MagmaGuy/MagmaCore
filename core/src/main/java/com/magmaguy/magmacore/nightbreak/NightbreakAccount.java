@@ -32,14 +32,35 @@ public class NightbreakAccount {
     private static final String CONFIG_FOLDER_NAME = "MagmaCore";
     private static final String CONFIG_FILE_NAME = "nightbreak.yml";
 
-    @Getter
-    private static NightbreakAccount instance;
+    private static volatile NightbreakAccount instance;
     @Getter
     private String token;
+
+    // Track the shared YAML file's path + mtime so each plugin's shaded copy of
+    // NightbreakAccount can detect when another plugin's copy wrote a new token
+    // (via /nightbreaklogin) and reload it on the next access. Without this,
+    // each consuming plugin's classloader-local `instance` static stays at
+    // whatever was on disk at THIS plugin's startup — so changes made by ONE
+    // plugin's shaded copy (which is the only one that registers the command)
+    // never propagate to the others until a full server restart. Cheap because
+    // every access pattern across the ecosystem is occasional (commands,
+    // menu opens, 24-hour scheduled checks) — File.lastModified is sub-microsecond.
+    private static volatile File configFilePath = null;
+    private static volatile long lastFileMtime = -1L;
 
     private NightbreakAccount(String token) {
         this.token = token;
         instance = this;
+    }
+
+    /**
+     * Returns the singleton, re-reading from disk if another plugin's shaded
+     * copy wrote a new token since the last access. See class-level comment
+     * about cross-classloader shading for why this is necessary.
+     */
+    public static NightbreakAccount getInstance() {
+        ensureFresh();
+        return instance;
     }
 
     /**
@@ -51,23 +72,61 @@ public class NightbreakAccount {
      */
     public static NightbreakAccount initialize(JavaPlugin plugin) {
         File configFile = getConfigFile(plugin);
+        // Remember the path even when the file doesn't exist yet — ensureFresh()
+        // needs it so a /nightbreaklogin issued LATER from another plugin's
+        // shaded copy can be picked up by THIS plugin's next access.
+        configFilePath = configFile;
         if (!configFile.exists()) {
             Logger.info("No Nightbreak token found. Use /nightbreaklogin <token> to register your token.");
             return null;
         }
 
+        loadTokenFromFile(configFile);
+        lastFileMtime = configFile.lastModified();
+        if (instance != null) {
+            Logger.info("Nightbreak account loaded successfully!");
+        } else {
+            Logger.info("No Nightbreak token configured. Use /nightbreaklogin <token> to register your token.");
+        }
+        return instance;
+    }
+
+    /**
+     * Stats the shared config file and reloads {@link #instance} from disk if the
+     * file's mtime changed since the last successful load (or if the file went
+     * missing). Synchronized to ensure at most one shaded copy reloads at a time
+     * within a given classloader. Cheap: the common case is a single mtime
+     * comparison, no I/O beyond that.
+     */
+    private static synchronized void ensureFresh() {
+        File f = configFilePath;
+        if (f == null) return; // initialize() hasn't run in this classloader yet
+        if (!f.exists()) {
+            if (instance != null) {
+                instance = null;
+                lastFileMtime = -1L;
+            }
+            return;
+        }
+        long mtime = f.lastModified();
+        if (mtime != lastFileMtime) {
+            loadTokenFromFile(f);
+            lastFileMtime = mtime;
+        }
+    }
+
+    private static void loadTokenFromFile(File configFile) {
         FileConfiguration config = YamlConfiguration.loadConfiguration(configFile);
         String token = config.getString("token");
         if (token != null) token = token.trim();
-
         if (token == null || token.isEmpty() || token.equals("YOUR_TOKEN_HERE")) {
-            Logger.info("No Nightbreak token configured. Use /nightbreaklogin <token> to register your token.");
-            return null;
+            instance = null;
+            return;
         }
-
         instance = new NightbreakAccount(token);
-        Logger.info("Nightbreak account loaded successfully!");
-        return instance;
+        // A new token from disk means the old auth-failure suppression no longer
+        // applies — give the new value a fresh chance to log if it's also bad.
+        resetAuthFailureSuppression();
     }
 
     /**
@@ -79,6 +138,7 @@ public class NightbreakAccount {
      */
     public static NightbreakAccount registerToken(JavaPlugin plugin, String token) {
         File configFile = getConfigFile(plugin);
+        configFilePath = configFile;  // ensure ensureFresh() in this classloader knows where to look
 
         // Ensure parent directory exists
         if (!configFile.getParentFile().exists()) {
@@ -118,6 +178,12 @@ public class NightbreakAccount {
         }
 
         instance = new NightbreakAccount(token);
+        // Pin the mtime to the value we just wrote so ensureFresh() in THIS
+        // classloader doesn't see a spurious "changed" on the very next access
+        // and reload what we already have in memory. Other plugins' shaded
+        // copies will see their own lastFileMtime as stale on their next access
+        // and reload from disk — that's the whole point of this design.
+        lastFileMtime = configFile.lastModified();
         // Token changed — give the new token a fresh chance to log auth failures.
         resetAuthFailureSuppression();
         return instance;
@@ -137,11 +203,14 @@ public class NightbreakAccount {
     }
 
     /**
-     * Checks if a token is currently registered.
+     * Checks if a token is currently registered. Triggers a lazy mtime-based
+     * reload first so a token written by another plugin's shaded copy is
+     * picked up without a server restart.
      *
      * @return true if a token is registered
      */
     public static boolean hasToken() {
+        ensureFresh();
         return instance != null && instance.token != null && !instance.token.isEmpty();
     }
 
