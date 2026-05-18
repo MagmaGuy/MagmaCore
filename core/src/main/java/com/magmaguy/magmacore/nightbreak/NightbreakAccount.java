@@ -110,8 +110,19 @@ public class NightbreakAccount {
         }
         long mtime = f.lastModified();
         if (mtime != lastFileMtime) {
+            boolean hadInstanceBefore = instance != null;
             loadTokenFromFile(f);
             lastFileMtime = mtime;
+            // If this reload transitioned us from "no token" → "have token",
+            // notify subscribers so they can refresh whatever state they gated
+            // on having a token. This is the cross-classloader notification path:
+            // EliteMobs (which owns /nightbreaklogin) sees the transition via
+            // registerToken() in its own classloader; every other plugin shading
+            // MagmaCore sees it here, the next time anything in their classloader
+            // calls hasToken() / getInstance().
+            if (!hadInstanceBefore && instance != null) {
+                fireTokenChanged();
+            }
         }
     }
 
@@ -127,6 +138,40 @@ public class NightbreakAccount {
         // A new token from disk means the old auth-failure suppression no longer
         // applies — give the new value a fresh chance to log if it's also bad.
         resetAuthFailureSuppression();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Token-change listener registry.
+    //
+    // Why this exists: prior to this, /nightbreaklogin would save the token to
+    // disk but no consumer was notified. Plugins that gated content fetches on
+    // hasToken() during their onEnable would never re-fetch after a later
+    // login — the user had to restart the server (or /em reload) for content to
+    // appear. Now plugins register a Runnable here in their onEnable; it fires
+    // exactly when this classloader's view transitions to "have token" (either
+    // because registerToken() ran in this classloader, or because ensureFresh()
+    // picked up a token a different classloader's command wrote to disk).
+    // ─────────────────────────────────────────────────────────────────────
+    private static final java.util.List<Runnable> tokenChangeListeners =
+            new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    /**
+     * Subscribes a callback that fires when this classloader's NightbreakAccount
+     * transitions from "no token" to "have token". Fires at most once per such
+     * transition; idempotent re-loads of the same token do NOT fire.
+     */
+    public static void addTokenChangeListener(Runnable listener) {
+        if (listener != null) tokenChangeListeners.add(listener);
+    }
+
+    private static void fireTokenChanged() {
+        for (Runnable listener : tokenChangeListeners) {
+            try {
+                listener.run();
+            } catch (Throwable t) {
+                Logger.warn("Nightbreak token-change listener threw: " + t.getMessage());
+            }
+        }
     }
 
     /**
@@ -177,6 +222,7 @@ public class NightbreakAccount {
             return null;
         }
 
+        boolean hadInstanceBefore = instance != null;
         instance = new NightbreakAccount(token);
         // Pin the mtime to the value we just wrote so ensureFresh() in THIS
         // classloader doesn't see a spurious "changed" on the very next access
@@ -186,6 +232,13 @@ public class NightbreakAccount {
         lastFileMtime = configFile.lastModified();
         // Token changed — give the new token a fresh chance to log auth failures.
         resetAuthFailureSuppression();
+        // Notify in-classloader subscribers if this was a "no token → have token"
+        // transition (the typical /nightbreaklogin flow). Other classloaders'
+        // shaded copies will fire their own listeners from ensureFresh() the
+        // next time anything in those classloaders touches NightbreakAccount.
+        if (!hadInstanceBefore) {
+            fireTokenChanged();
+        }
         return instance;
     }
 
