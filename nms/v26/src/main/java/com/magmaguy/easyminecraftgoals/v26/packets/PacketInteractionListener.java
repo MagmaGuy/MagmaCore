@@ -1,9 +1,13 @@
 package com.magmaguy.easyminecraftgoals.v26.packets;
 
+import com.magmaguy.easyminecraftgoals.internal.DamageIndicatorClamp;
 import com.magmaguy.easyminecraftgoals.internal.PacketEntityInteractionManager;
 import com.magmaguy.easyminecraftgoals.v26.CraftBukkitBridge;
 import io.netty.channel.*;
+import net.minecraft.core.particles.ParticleOptions;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.Connection;
+import net.minecraft.network.protocol.game.ClientboundLevelParticlesPacket;
 import net.minecraft.network.protocol.game.ServerboundAttackPacket;
 import net.minecraft.network.protocol.game.ServerboundInteractPacket;
 import net.minecraft.server.level.ServerPlayer;
@@ -37,6 +41,15 @@ public class PacketInteractionListener implements Listener {
     private static Field connectionField;
     private static Field channelField;
 
+    // Reflection for outbound ClientboundLevelParticlesPacket clamping.
+    // ClientboundLevelParticlesPacket is a regular (non-record) class with one
+    // private final int field — `count` — so we mutate it in place rather than
+    // rebuild the packet. Vanilla broadcasts share one packet instance across
+    // every viewer's pipeline, so a single mutation suffices for all of them
+    // (and concurrent re-mutations to the same cap value are idempotent).
+    private static Field particleField;
+    private static Field countField;
+
     static {
         for (Field f : ServerCommonPacketListenerImpl.class.getDeclaredFields()) {
             if (Connection.class.isAssignableFrom(f.getType())) {
@@ -53,6 +66,30 @@ public class PacketInteractionListener implements Listener {
                 break;
             }
         }
+
+        // Discover the particle and count fields by type so we can read the
+        // particle type and mutate the count without coupling to obfuscated
+        // field names. ClientboundLevelParticlesPacket has exactly one int
+        // field (count) and one ParticleOptions field (particle), so finding
+        // by type is unambiguous.
+        try {
+            Class<?> cls = ClientboundLevelParticlesPacket.class;
+            for (Field f : cls.getDeclaredFields()) {
+                if (java.lang.reflect.Modifier.isStatic(f.getModifiers())) continue;
+                if (countField == null && f.getType() == int.class) {
+                    f.setAccessible(true);
+                    countField = f;
+                } else if (particleField == null && ParticleOptions.class.isAssignableFrom(f.getType())) {
+                    f.setAccessible(true);
+                    particleField = f;
+                }
+            }
+        } catch (Throwable t) {
+            // If reflection fails, the clamp simply becomes a no-op; the rest of
+            // the listener (inbound interactions) keeps working.
+            particleField = null;
+            countField = null;
+        }
     }
 
     public PacketInteractionListener(Plugin plugin) {
@@ -61,6 +98,7 @@ public class PacketInteractionListener implements Listener {
 
     public void initialize() {
         Bukkit.getPluginManager().registerEvents(this, plugin);
+
         for (Player player : Bukkit.getOnlinePlayers()) {
             injectPlayer(player);
         }
@@ -170,6 +208,38 @@ public class PacketInteractionListener implements Listener {
             }
 
             super.channelRead(ctx, msg);
+        }
+
+        @Override
+        public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
+            if (msg instanceof ClientboundLevelParticlesPacket particlesPacket) {
+                maybeClampDamageIndicator(particlesPacket);
+            }
+            super.write(ctx, msg, promise);
+        }
+    }
+
+    /**
+     * If the packet is a damage-indicator particle burst exceeding the configured
+     * cap, mutates its {@code count} field in place to the cap. No-op otherwise.
+     * Mutation is safe because the packet object is broadcast-shared across all
+     * viewers' pipelines and we want every viewer to see the clamped value.
+     */
+    private static void maybeClampDamageIndicator(ClientboundLevelParticlesPacket packet) {
+        int cap = DamageIndicatorClamp.getMaxParticles();
+        if (cap <= 0) return;
+        if (countField == null || particleField == null) return;
+
+        try {
+            ParticleOptions particle = (ParticleOptions) particleField.get(packet);
+            if (particle == null || particle.getType() != ParticleTypes.DAMAGE_INDICATOR) return;
+
+            int count = countField.getInt(packet);
+            if (count <= cap) return;
+
+            countField.setInt(packet, cap);
+        } catch (Throwable t) {
+            // Fail open: if mutation fails, the original packet still goes through.
         }
     }
 }
