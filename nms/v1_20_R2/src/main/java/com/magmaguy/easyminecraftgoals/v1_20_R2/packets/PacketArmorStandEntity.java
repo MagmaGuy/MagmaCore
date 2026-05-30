@@ -110,7 +110,6 @@ public class PacketArmorStandEntity extends AbstractPacketEntity<ArmorStand> imp
         return packetBundle;
     }
 
-
 @Override
 public void displayTo(Player player) {
     super.displayTo(player);

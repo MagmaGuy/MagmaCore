@@ -1,7 +1,7 @@
 package com.magmaguy.magmacore.nightbreak;
 
 import com.magmaguy.magmacore.menus.ContentPackage;
-import com.magmaguy.magmacore.menus.SetupMenuIcons;
+import com.magmaguy.magmacore.menus.NightbreakSetupIcons;
 import com.magmaguy.magmacore.util.ItemStackGenerator;
 import com.magmaguy.magmacore.util.Logger;
 import com.magmaguy.magmacore.util.SpigotMessage;
@@ -36,19 +36,19 @@ public final class NightbreakSetupMenuHelper {
             itemMeta.addItemFlags(ItemFlag.HIDE_ADDITIONAL_TOOLTIP);
             itemStack.setItemMeta(itemMeta);
         }
-        SetupMenuIcons.applyItemModel(itemStack, modelId);
+        NightbreakSetupIcons.applyItemModel(itemStack, modelId);
         return itemStack;
     }
 
     public static ItemStack createInstalledItem(String displayName, List<String> description) {
         return createItem(displayName, description, Material.GREEN_STAINED_GLASS_PANE,
-                SetupMenuIcons.MODEL_CHECKMARK,
+                NightbreakSetupIcons.MODEL_CHECKMARK,
                 List.of("&aContent is installed!", "&7Click to uninstall it."));
     }
 
     public static ItemStack createPartiallyInstalledItem(String displayName, List<String> description) {
         return createItem(displayName, description, Material.ORANGE_STAINED_GLASS_PANE,
-                SetupMenuIcons.MODEL_GRAY_X,
+                NightbreakSetupIcons.MODEL_GRAY_X,
                 List.of("&6Content is only partially installed!",
                         "&7Some files appear to be missing or disabled.",
                         "&7Click to redownload and repair this package."));
@@ -56,7 +56,7 @@ public final class NightbreakSetupMenuHelper {
 
     public static ItemStack createNotInstalledItem(String displayName, List<String> description) {
         return createItem(displayName, description, Material.YELLOW_STAINED_GLASS_PANE,
-                SetupMenuIcons.MODEL_GRAY_X,
+                NightbreakSetupIcons.MODEL_GRAY_X,
                 List.of("&eContent is downloaded but disabled.", "&7Click to install it."));
     }
 
@@ -66,13 +66,13 @@ public final class NightbreakSetupMenuHelper {
                                                     NightbreakAccount.AccessInfo accessInfo) {
         String modelId;
         if (slug == null || slug.isEmpty()) {
-            modelId = SetupMenuIcons.MODEL_UNLOCKED;
+            modelId = NightbreakSetupIcons.MODEL_UNLOCKED;
         } else if (!NightbreakAccount.hasToken()) {
-            modelId = SetupMenuIcons.MODEL_LOCKED_UNLINKED;
+            modelId = NightbreakSetupIcons.MODEL_LOCKED_UNLINKED;
         } else if (accessInfo != null && accessInfo.hasAccess) {
-            modelId = SetupMenuIcons.MODEL_UNLOCKED;
+            modelId = NightbreakSetupIcons.MODEL_UNLOCKED;
         } else {
-            modelId = SetupMenuIcons.MODEL_LOCKED_UNPAID;
+            modelId = NightbreakSetupIcons.MODEL_LOCKED_UNPAID;
         }
         return createItem(displayName, description, Material.YELLOW_STAINED_GLASS_PANE,
                 modelId,
@@ -94,7 +94,7 @@ public final class NightbreakSetupMenuHelper {
             }
         }
         return createItem(displayName, description, Material.PURPLE_STAINED_GLASS_PANE,
-                SetupMenuIcons.MODEL_LOCKED_UNPAID,
+                NightbreakSetupIcons.MODEL_LOCKED_UNPAID,
                 stateLore);
     }
 
@@ -103,11 +103,11 @@ public final class NightbreakSetupMenuHelper {
                                                          String slug) {
         String modelId;
         if (slug == null || slug.isEmpty()) {
-            modelId = SetupMenuIcons.MODEL_UPDATE;
+            modelId = NightbreakSetupIcons.MODEL_UPDATE;
         } else if (!NightbreakAccount.hasToken()) {
-            modelId = SetupMenuIcons.MODEL_UPDATE_UNLINKED;
+            modelId = NightbreakSetupIcons.MODEL_UPDATE_UNLINKED;
         } else {
-            modelId = SetupMenuIcons.MODEL_UPDATE;
+            modelId = NightbreakSetupIcons.MODEL_UPDATE;
         }
         return createItem(displayName, description, Material.YELLOW_STAINED_GLASS_PANE,
                 modelId,
@@ -117,7 +117,7 @@ public final class NightbreakSetupMenuHelper {
     public static ItemStack createOutOfDateNoAccessItem(String displayName,
                                                         List<String> description) {
         return createItem(displayName, description, Material.ORANGE_STAINED_GLASS_PANE,
-                SetupMenuIcons.MODEL_UPDATE_UNPAID,
+                NightbreakSetupIcons.MODEL_UPDATE_UNPAID,
                 List.of("&6An update is available!",
                         "&7You need Nightbreak access before you can update it.",
                         "&7Click to view access links."));

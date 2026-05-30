@@ -7,9 +7,66 @@ import org.bukkit.util.Vector;
 import org.luaj.vm2.*;
 import org.luaj.vm2.lib.VarArgFunction;
 
+import java.util.HashMap;
+import java.util.Map;
+import java.util.function.Supplier;
+
 public final class LuaTableSupport {
 
     private LuaTableSupport() {}
+
+    /**
+     * Registers a lazy field on {@code table}: {@code supplier} is invoked only when
+     * Lua actually reads {@code key}, and the value is NOT cached on the table — every
+     * read calls the supplier fresh. Use for volatile mutable fields like health that
+     * scripts often don't touch on a given tick.
+     * <p>
+     * Multiple calls share a single {@code __index} metatable per table, so adding more
+     * lazy fields is cheap. Eagerly-set keys (via {@code table.set("k", ...)}) take
+     * precedence over the lazy supplier with the same name.
+     */
+    public static void lazyField(LuaTable table, String key, Supplier<LuaValue> supplier) {
+        LazyIndex index = LazyIndex.attach(table);
+        index.put(key, supplier);
+    }
+
+    private static final class LazyIndex extends VarArgFunction {
+        private final Map<String, Supplier<LuaValue>> suppliers = new HashMap<>();
+
+        static LazyIndex attach(LuaTable table) {
+            LuaValue existing = table.getmetatable();
+            if (existing instanceof LuaTable mt) {
+                LuaValue idx = mt.rawget("__index");
+                if (idx instanceof LazyIndex li) return li;
+                LazyIndex li = new LazyIndex();
+                mt.set("__index", li);
+                return li;
+            }
+            LuaTable mt = new LuaTable();
+            LazyIndex li = new LazyIndex();
+            mt.set("__index", li);
+            table.setmetatable(mt);
+            return li;
+        }
+
+        void put(String key, Supplier<LuaValue> supplier) {
+            suppliers.put(key, supplier);
+        }
+
+        @Override
+        public Varargs invoke(Varargs args) {
+            LuaValue keyValue = args.arg(2);
+            if (!keyValue.isstring()) return LuaValue.NIL;
+            Supplier<LuaValue> supplier = suppliers.get(keyValue.tojstring());
+            if (supplier == null) return LuaValue.NIL;
+            try {
+                LuaValue v = supplier.get();
+                return v != null ? v : LuaValue.NIL;
+            } catch (Throwable ignored) {
+                return LuaValue.NIL;
+            }
+        }
+    }
 
     public static LuaTable locationToTable(Location location) {
         LuaTable table = new LuaTable();

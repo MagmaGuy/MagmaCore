@@ -8,10 +8,13 @@ import org.bukkit.WorldCreator;
 import org.bukkit.generator.ChunkGenerator;
 import org.bukkit.generator.WorldInfo;
 import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.plugin.Plugin;
 
 import java.util.Random;
 
 public class TemporaryWorldManager {
+    private static final long DELETE_AFTER_UNLOAD_DELAY_TICKS = 20L * 5L;
+
     /**
      * Generates a world which does not save, does not keep spawn loaded and is a void world
      *
@@ -21,7 +24,7 @@ public class TemporaryWorldManager {
      */
     public static World loadVoidTemporaryWorld(String worldName, World.Environment environment) {
         //Case where the world is already loaded
-        if (Bukkit.getWorld(worldName) != null) return Bukkit.getWorld(worldName);
+        if (Bukkit.getWorld(worldName) != null) return prepareTemporaryWorld(Bukkit.getWorld(worldName));
         if (!WorldFolderResolver.folderExists(worldName)) {
             Logger.warn("World folder for " + worldName + " does not exist at "
                     + WorldFolderResolver.legacyFolder(worldName) + " or "
@@ -39,9 +42,7 @@ public class TemporaryWorldManager {
             worldCreator.environment(environment);
             worldCreator.generator(new VoidGenerator());
             World world = Bukkit.createWorld(worldCreator);
-            if (world != null) world.setKeepSpawnInMemory(false);
-            world.setDifficulty(Difficulty.HARD);
-//            world.setAutoSave(false);
+            prepareTemporaryWorld(world);
             Logger.info("Successfully loaded world " + worldName + " !");
 //            Bukkit.getLogger().setFilter(previousFilter);
             return world;
@@ -68,7 +69,7 @@ public class TemporaryWorldManager {
      */
     public static World loadTemporaryWorldWithGenerator(String worldName, World.Environment environment, ChunkGenerator generator) {
         //Case where the world is already loaded
-        if (Bukkit.getWorld(worldName) != null) return Bukkit.getWorld(worldName);
+        if (Bukkit.getWorld(worldName) != null) return prepareTemporaryWorld(Bukkit.getWorld(worldName));
         if (!WorldFolderResolver.folderExists(worldName)) {
             Logger.warn("World folder for " + worldName + " does not exist at "
                     + WorldFolderResolver.legacyFolder(worldName) + " or "
@@ -84,8 +85,7 @@ public class TemporaryWorldManager {
             worldCreator.environment(environment);
             worldCreator.generator(generator);
             World world = Bukkit.createWorld(worldCreator);
-            if (world != null) world.setKeepSpawnInMemory(false);
-            if (world != null) world.setDifficulty(Difficulty.HARD);
+            prepareTemporaryWorld(world);
             Logger.info("Successfully loaded world " + worldName + " !");
             return world;
         } catch (Exception exception) {
@@ -112,7 +112,7 @@ public class TemporaryWorldManager {
      */
     public static World createTemporaryWorldWithGenerator(String worldName, World.Environment environment, ChunkGenerator generator) {
         //Case where the world is already loaded
-        if (Bukkit.getWorld(worldName) != null) return Bukkit.getWorld(worldName);
+        if (Bukkit.getWorld(worldName) != null) return prepareTemporaryWorld(Bukkit.getWorld(worldName));
         WorldFolderResolver.quarantineMigrationDebris(worldName);
 
         try {
@@ -121,11 +121,7 @@ public class TemporaryWorldManager {
             worldCreator.environment(environment);
             worldCreator.generator(generator);
             World world = Bukkit.createWorld(worldCreator);
-            if (world != null) {
-                world.setKeepSpawnInMemory(false);
-                world.setDifficulty(Difficulty.HARD);
-                world.setAutoSave(false);
-            }
+            prepareTemporaryWorld(world);
             Logger.info("Successfully loaded world " + worldName + " !");
             return world;
         } catch (Exception exception) {
@@ -156,9 +152,7 @@ public class TemporaryWorldManager {
             worldCreator.environment(environment);
             worldCreator.generator(new VoidGenerator());
             World world = Bukkit.createWorld(worldCreator);
-            world.setKeepSpawnInMemory(false);
-            world.setDifficulty(Difficulty.HARD);
-            world.setAutoSave(false);
+            prepareTemporaryWorld(world);
             Logger.info("Successfully loaded world " + worldName + " !");
 //            Bukkit.getLogger().setFilter(previousFilter);
             return world;
@@ -176,23 +170,44 @@ public class TemporaryWorldManager {
      * @param world
      */
     public static void asyncPermanentlyDeleteWorld(World world) {
+        tryAsyncPermanentlyDeleteWorld(world);
+    }
+
+    public static boolean tryAsyncPermanentlyDeleteWorld(World world) {
         world.setAutoSave(false);
+        String worldName = world.getName();
         if (!Bukkit.unloadWorld(world, false)) {
-            Logger.warn("Failed to unload world " + world.getName() + " ! This is bad, report this to the developer!");
+            Logger.warn("Failed to unload world " + worldName + " ! Skipping folder deletion because the world is still loaded.");
+            return false;
         }
+        Plugin plugin = MagmaCore.getInstance().getRequestingPlugin();
         new BukkitRunnable() {
             @Override
             public void run() {
-                deleteWorldDirectory(world.getName());
+                if (Bukkit.getWorld(worldName) != null) {
+                    Logger.warn("Skipping folder deletion for " + worldName + " because it was loaded again before cleanup ran.");
+                    return;
+                }
+                new BukkitRunnable() {
+                    @Override
+                    public void run() {
+                        deleteWorldDirectory(worldName);
+                    }
+                }.runTaskAsynchronously(plugin);
             }
-        }.runTaskAsynchronously(MagmaCore.getInstance().getRequestingPlugin());
+        }.runTaskLater(plugin, DELETE_AFTER_UNLOAD_DELAY_TICKS);
+        return true;
     }
 
     public static void permanentlyDeleteWorld(World world) {
+        tryPermanentlyDeleteWorld(world);
+    }
+
+    public static boolean tryPermanentlyDeleteWorld(World world) {
         if (MagmaCore.getInstance().getRequestingPlugin().isEnabled())
-            asyncPermanentlyDeleteWorld(world);
+            return tryAsyncPermanentlyDeleteWorld(world);
         else
-            syncPermanentlyDeleteWorld(world);
+            return trySyncPermanentlyDeleteWorld(world);
     }
 
 
@@ -203,16 +218,34 @@ public class TemporaryWorldManager {
      * @param world
      */
     public static void syncPermanentlyDeleteWorld(World world) {
+        trySyncPermanentlyDeleteWorld(world);
+    }
+
+    public static boolean trySyncPermanentlyDeleteWorld(World world) {
         world.setAutoSave(false);
+        String worldName = world.getName();
         if (!Bukkit.unloadWorld(world, false)) {
-            Logger.warn("Failed to unload world " + world.getName() + " ! This is bad, report this to the developer!");
+            Logger.warn("Failed to unload world " + worldName + " ! Skipping folder deletion because the world is still loaded.");
+            return false;
         }
-        deleteWorldDirectory(world.getName());
+        deleteWorldDirectory(worldName);
+        return true;
     }
 
     private static void deleteWorldDirectory(String worldName) {
         WorldFolderResolver.deleteAllLayouts(worldName);
-        Logger.info("Successfully deleted temporary world " + worldName);
+        if (WorldFolderResolver.folderExists(worldName))
+            Logger.warn("Temporary world " + worldName + " was unloaded, but its folder could not be fully deleted.");
+        else
+            Logger.info("Successfully deleted temporary world " + worldName);
+    }
+
+    private static World prepareTemporaryWorld(World world) {
+        if (world == null) return null;
+        world.setKeepSpawnInMemory(false);
+        world.setDifficulty(Difficulty.HARD);
+        world.setAutoSave(false);
+        return world;
     }
 
     private static class VoidGenerator extends ChunkGenerator {
