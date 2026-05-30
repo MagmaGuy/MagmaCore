@@ -22,10 +22,13 @@ public class LuaLivingEntityTable {
         LuaTable table = LuaEntityTable.build(entity);
         if (entity == null) return table;
 
-        table.set("health", entity.getHealth());
-        table.set("maximum_health", entity.getMaxHealth());
-        table.set("name", entity.getName());
-        table.set("is_alive", LuaValue.valueOf(!entity.isDead()));
+        LuaTableSupport.lazyField(table, "health", () -> LuaValue.valueOf(entity.getHealth()));
+        LuaTableSupport.lazyField(table, "maximum_health", () -> LuaValue.valueOf(entity.getMaxHealth()));
+        LuaTableSupport.lazyField(table, "name", () -> {
+            String n = entity.getName();
+            return n != null ? LuaValue.valueOf(n) : LuaValue.NIL;
+        });
+        LuaTableSupport.lazyField(table, "is_alive", () -> LuaValue.valueOf(!entity.isDead()));
 
         table.set("damage", LuaTableSupport.tableMethod(table, args -> {
             entity.damage(args.checkdouble(1));

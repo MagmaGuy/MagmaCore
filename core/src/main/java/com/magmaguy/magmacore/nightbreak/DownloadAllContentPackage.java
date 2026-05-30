@@ -1,7 +1,7 @@
 package com.magmaguy.magmacore.nightbreak;
 
 import com.magmaguy.magmacore.menus.ContentPackage;
-import com.magmaguy.magmacore.menus.SetupMenuIcons;
+import com.magmaguy.magmacore.menus.NightbreakSetupIcons;
 import com.magmaguy.magmacore.util.ItemStackGenerator;
 import com.magmaguy.magmacore.util.Logger;
 import org.bukkit.Bukkit;
@@ -43,7 +43,7 @@ public class DownloadAllContentPackage<T extends NightbreakManagedContent> exten
         List<String> lore;
 
         if (!NightbreakAccount.hasToken()) {
-            iconModel = SetupMenuIcons.MODEL_RED_CROSS;
+            iconModel = NightbreakSetupIcons.MODEL_RED_CROSS;
             baseMaterial = Material.RED_STAINED_GLASS_PANE;
             displayName = "&cDownload All";
             lore = List.of("&7No Nightbreak token linked.", "&7Click for setup instructions.");
@@ -52,24 +52,24 @@ public class DownloadAllContentPackage<T extends NightbreakManagedContent> exten
             long outdatedCount = countOutdated(allPackages);
 
             if (notDownloadedCount > 0 && outdatedCount > 0) {
-                iconModel = SetupMenuIcons.MODEL_CROWN_YELLOW;
+                iconModel = NightbreakSetupIcons.MODEL_CROWN_YELLOW;
                 baseMaterial = Material.YELLOW_STAINED_GLASS_PANE;
                 displayName = "&eDownload & Update All";
                 lore = List.of(
                         "&7Click to download &e" + notDownloadedCount + " &7new package" + (notDownloadedCount != 1 ? "s" : ""),
                         "&7and update &e" + outdatedCount + " &7outdated package" + (outdatedCount != 1 ? "s" : "") + ".");
             } else if (notDownloadedCount > 0) {
-                iconModel = SetupMenuIcons.MODEL_CROWN_YELLOW;
+                iconModel = NightbreakSetupIcons.MODEL_CROWN_YELLOW;
                 baseMaterial = Material.YELLOW_STAINED_GLASS_PANE;
                 displayName = "&eDownload All";
                 lore = List.of("&7Click to download &e" + notDownloadedCount + " &7available package" + (notDownloadedCount != 1 ? "s" : "") + ".");
             } else if (outdatedCount > 0) {
-                iconModel = SetupMenuIcons.MODEL_CROWN_YELLOW;
+                iconModel = NightbreakSetupIcons.MODEL_CROWN_YELLOW;
                 baseMaterial = Material.YELLOW_STAINED_GLASS_PANE;
                 displayName = "&eUpdate All";
                 lore = List.of("&7Click to update &e" + outdatedCount + " &7outdated package" + (outdatedCount != 1 ? "s" : "") + ".");
             } else {
-                iconModel = SetupMenuIcons.MODEL_CHECKMARK;
+                iconModel = NightbreakSetupIcons.MODEL_CHECKMARK;
                 baseMaterial = Material.LIME_STAINED_GLASS_PANE;
                 displayName = "&aAll Content Up To Date";
                 lore = List.of("&7All available content is downloaded", "&7and up to date!");
@@ -77,7 +77,7 @@ public class DownloadAllContentPackage<T extends NightbreakManagedContent> exten
         }
 
         ItemStack itemStack = ItemStackGenerator.generateItemStack(baseMaterial, displayName, lore);
-        SetupMenuIcons.applyItemModel(itemStack, iconModel);
+        NightbreakSetupIcons.applyItemModel(itemStack, iconModel);
         return itemStack;
     }
 

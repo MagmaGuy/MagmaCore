@@ -33,12 +33,17 @@ public class LuaEntityTable {
 
         table.set("uuid", entity.getUniqueId().toString());
         table.set("entity_type", entity.getType().name().toLowerCase());
-        table.set("is_valid", LuaValue.valueOf(entity.isValid()));
 
-        if (entity.getLocation() != null)
-            table.set("current_location", LuaTableSupport.locationToTable(entity.getLocation()));
-        if (entity.getWorld() != null)
-            table.set("world", entity.getWorld().getName());
+        LuaTableSupport.lazyField(table, "is_valid", () -> LuaValue.valueOf(entity.isValid()));
+        LuaTableSupport.lazyField(table, "is_dead", () -> LuaValue.valueOf(entity.isDead()));
+        LuaTableSupport.lazyField(table, "current_location", () -> {
+            org.bukkit.Location loc = entity.getLocation();
+            return loc != null ? LuaTableSupport.locationToTable(loc) : LuaValue.NIL;
+        });
+        LuaTableSupport.lazyField(table, "world", () -> {
+            org.bukkit.World w = entity.getWorld();
+            return w != null ? LuaValue.valueOf(w.getName()) : LuaValue.NIL;
+        });
 
         table.set("teleport", LuaTableSupport.tableMethod(table, args -> {
             LuaTable loc = args.arg1().checktable();
@@ -51,7 +56,6 @@ public class LuaEntityTable {
             return LuaValue.NIL;
         }));
 
-        table.set("is_dead", LuaValue.valueOf(entity.isDead()));
         table.set("is_player", LuaValue.valueOf(entity instanceof Player));
         table.set("is_hostile", LuaValue.valueOf(entity instanceof Monster));
         table.set("is_passive", LuaValue.valueOf(entity instanceof Animals));

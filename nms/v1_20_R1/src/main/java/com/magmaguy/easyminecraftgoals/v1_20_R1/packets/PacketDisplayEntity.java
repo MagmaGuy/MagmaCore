@@ -121,7 +121,6 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
         return packetBundle;
     }
 
-
     @Override
     public void displayTo(Player player) {
         super.displayTo(player);

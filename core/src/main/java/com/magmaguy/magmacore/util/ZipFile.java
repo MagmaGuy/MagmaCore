@@ -1,8 +1,8 @@
 package com.magmaguy.magmacore.util;
 
 import java.io.*;
+import java.util.Enumeration;
 import java.util.zip.ZipEntry;
-import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
 public class ZipFile {
@@ -26,9 +26,13 @@ public class ZipFile {
 
     public static File unzip(File zippedFile, File destinationUnzippedFile) throws IOException {
         byte[] buffer = new byte[8192];
-        try (ZipInputStream zipInputStream = new ZipInputStream(new BufferedInputStream(new FileInputStream(zippedFile)))) {
-            ZipEntry zipEntry = zipInputStream.getNextEntry();
-            while (zipEntry != null) {
+        // Random-access ZipFile reads the central directory, so it handles all conformant
+        // archives — including STORED entries with data descriptors, which the streaming
+        // ZipInputStream rejects with "only DEFLATED entries can have EXT descriptor".
+        try (java.util.zip.ZipFile zipFile = new java.util.zip.ZipFile(zippedFile)) {
+            Enumeration<? extends ZipEntry> entries = zipFile.entries();
+            while (entries.hasMoreElements()) {
+                ZipEntry zipEntry = entries.nextElement();
                 File newFile = newFile(destinationUnzippedFile, zipEntry);
                 // Check if directory - isDirectory() only checks for trailing '/', but Windows zips may use '\'
                 String entryName = zipEntry.getName();
@@ -45,16 +49,16 @@ public class ZipFile {
                     }
 
                     // Write file content
-                    try (FileOutputStream fileOutputStream = new FileOutputStream(newFile)) {
+                    try (InputStream in = zipFile.getInputStream(zipEntry);
+                         FileOutputStream fileOutputStream = new FileOutputStream(newFile)) {
                         int len;
-                        while ((len = zipInputStream.read(buffer)) > 0) {
+                        while ((len = in.read(buffer)) > 0) {
                             fileOutputStream.write(buffer, 0, len);
                         }
                     }
                 }
                 long entryTime = zipEntry.getTime();
                 if (entryTime >= 0) newFile.setLastModified(entryTime);
-                zipEntry = zipInputStream.getNextEntry();
             }
         }
         return destinationUnzippedFile;
