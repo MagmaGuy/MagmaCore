@@ -54,9 +54,10 @@ import java.util.Set;
  * Implemented: named colours, {@code <#rrggbb>}, {@code <color:…>}, decorations + negation, reset,
  * gradient (with per-segment nested-colour overrides), rainbow, transition, pride, newline,
  * hover (show_text / show_item / show_entity), click (all actions), insert/insertion, font, key,
- * lang/translatable. Recognised but intentionally inert (server-rendered or too new for the
- * BungeeCord component API, so they are consumed rather than printed literally): {@code <nbt>},
- * {@code <score>}, {@code <selector>}, {@code <shadow>}, {@code <sprite>}, {@code <head>}.
+ * lang/translatable (with arguments). Recognised but with their effect dropped (server-rendered or
+ * too new for the BungeeCord component API), consumed rather than printed literally: {@code <nbt>},
+ * {@code <score>}, {@code <selector>}, {@code <sprite>}, {@code <head>} emit nothing, while
+ * {@code <shadow>} still renders its inner text (only the shadow colour is ignored).
  */
 public final class MiniMessageParser {
 
@@ -79,7 +80,25 @@ public final class MiniMessageParser {
     /** Parses MiniMessage and serialises down to a legacy {@code §}-coded string (hex-aware). */
     public static String toLegacy(String input) {
         if (input == null) return "";
-        return BaseComponent.toLegacyText(parse(input));
+        BaseComponent[] parsed = parse(input);
+        try {
+            return BaseComponent.toLegacyText(parsed);
+        } catch (RuntimeException e) {
+            // Server-side serialisation of a TranslatableComponent can throw when a vanilla key
+            // carries format placeholders that the (caller-less) `with` list doesn't satisfy
+            // (e.g. <lang:commands.give.success>). Because this is the universal name/scoreboard/title
+            // path, it must never crash the caller — fall back to a per-component render that drops
+            // only the offending component.
+            StringBuilder sb = new StringBuilder();
+            for (BaseComponent c : parsed) {
+                try {
+                    sb.append(BaseComponent.toLegacyText(c));
+                } catch (RuntimeException ignored) {
+                    // un-renderable server-side (translatable/score/etc.) — skip it
+                }
+            }
+            return sb.toString();
+        }
     }
 
     // ─────────────────────────────────────────────────────── legacy code bridge
@@ -406,9 +425,11 @@ public final class MiniMessageParser {
                 if (stack.stream().anyMatch(e -> e.name.equals(ct.name()))) {
                     while (stack.size() > 1 && !stack.peek().name.equals(ct.name())) stack.pop();
                     if (stack.size() > 1) stack.pop();
-                } else {
-                    stack.peek().children.add(new TextNode("</" + ct.name() + ">"));
                 }
+                // else: a known close tag with no matching open — e.g. the </gradient> after a
+                // <reset> already popped the gradient — is dropped (MiniMessage semantics). Echoing
+                // it as literal text would leak "</gradient>" into rendered output. (Unknown-name
+                // closes never reach here: the tokenizer leaves them as literal text.)
             }
         }
         return root;
@@ -469,7 +490,16 @@ public final class MiniMessageParser {
                 if (!el.args.isEmpty()) emitComponent(new KeybindComponent(el.args.get(0)), style, out);
             }
             case "lang", "tr", "translate", "lang_or", "tr_or", "translate_or" -> {
-                if (!el.args.isEmpty()) emitComponent(new TranslatableComponent(el.args.get(0)), style, out);
+                if (!el.args.isEmpty()) {
+                    TranslatableComponent tc = new TranslatableComponent(el.args.get(0));
+                    // `with` MUST be non-null: BungeeCord's TranslatableComponent.toPlainText()/convert()
+                    // NPEs on a null `with` for any key that expects placeholders — which would crash the
+                    // universal convert() path on a single such string in any config.
+                    List<BaseComponent> with = new ArrayList<>();
+                    for (int k = 1; k < el.args.size(); k++) with.add(new TextComponent(parse(el.args.get(k))));
+                    tc.setWith(with);
+                    emitComponent(tc, style, out);
+                }
             }
             // recognised-but-inert: consume any children with the current style, ignore the tag itself
             case "nbt", "data", "score", "selector", "sel", "sprite", "head" -> {
@@ -526,16 +556,19 @@ public final class MiniMessageParser {
         }
         switch (name) {
             case "font" -> {
-                if (!el.args.isEmpty()) s.font = el.args.get(0);
+                // values commonly contain a namespace colon (minecraft:uniform), which the
+                // top-level split fragments — rejoin them.
+                if (!el.args.isEmpty()) s.font = joinFrom(el.args, 0);
             }
             case "insert", "insertion" -> {
-                if (!el.args.isEmpty()) s.insertion = el.args.get(0);
+                if (!el.args.isEmpty()) s.insertion = joinFrom(el.args, 0);
             }
             case "hover" -> s.hover = parseHover(el.args);
             case "click" -> {
                 if (el.args.size() >= 2) {
                     ClickEvent.Action action = clickAction(el.args.get(0));
-                    if (action != null) s.click = new ClickEvent(action, el.args.get(1));
+                    // click values are frequently unquoted URLs (https://… → rejoin the colon split)
+                    if (action != null) s.click = new ClickEvent(action, joinFrom(el.args, 1));
                 }
             }
             default -> {
@@ -549,30 +582,60 @@ public final class MiniMessageParser {
         String action = args.get(0).toLowerCase(Locale.ROOT);
         switch (action) {
             case "show_text" -> {
-                return new HoverEvent(HoverEvent.Action.SHOW_TEXT, new Text(parse(args.get(1))));
+                return new HoverEvent(HoverEvent.Action.SHOW_TEXT, new Text(parse(joinFrom(args, 1))));
             }
             case "show_item" -> {
-                String id = args.get(1);
+                // show_item:<id>[:count]  — id is normally a namespaced key (minecraft:diamond), so
+                // it survives the colon split only by rejoining; an optional trailing integer is count.
+                List<String> rest = args.subList(1, args.size());
                 int count = 1;
-                if (args.size() >= 3) {
-                    try {
-                        count = Integer.parseInt(args.get(2).trim());
-                    } catch (NumberFormatException ignored) {
-                    }
+                int idEnd = rest.size();
+                // A trailing all-digit segment is treated as the stack count. (A namespaced id whose
+                // PATH is purely numeric would be mis-split, but no real Minecraft item id is all-digits.)
+                if (rest.size() >= 2 && isInteger(rest.get(rest.size() - 1))) {
+                    count = Integer.parseInt(rest.get(rest.size() - 1).trim());
+                    idEnd = rest.size() - 1;
                 }
+                String id = String.join(":", rest.subList(0, idEnd));
                 return new HoverEvent(HoverEvent.Action.SHOW_ITEM, new Item(id, count, null));
             }
             case "show_entity" -> {
-                if (args.size() < 3) return null;
-                String type = args.get(1);
-                String id = args.get(2);
-                BaseComponent name = args.size() >= 4 ? new TextComponent(parse(args.get(3))) : null;
+                // show_entity:<type>:<uuid>[:name] — type may be namespaced; locate the uuid segment
+                // to split type (before) from the optional name (after).
+                List<String> rest = args.subList(1, args.size());
+                int uuidIdx = -1;
+                for (int k = 0; k < rest.size(); k++) {
+                    if (isUuid(rest.get(k))) {
+                        uuidIdx = k;
+                        break;
+                    }
+                }
+                if (uuidIdx < 0) return null;
+                String type = String.join(":", rest.subList(0, uuidIdx));
+                String id = rest.get(uuidIdx);
+                BaseComponent name = uuidIdx + 1 < rest.size()
+                        ? new TextComponent(parse(joinFrom(rest, uuidIdx + 1))) : null;
                 return new HoverEvent(HoverEvent.Action.SHOW_ENTITY, new Entity(type, id, name));
             }
             default -> {
                 return null;
             }
         }
+    }
+
+    private static String joinFrom(List<String> args, int from) {
+        return from >= args.size() ? "" : String.join(":", args.subList(from, args.size()));
+    }
+
+    private static boolean isInteger(String s) {
+        s = s.trim();
+        if (s.isEmpty()) return false;
+        for (int i = 0; i < s.length(); i++) if (!Character.isDigit(s.charAt(i))) return false;
+        return true;
+    }
+
+    private static boolean isUuid(String s) {
+        return s.matches("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
     }
 
     private static void setDecoration(Style s, String canonical, boolean v) {
@@ -634,32 +697,25 @@ public final class MiniMessageParser {
                     idx[0]++;
                     continue;
                 }
-                Style childStyle = applyStyleTag(child2, style);
-                if (isColorTag(child2.name)) {
-                    // explicit colour wins for this span; still advance idx to keep gradient aligned
-                    renderFixedColor(child2, childStyle, idx, out);
+                if (producesOwnColor(child2.name)) {
+                    // An explicit colour OR a nested gradient/rainbow/transition/pride wins for its
+                    // whole span: render it via the normal path (so the inner colouring is honoured)
+                    // and advance the shared index by its length so the outer gradient stays aligned.
+                    render(child2, style, out);
+                    idx[0] += countCodePoints(child2);
                 } else {
-                    renderGradientChildren(child2, colors, total, idx, childStyle, out);
+                    // decoration-only (or other style) tag: keep flowing the gradient through it
+                    renderGradientChildren(child2, colors, total, idx, applyStyleTag(child2, style), out);
                 }
             }
         }
     }
 
-    private static void renderFixedColor(ElementNode el, Style style, int[] idx, List<BaseComponent> out) {
-        for (Node child : el.children) {
-            if (child instanceof TextNode tn) {
-                emit(tn.text(), style, out);
-                idx[0] += tn.text().codePointCount(0, tn.text().length());
-            } else {
-                ElementNode child2 = (ElementNode) child;
-                if (child2.name.equals("newline") || child2.name.equals("br")) {
-                    emit("\n", style, out);
-                    idx[0]++;
-                    continue;
-                }
-                renderFixedColor(child2, applyStyleTag(child2, style), idx, out);
-            }
-        }
+    private static boolean producesOwnColor(String name) {
+        return isColorTag(name)
+                || name.equals("gradient") || name.equals("g")
+                || name.equals("rainbow") || name.equals("r")
+                || name.equals("transition") || name.equals("pride");
     }
 
     private static void renderTransition(ElementNode el, List<Color> colors, Style style, List<BaseComponent> out) {
