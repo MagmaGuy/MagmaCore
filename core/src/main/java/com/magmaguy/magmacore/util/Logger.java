@@ -34,11 +34,23 @@ public class Logger {
     }
 
     public static void sendMessage(CommandSender commandSender, String message) {
-        commandSender.sendMessage(ChatColorConverter.convert("&8[" + MagmaCore.getInstance().getRequestingPlugin().getName() + "] &f" + message));
+        dispatch(commandSender, "&8[" + MagmaCore.getInstance().getRequestingPlugin().getName() + "] &f" + message);
     }
 
     public static void sendSimpleMessage(CommandSender commandSender, String message) {
-        commandSender.sendMessage(ChatColorConverter.convert(message));
+        dispatch(commandSender, message);
+    }
+
+    /**
+     * Sends MiniMessage-formatted text. Players receive rich components so hover/click/font in the
+     * message survive; the console (and anything that isn't a Player) gets the legacy §-string form.
+     */
+    private static void dispatch(CommandSender commandSender, String message) {
+        if (commandSender instanceof Player player) {
+            player.spigot().sendMessage(com.magmaguy.magmacore.util.minimessage.MiniMessageParser.parse(message));
+        } else {
+            commandSender.sendMessage(ChatColorConverter.convert(message));
+        }
     }
 
     public static TextComponent simpleMessage(String message) {

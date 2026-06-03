@@ -43,20 +43,13 @@ public class ChatColorConverter {
     public static String convert(String string) {
         if (string == null) return "";
 
-        // Process gradients first (they contain text that shouldn't be processed separately)
-        string = processGradients(string);
-
-        // Process rainbow
-        string = processRainbow(string);
-
-        // Process hex color tags <#RRGGBB>
-        string = processHexTags(string);
-
-        // Process hex colors &#RRGGBB
-        string = processHexColors(string);
-
-        // Finally, process legacy & codes
-        return org.bukkit.ChatColor.translateAlternateColorCodes('&', string);
+        // Routed through the full MiniMessage parser (com.magmaguy.magmacore.util.minimessage):
+        // it handles legacy & / §  codes, &#RRGGBB and the BungeeCord spread-hex form, the historical
+        // <gradient>/<rainbow>/<#hex> tags AND the complete MiniMessage tag set, then serialises back
+        // to a legacy §-coded string so every existing String sink (names, items, scoreboards, titles)
+        // keeps working unchanged. The legacy regex helpers below are retained as a public API but are
+        // no longer on this path.
+        return com.magmaguy.magmacore.util.minimessage.MiniMessageParser.toLegacy(string);
     }
 
     /**
