@@ -5,13 +5,15 @@ import net.md_5.bungee.api.chat.BaseComponent;
 import net.md_5.bungee.api.chat.ClickEvent;
 import net.md_5.bungee.api.chat.KeybindComponent;
 import net.md_5.bungee.api.chat.TranslatableComponent;
+import net.md_5.bungee.api.chat.hover.content.Item;
 import org.junit.jupiter.api.Test;
 
 import java.awt.Color;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -244,9 +246,152 @@ class MiniMessageParserTest {
         assertEquals("§cred", com.magmaguy.magmacore.util.ChatColorConverter.convert("&cred"));
     }
 
+    // ── hardening: every bug found in the pre-merge review pass ──
+
+    @Test
+    void langWithPlaceholderKeyDoesNotCrash() {
+        // BungeeCord NPEs/IndexOutOfBounds on a placeholder key; the universal convert() path must survive.
+        assertDoesNotThrow(() -> MiniMessageParser.toLegacy("<lang:commands.give.success>"));
+        assertDoesNotThrow(() ->
+                com.magmaguy.magmacore.util.ChatColorConverter.convert("<lang:death.attack.mob>"));
+        // highest-value guard: only the offending component is dropped — surrounding text survives intact
+        assertEquals("Reward:  done", com.magmaguy.magmacore.util.ChatColorConverter
+                .convert("Reward: <lang:commands.give.success> done").replaceAll("§.", ""));
+    }
+
+    @Test
+    void showEntityWithoutUuidDropsHover() {
+        // MiniMessage requires the uuid as the 2nd arg; without it we deliberately emit no hover
+        // (a clean drop, not a crash). Pinned so this stays a contract, not an accident.
+        assertNull(MiniMessageParser.parse("<hover:show_entity:zombie:Bob>x")[0].getHoverEvent());
+    }
+
+    @Test
+    void langCarriesArguments() {
+        BaseComponent[] c = MiniMessageParser.parse("<lang:chat.type.text:Steve:hi>");
+        assertInstanceOf(TranslatableComponent.class, c[0]);
+        assertEquals(2, ((TranslatableComponent) c[0]).getWith().size());
+    }
+
+    @Test
+    void namespacedFontSurvivesColonSplit() {
+        assertEquals("minecraft:uniform", MiniMessageParser.parse("<font:minecraft:uniform>x")[0].getFontRaw());
+    }
+
+    @Test
+    void unquotedUrlClickSurvivesColonSplit() {
+        BaseComponent[] c = MiniMessageParser.parse("<click:open_url:https://magmaguy.com/x>link");
+        assertEquals(ClickEvent.Action.OPEN_URL, c[0].getClickEvent().getAction());
+        assertEquals("https://magmaguy.com/x", c[0].getClickEvent().getValue());
+    }
+
+    @Test
+    void namespacedShowItemUnquoted() {
+        BaseComponent[] c = MiniMessageParser.parse("<hover:show_item:minecraft:diamond:3>loot");
+        assertNotNull(c[0].getHoverEvent());
+        Item item = (Item) c[0].getHoverEvent().getContents().get(0);
+        assertEquals("minecraft:diamond", item.getId());
+        assertEquals(3, item.getCount());
+    }
+
+    @Test
+    void showEntityHover() {
+        BaseComponent[] c = MiniMessageParser.parse(
+                "<hover:show_entity:minecraft:pig:06e96388-0000-4000-8000-000000000001:Babe>x");
+        assertNotNull(c[0].getHoverEvent());
+        assertEquals(HoverEventActions.SHOW_ENTITY, c[0].getHoverEvent().getAction());
+    }
+
+    @Test
+    void insertionTag() {
+        assertEquals("hello", MiniMessageParser.parse("<insert:hello>x")[0].getInsertion());
+    }
+
+    @Test
+    void resetInsideGradientDoesNotLeakCloseTag() {
+        // the reported corruption: </gradient> must not appear as literal text
+        String legacy = MiniMessageParser.toLegacy("<gradient:#ff0000:#0000ff>AB<reset>CD</gradient>");
+        assertFalse(legacy.contains("gradient"), "no literal </gradient> leaked: " + legacy);
+        assertEquals("ABCD", legacy.replaceAll("§.", ""));
+    }
+
+    @Test
+    void nestedGradientHonoured() {
+        // inner green→yellow gradient must apply to CD, not the outer red→blue stops
+        BaseComponent[] c = MiniMessageParser.parse(
+                "<gradient:#ff0000:#0000ff>AB<gradient:#00ff00:#ffff00>CD</gradient>EF</gradient>");
+        assertEquals("ABCDEF", plainText(c));
+        assertEquals(6, c.length);
+        assertEquals(new Color(0x00, 0xFF, 0x00), c[2].getColor().getColor(), "C = inner gradient first stop");
+    }
+
+    @Test
+    void transitionTag() {
+        // phase 1 → the end colour (blue), applied to the whole span
+        assertEquals(new Color(0, 0, 0xFF),
+                MiniMessageParser.parse("<transition:#ff0000:#0000ff:1>abc")[0].getColor().getColor());
+    }
+
+    @Test
+    void prideVariantFlags() {
+        assertTrue(MiniMessageParser.parse("<pride:trans>hello</pride>").length >= 1);
+        assertTrue(MiniMessageParser.parse("<pride:bi>hi</pride>").length >= 1);
+    }
+
+    @Test
+    void explicitDecorationFalse() {
+        BaseComponent[] c = MiniMessageParser.parse("<bold>a<bold:false>b");
+        assertTrue(c[0].isBold());
+        assertEquals(Boolean.FALSE, c[1].isBoldRaw());
+    }
+
+    @Test
+    void decorationAliases() {
+        assertTrue(MiniMessageParser.parse("<b>x</b>")[0].isBold());
+        assertTrue(MiniMessageParser.parse("<i>x</i>")[0].isItalic());
+        assertEquals(Boolean.TRUE, MiniMessageParser.parse("<st>x</st>")[0].isStrikethroughRaw());
+    }
+
+    @Test
+    void legacySpreadHex() {
+        // §x§f§f§8§8§0§0 → #ff8800
+        assertEquals(new Color(0xFF, 0x88, 0x00),
+                MiniMessageParser.parse("§x§f§f§8§8§0§0hi")[0].getColor().getColor());
+    }
+
+    @Test
+    void convertIsIdempotentOnSectionCodes() {
+        String once = com.magmaguy.magmacore.util.ChatColorConverter.convert("&cred");
+        String twice = com.magmaguy.magmacore.util.ChatColorConverter.convert(once);
+        assertEquals(once, twice);
+    }
+
+    @Test
+    void gradientHandlesSurrogatePairs() {
+        // an emoji is one code point (two chars) — it must not be split across two coloured components
+        BaseComponent[] c = MiniMessageParser.parse("<gradient:#ff0000:#0000ff>A😀B</gradient>");
+        assertEquals(3, c.length, "emoji counts as a single coloured code point");
+    }
+
+    @Test
+    void inertTagsEmitNothingOrPassThrough() {
+        assertEquals("", plainText(MiniMessageParser.parse("<selector:@p>")));
+        assertEquals("ab", plainText(MiniMessageParser.parse("a<sprite:icon>b")));
+        assertEquals("x", plainText(MiniMessageParser.parse("<shadow:#ff0000>x</shadow>")));
+    }
+
+    @Test
+    void nullAndEmptyInput() {
+        assertEquals("", MiniMessageParser.toLegacy(null));
+        assertEquals("", plainText(MiniMessageParser.parse("")));
+        assertEquals("", plainText(MiniMessageParser.parse(null)));
+    }
+
     /** Small indirection so the test reads cleanly regardless of BungeeCord's enum import path. */
     private static final class HoverEventActions {
         static final net.md_5.bungee.api.chat.HoverEvent.Action SHOW_ITEM =
                 net.md_5.bungee.api.chat.HoverEvent.Action.SHOW_ITEM;
+        static final net.md_5.bungee.api.chat.HoverEvent.Action SHOW_ENTITY =
+                net.md_5.bungee.api.chat.HoverEvent.Action.SHOW_ENTITY;
     }
 }
