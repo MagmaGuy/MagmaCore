@@ -31,6 +31,8 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.BiConsumer;
 
 /**
  * Builds the Lua table exposed as {@code context.world} to Lua scripts.
@@ -39,6 +41,19 @@ import java.util.Locale;
 public final class LuaWorldTable {
 
     private LuaWorldTable() {}
+
+    private static final List<BiConsumer<LuaTable, World>> enrichers = new CopyOnWriteArrayList<>();
+
+    /**
+     * Registers a tier-2 enricher that adds plugin-specific methods to every context.world
+     * table (e.g. EliteMobs adding spawn_custom_boss_at_location / generate_player_loot).
+     * Mirrors {@link LuaEntityTable#registerEnricher}. The registry is local to this shaded
+     * copy of Magmacore, so each consuming plugin registers against its own copy on enable.
+     */
+    public static void registerEnricher(BiConsumer<LuaTable, World> enricher) {
+        if (enricher == null) return;
+        enrichers.add(enricher);
+    }
 
     public static LuaTable build(World world) {
         LuaTable table = new LuaTable();
@@ -333,10 +348,100 @@ public final class LuaWorldTable {
             return LuaValue.NIL;
         }));
 
+        // ── Location-table overloads ("_at_location" shape) ──────────────────
+        // Same operations as the coordinate methods above, taking a {x,y,z,world?}
+        // location table. Both shapes are first-class (design decision: support both).
+        table.set("strike_lightning_at_location", method(table, args -> {
+            Location loc = locArg(args, world);
+            if (loc != null && loc.getWorld() != null) loc.getWorld().strikeLightning(loc);
+            return LuaValue.NIL;
+        }));
+        table.set("play_sound_at_location", method(table, args -> {
+            Location loc = locArg(args, world);
+            if (loc == null) return LuaValue.NIL;
+            Sound sound;
+            try {
+                sound = Sound.valueOf(args.checkjstring(2).toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException e) {
+                return LuaValue.NIL;
+            }
+            world.playSound(loc, sound, (float) args.optdouble(3, 1.0), (float) args.optdouble(4, 1.0));
+            return LuaValue.NIL;
+        }));
+        table.set("spawn_particle_at_location", method(table, args -> {
+            Location loc = locArg(args, world);
+            if (loc == null) return LuaValue.NIL;
+            Particle particle;
+            try {
+                particle = Particle.valueOf(args.checkjstring(2).toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException e) {
+                return LuaValue.NIL;
+            }
+            int count = args.optint(3, 1);
+            world.spawnParticle(particle, loc, count,
+                    args.optdouble(4, 0), args.optdouble(5, 0), args.optdouble(6, 0), args.optdouble(7, 0));
+            return LuaValue.NIL;
+        }));
+        table.set("get_block_at_location", method(table, args -> {
+            Location loc = locArg(args, world);
+            // Operate on the LOCATION's world (it may carry an explicit `world` field), not the
+            // table-owner world — otherwise cross-world calls read/check the wrong world.
+            if (loc == null || loc.getWorld() == null
+                    || !loc.getWorld().isChunkLoaded(loc.getBlockX() >> 4, loc.getBlockZ() >> 4))
+                return LuaValue.valueOf("air");
+            return LuaValue.valueOf(loc.getBlock().getType().name().toLowerCase(Locale.ROOT));
+        }));
+        table.set("set_block_at_location", method(table, args -> {
+            Location loc = locArg(args, world);
+            Material material = Material.matchMaterial(args.checkjstring(2));
+            if (loc == null || loc.getWorld() == null || material == null) return LuaValue.FALSE;
+            Bukkit.getScheduler().runTask(MagmaCore.getInstance().getRequestingPlugin(), () -> {
+                if (!loc.getWorld().isChunkLoaded(loc.getBlockX() >> 4, loc.getBlockZ() >> 4)) return;
+                loc.getBlock().setType(material);
+            });
+            return LuaValue.TRUE;
+        }));
+        table.set("place_temporary_block_at_location", method(table, args -> {
+            Location loc = locArg(args, world);
+            Material material = Material.matchMaterial(args.checkjstring(2));
+            if (loc == null || loc.getWorld() == null || material == null) return LuaValue.FALSE;
+            if (!loc.getWorld().isChunkLoaded(loc.getBlockX() >> 4, loc.getBlockZ() >> 4)) return LuaValue.FALSE;
+            TemporaryBlockManager.addTemporaryBlock(loc.getBlock(), args.optint(3, 0), material, args.optboolean(4, false));
+            return LuaValue.TRUE;
+        }));
+        table.set("get_highest_block_y_at_location", method(table, args -> {
+            Location loc = locArg(args, world);
+            return loc == null || loc.getWorld() == null
+                    ? LuaValue.NIL : LuaValue.valueOf(loc.getWorld().getHighestBlockYAt(loc));
+        }));
+
+        // ── Tier-2 plugin enrichers (e.g. EliteMobs domain world methods) ────
+        for (BiConsumer<LuaTable, World> enricher : enrichers) {
+            try {
+                enricher.accept(table, world);
+            } catch (Throwable ignored) {
+                // An enricher failure must not poison the whole world table.
+            }
+        }
+
         return table;
     }
 
     // ── Lua method-call boilerplate ────────────────────────────────────
+
+    /**
+     * Extracts a Bukkit Location from a Lua location table ({x,y,z,world?}) passed as the
+     * first method argument, defaulting to {@code world} when no world field is present.
+     * Returns null when the argument is not a usable location table.
+     */
+    private static Location locArg(org.luaj.vm2.Varargs args, World world) {
+        if (args.narg() < 1 || !args.arg(1).istable()) return null;
+        try {
+            return LuaTableSupport.tableToLocation(args.arg(1).checktable(), world);
+        } catch (Exception e) {
+            return null;
+        }
+    }
 
     private static VarArgFunction method(LuaTable owner, LuaTableSupport.LuaCallback callback) {
         return new VarArgFunction() {

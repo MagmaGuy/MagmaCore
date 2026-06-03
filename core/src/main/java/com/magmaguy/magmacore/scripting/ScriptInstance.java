@@ -47,6 +47,7 @@ public class ScriptInstance {
     private boolean closed = false;
     private Event currentEvent = null;
     private LivingEntity currentEventActor = null;
+    private LivingEntity currentDirectTarget = null;
 
     public ScriptInstance(ScriptDefinition definition, ScriptableEntity entity) {
         this.definition = definition;
@@ -55,6 +56,95 @@ public class ScriptInstance {
 
     public boolean isClosed() {
         return closed;
+    }
+
+    /**
+     * Eagerly instantiates the Lua VM and registers the per-tick task (if the script declares
+     * on_game_tick) WITHOUT firing any hook. Hosts that dispatch their own spawn event (e.g.
+     * EliteMobs bosses, whose on_spawn arrives as a separate event) call this on creation so a
+     * tick-only script still gets its tick loop — instead of relying on the first hook dispatch.
+     * Idempotent and safe to call once at startup.
+     */
+    public void start() {
+        if (closed) return;
+        ensureScriptTable();
+    }
+
+    /** The actor (e.g. interacting/triggering player) of the event being dispatched, or null. */
+    public LivingEntity getCurrentEventActor() {
+        return currentEventActor;
+    }
+
+    /** The event currently being dispatched, or null (e.g. during on_tick / on_spawn). */
+    public Event getCurrentEvent() {
+        return currentEvent;
+    }
+
+    /** The direct target of the event being dispatched, or null (e.g. during on_tick). */
+    public LivingEntity getCurrentDirectTarget() {
+        return currentDirectTarget;
+    }
+
+    // ── Public task / callback API for rich ScriptableEntity implementations ─────
+    // Lets entities that supply their own context tables (e.g. EliteMobs bosses) schedule
+    // OWNED tasks (auto-cancelled on shutdown) and invoke Lua callbacks under the same
+    // 50ms error/time-budget watchdog as built-in hooks — so they reuse this single runtime
+    // instead of maintaining a parallel one.
+
+    /** Schedule a one-shot owned Java task; auto-cancelled on shutdown. Returns its id. */
+    public int ownLater(int ticks, Runnable runnable) {
+        JavaPlugin plugin = MagmaCore.getInstance().getRequestingPlugin();
+        int[] holder = new int[1];
+        BukkitTask task = Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            ownedTasks.remove(holder[0]);
+            runnable.run();
+        }, ticks);
+        holder[0] = task.getTaskId();
+        ownedTasks.put(holder[0], () -> Bukkit.getScheduler().cancelTask(holder[0]));
+        return holder[0];
+    }
+
+    /** Schedule a repeating owned Java task; auto-cancelled on shutdown. Returns its id. */
+    public int ownRepeating(int delayTicks, int intervalTicks, Runnable runnable) {
+        JavaPlugin plugin = MagmaCore.getInstance().getRequestingPlugin();
+        BukkitTask task = Bukkit.getScheduler().runTaskTimer(plugin, runnable, delayTicks, intervalTicks);
+        int id = task.getTaskId();
+        ownedTasks.put(id, () -> Bukkit.getScheduler().cancelTask(id));
+        return id;
+    }
+
+    /** Schedule a one-shot owned Lua callback, invoked with a fresh context table. */
+    public int ownLuaLater(int ticks, LuaFunction callback) {
+        return ownLaterTask(ticks, callback);
+    }
+
+    /** Schedule a repeating owned Lua callback, each invoked with a fresh context table. */
+    public int ownLuaRepeating(int delayTicks, int intervalTicks, LuaFunction callback) {
+        return ownRepeatingTask(delayTicks, intervalTicks, callback);
+    }
+
+    /** Cancel an owned task by id. */
+    public void cancelOwned(int taskId) {
+        cancelOwnedTask(taskId);
+    }
+
+    /** Invoke a Lua callback with explicit args under the time/error watchdog. */
+    public void invokeOwnedCallback(String failureContext, LuaFunction callback, LuaValue... args) {
+        if (closed) return;
+        long startNanos = System.nanoTime();
+        try {
+            callback.invoke(LuaValue.varargsOf(args));
+        } catch (Exception exception) {
+            logLuaError(failureContext, exception);
+            shutdown();
+            return;
+        }
+        long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000L;
+        if (elapsedMillis > 50) {
+            Logger.warn("[Lua] " + definition.getFileName() + " took " + elapsedMillis + "ms in '"
+                    + failureContext + "' (limit: 50ms) — script disabled to prevent lag.");
+            shutdown();
+        }
     }
 
     // ── Event dispatch ───────────────────────────────────────────────────
@@ -75,6 +165,7 @@ public class ScriptInstance {
         long startNanos = System.nanoTime();
         currentEvent = event;
         currentEventActor = eventActor;
+        currentDirectTarget = directTarget;
         try {
             function.checkfunction().call(buildContext(event, directTarget, eventActor));
         } catch (Exception exception) {
@@ -84,6 +175,7 @@ public class ScriptInstance {
         } finally {
             currentEvent = null;
             currentEventActor = null;
+            currentDirectTarget = null;
         }
 
         long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000L;
@@ -173,6 +265,18 @@ public class ScriptInstance {
 
     private LuaValue resolveContextValue(String key, Event event,
                                          LivingEntity directTarget, LivingEntity eventActor) {
+        // 1) The entity's own primary table (context.boss / npc / prop).
+        if (key.equals(entity.getContextKey())) {
+            return entity.buildContextTable(this);
+        }
+        // 2) Entity overrides/extensions FIRST, so rich entities (bosses) can supply their own
+        //    cooldowns/scheduler/zones/world/players/entities/script/etc. Simple entities (props,
+        //    NPCs) return NIL here and inherit the Magmacore defaults below.
+        LuaValue custom = entity.resolveExtraContext(key, this);
+        if (custom != null && !custom.isnil()) {
+            return custom;
+        }
+        // 3) Magmacore built-in defaults.
         return switch (key) {
             case "log" -> createLogTable();
             case "cooldowns" -> createCooldownTable();
@@ -185,14 +289,7 @@ public class ScriptInstance {
             }
             case "zones" -> createZonesTable();
             case "event" -> createEventTable();
-            default -> {
-                // Entity's own context table
-                if (key.equals(entity.getContextKey())) {
-                    yield entity.buildContextTable(this);
-                }
-                // Delegate to entity for plugin-specific context (event, player, etc.)
-                yield entity.resolveExtraContext(key, this);
-            }
+            default -> LuaValue.NIL;
         };
     }
 
@@ -235,6 +332,23 @@ public class ScriptInstance {
             return LuaValue.valueOf(ownRepeatingTask(delay, interval, callback));
         }));
         scheduler.set("cancel", method(scheduler, args -> {
+            cancelOwnedTask(args.checkint(1));
+            return LuaValue.NIL;
+        }));
+        // Aliases matching the EliteMobs boss-power scheduler convention, so the same script
+        // style works on every surface: run_after == run_later; run_every(interval) ==
+        // run_repeating(0, interval); cancel_task == cancel.
+        scheduler.set("run_after", method(scheduler, args -> {
+            int ticks = args.checkint(1);
+            LuaFunction callback = args.checkfunction(2);
+            return LuaValue.valueOf(ownLaterTask(ticks, callback));
+        }));
+        scheduler.set("run_every", method(scheduler, args -> {
+            int interval = args.checkint(1);
+            LuaFunction callback = args.checkfunction(2);
+            return LuaValue.valueOf(ownRepeatingTask(0, interval, callback));
+        }));
+        scheduler.set("cancel_task", method(scheduler, args -> {
             cancelOwnedTask(args.checkint(1));
             return LuaValue.NIL;
         }));
