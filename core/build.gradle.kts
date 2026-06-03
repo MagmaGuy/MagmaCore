@@ -5,4 +5,12 @@ dependencies {
     compileOnly("com.sk89q.worldguard:worldguard-bukkit:7.0.7")
     implementation("org.reflections:reflections:0.10.2")
     implementation("org.luaj:luaj-jse:3.0.1")
+
+    testImplementation("org.spigotmc:spigot-api:1.21.11-R0.1-SNAPSHOT")
+    testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.10.2")
+}
+
+tasks.withType<Test> {
+    useJUnitPlatform()
 }
