@@ -54,10 +54,18 @@ public class PluginInitializationManager {
             return true;
         }
         PluginInitializationState state = pluginStates.get(pluginName);
-        if (state == null) {
+        if (state != null) {
+            return state != PluginInitializationState.INITIALIZING;
+        }
+        String sharedState = System.getProperty("magmacore.init." + pluginName);
+        if (sharedState == null) {
             return true;
         }
-        return state != PluginInitializationState.INITIALIZING;
+        try {
+            return PluginInitializationState.valueOf(sharedState) != PluginInitializationState.INITIALIZING;
+        } catch (IllegalArgumentException ignored) {
+            return true;
+        }
     }
 
     public static boolean isShutdownRequested(JavaPlugin plugin) {
