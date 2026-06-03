@@ -135,6 +135,7 @@ public final class MagmaCore {
         CustomBiomeCompatibility.shutdown();
         MatchInstance.shutdown();
         InstanceProtector.shutdown();
+        instanceProtectorRegistered = false;
         TemporaryBlockManager.shutdown();
     }
 
