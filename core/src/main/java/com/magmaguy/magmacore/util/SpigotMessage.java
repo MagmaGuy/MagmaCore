@@ -1,5 +1,6 @@
 package com.magmaguy.magmacore.util;
 
+import com.magmaguy.magmacore.util.minimessage.MiniMessageParser;
 import net.md_5.bungee.api.chat.BaseComponent;
 import net.md_5.bungee.api.chat.ClickEvent;
 import net.md_5.bungee.api.chat.HoverEvent;
@@ -10,9 +11,19 @@ public class SpigotMessage {
     private SpigotMessage() {
     }
 
+    /**
+     * Full MiniMessage → rich BungeeCord components (hover/click/font/gradients/legacy &amp; codes).
+     * Prefer this over {@link #simpleMessage(String)} when the source may contain interactive tags.
+     */
+    public static BaseComponent[] fromMiniMessage(String message) {
+        return MiniMessageParser.parse(message);
+    }
+
     public static TextComponent simpleMessage(String message) {
+        // Parse MiniMessage straight to components so hover/click/font in the source survive
+        // (the legacy-string round-trip used previously dropped them).
         TextComponent wrapper = new TextComponent();
-        for (BaseComponent component : TextComponent.fromLegacyText(ChatColorConverter.convert(message)))
+        for (BaseComponent component : MiniMessageParser.parse(message))
             wrapper.addExtra(component);
         return wrapper;
     }
