@@ -11,6 +11,7 @@ import java.awt.Color;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -155,5 +156,97 @@ class MiniMessageParserTest {
         String legacy = MiniMessageParser.toLegacy("<gradient:#ff0000:#0000ff>Boss</gradient>");
         assertTrue(legacy.contains("§x"), "hex colour encoded as legacy §x sequence");
         assertTrue(legacy.replaceAll("§.", "").equals("Boss"), "stripped of codes, text is intact");
+    }
+
+    // ── legacy & code back-compatibility (existing configs must keep rendering) ──
+
+    @Test
+    void legacyAmpersandColour() {
+        BaseComponent[] c = MiniMessageParser.parse("&cInferno Lord");
+        assertEquals(ChatColor.RED, c[0].getColorRaw());
+        assertEquals("Inferno Lord", plainText(c));
+    }
+
+    @Test
+    void legacyColourResetsDecorations() {
+        // vanilla semantics: a colour code clears formatting (&l then &c → red, not bold)
+        BaseComponent[] c = MiniMessageParser.parse("&lBold &cPlainRed");
+        assertTrue(c[0].isBold());
+        assertEquals(ChatColor.RED, c[c.length - 1].getColorRaw());
+        assertNull(c[c.length - 1].isBoldRaw(), "colour code cleared the bold");
+    }
+
+    @Test
+    void legacyHexCode() {
+        BaseComponent[] c = MiniMessageParser.parse("&#ff8800hi");
+        assertEquals(new Color(0xFF, 0x88, 0x00), c[0].getColor().getColor());
+    }
+
+    @Test
+    void legacyAndMiniMessageMix() {
+        BaseComponent[] c = MiniMessageParser.parse("&7<gradient:#ff0000:#0000ff>AB</gradient>");
+        assertEquals(2, c.length, "gradient still applies when preceded by a legacy code");
+        assertEquals(new Color(0xFF, 0, 0), c[0].getColor().getColor());
+    }
+
+    // ── new tags ──
+
+    @Test
+    void shortGradientAlias() {
+        // the historical MagmaCore <g:...> alias must still resolve to a gradient
+        BaseComponent[] c = MiniMessageParser.parse("<g:#ff0000:#0000ff>ab</g>");
+        assertEquals(2, c.length);
+        assertEquals(new Color(0xFF, 0, 0), c[0].getColor().getColor());
+    }
+
+    @Test
+    void gradientHonoursNestedColourOverride() {
+        // AB gradient, CD forced green (emitted as one span), EF back to gradient.
+        BaseComponent[] c = MiniMessageParser.parse("<gradient:#ff0000:#0000ff>AB<green>CD</green>EF</gradient>");
+        assertEquals("ABCDEF", plainText(c));
+        assertEquals(5, c.length, "gradient chars are per-codepoint; the green span is one component");
+        assertEquals("CD", c[2].toPlainText());
+        assertEquals(ChatColor.GREEN, c[2].getColorRaw(), "nested colour overrides the gradient");
+        // alignment preserved across the override: first char = first stop, last char = last stop
+        assertEquals(new Color(0xFF, 0, 0), c[0].getColor().getColor());
+        assertEquals(new Color(0, 0, 0xFF), c[4].getColor().getColor());
+    }
+
+    @Test
+    void showItemHover() {
+        BaseComponent[] c = MiniMessageParser.parse("<hover:show_item:'minecraft:diamond':3>loot");
+        assertNotNull(c[0].getHoverEvent());
+        assertEquals(HoverEventActions.SHOW_ITEM, c[0].getHoverEvent().getAction());
+    }
+
+    @Test
+    void prideRendersAsGradient() {
+        BaseComponent[] c = MiniMessageParser.parse("<pride>abcdef</pride>");
+        assertEquals(6, c.length);
+    }
+
+    @Test
+    void inertTagsAreConsumedNotPrinted() {
+        // server-rendered / too-new tags must not leak as literal text
+        assertEquals("hp: ", plainText(MiniMessageParser.parse("hp: <score:player:health>")));
+        assertEquals("x", plainText(MiniMessageParser.parse("<shadow:#ff0000>x</shadow>")));
+    }
+
+    // ── integration: ChatColorConverter is the universal chokepoint ──
+
+    @Test
+    void chatColorConverterRoutesThroughMiniMessage() {
+        // gradient via the legacy facade everything in the ecosystem already calls
+        String legacy = com.magmaguy.magmacore.util.ChatColorConverter.convert("<gradient:#ff0000:#0000ff>Hi</gradient>");
+        assertTrue(legacy.contains("§x"));
+        assertEquals("Hi", legacy.replaceAll("§.", ""));
+        // and plain legacy input still works
+        assertEquals("§cred", com.magmaguy.magmacore.util.ChatColorConverter.convert("&cred"));
+    }
+
+    /** Small indirection so the test reads cleanly regardless of BungeeCord's enum import path. */
+    private static final class HoverEventActions {
+        static final net.md_5.bungee.api.chat.HoverEvent.Action SHOW_ITEM =
+                net.md_5.bungee.api.chat.HoverEvent.Action.SHOW_ITEM;
     }
 }
