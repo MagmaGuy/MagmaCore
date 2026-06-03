@@ -117,3 +117,5 @@ run/
 
 # Claude Code local settings
 .claude/
+# Local design docs and plan notes - not tracked
+docs/
