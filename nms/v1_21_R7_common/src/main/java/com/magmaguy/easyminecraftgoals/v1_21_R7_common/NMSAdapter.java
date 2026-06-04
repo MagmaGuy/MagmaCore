@@ -24,6 +24,7 @@ import com.magmaguy.easyminecraftgoals.v1_21_R7_common.packets.PacketDisplayEnti
 import com.magmaguy.easyminecraftgoals.v1_21_R7_common.packets.PacketGenericEntity;
 import com.magmaguy.easyminecraftgoals.v1_21_R7_common.packets.PacketInteractionListener;
 import com.magmaguy.easyminecraftgoals.v1_21_R7_common.wanderbacktopoint.WanderBackToPointBehavior;
+import net.minecraft.network.chat.numbers.BlankFormat;
 import org.bukkit.plugin.Plugin;
 import com.magmaguy.easyminecraftgoals.v1_21_R7_common.wanderbacktopoint.WanderBackToPointGoal;
 import net.minecraft.world.entity.Mob;
@@ -35,6 +36,8 @@ import org.bukkit.block.data.BlockData;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.LivingEntity;
+
+import java.lang.reflect.Method;
 
 public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter {
 
@@ -172,6 +175,22 @@ public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter {
     @Override
     public AbstractPacketBundle createPacketBundle() {
         return new PacketBundle();
+    }
+
+    @Override
+    public boolean hideScoreboardNumbers(org.bukkit.scoreboard.Objective objective) {
+        if (objective == null || objective.getScoreboard() == null) return false;
+        try {
+            Method getHandle = objective.getScoreboard().getClass().getMethod("getHandle");
+            net.minecraft.world.scores.Scoreboard nmsScoreboard =
+                    (net.minecraft.world.scores.Scoreboard) getHandle.invoke(objective.getScoreboard());
+            net.minecraft.world.scores.Objective nmsObjective = nmsScoreboard.getObjective(objective.getName());
+            if (nmsObjective == null) return false;
+            nmsObjective.setNumberFormat(BlankFormat.INSTANCE);
+            return true;
+        } catch (ReflectiveOperationException | RuntimeException ignored) {
+            return false;
+        }
     }
 
     @Override

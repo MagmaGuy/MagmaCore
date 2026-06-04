@@ -39,6 +39,10 @@ public class NightbreakContentRefresher {
                 if (slug == null || slug.isEmpty()) continue;
 
                 if (NightbreakAccount.hasToken()) {
+                    if (NightbreakAccount.hasAuthFailure()) {
+                        contentPackage.setCachedAccessInfo(null);
+                        break;
+                    }
                     NightbreakAccount.AccessInfo accessInfo = accessInfoBySlug.computeIfAbsent(slug, key -> {
                         NightbreakAccount.AccessInfo fetched = NightbreakAccount.getInstance().checkAccess(key);
                         if (fetched != null) {
@@ -47,6 +51,9 @@ public class NightbreakContentRefresher {
                         return fetched;
                     });
                     contentPackage.setCachedAccessInfo(accessInfo);
+                    if (NightbreakAccount.hasAuthFailure()) {
+                        break;
+                    }
                 } else {
                     contentPackage.setCachedAccessInfo(null);
                 }

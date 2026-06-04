@@ -47,6 +47,11 @@ public class DownloadAllContentPackage<T extends NightbreakManagedContent> exten
             baseMaterial = Material.RED_STAINED_GLASS_PANE;
             displayName = "&cDownload All";
             lore = List.of("&7No Nightbreak token linked.", "&7Click for setup instructions.");
+        } else if (NightbreakAccount.hasAuthFailure()) {
+            iconModel = NightbreakSetupIcons.MODEL_RED_CROSS;
+            baseMaterial = Material.RED_STAINED_GLASS_PANE;
+            displayName = "&eUpdate Nightbreak Token";
+            lore = List.of("&7Your saved Nightbreak token needs", "&7to be updated before downloads work.");
         } else {
             long notDownloadedCount = countNotDownloaded(allPackages);
             long outdatedCount = countOutdated(allPackages);
@@ -115,6 +120,10 @@ public class DownloadAllContentPackage<T extends NightbreakManagedContent> exten
         player.closeInventory();
         if (!NightbreakAccount.hasToken()) {
             NightbreakSetupMenuHelper.sendNoTokenPrompt(player, pluginName, contentUrl);
+            return;
+        }
+        if (NightbreakAccount.hasAuthFailure()) {
+            NightbreakSetupMenuHelper.sendTokenUpdatePrompt(player, pluginName);
             return;
         }
 

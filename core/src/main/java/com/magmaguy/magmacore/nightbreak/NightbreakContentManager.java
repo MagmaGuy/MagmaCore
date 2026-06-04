@@ -77,6 +77,10 @@ public class NightbreakContentManager {
             callback.accept(null);
             return;
         }
+        if (NightbreakAccount.hasAuthFailure()) {
+            callback.accept(null);
+            return;
+        }
 
         // Check cache first
         if (accessCache.containsKey(slug) && !isCacheStale()) {
@@ -125,8 +129,12 @@ public class NightbreakContentManager {
         checkAccessAsync(ownerPlugin, slug, accessInfo -> {
             if (accessInfo == null || !accessInfo.hasAccess) {
                 if (player != null && player.isOnline()) {
-                    player.sendMessage("§c[Nightbreak] You don't have access to this content.");
-                    if (accessInfo != null) {
+                    if (accessInfo == null && NightbreakAccount.hasAuthFailure()) {
+                        NightbreakSetupMenuHelper.sendTokenUpdatePrompt(player, ownerPlugin.getName());
+                    } else {
+                        player.sendMessage("§c[Nightbreak] You don't have access to this content.");
+                    }
+                    if (accessInfo != null && !accessInfo.hasAccess) {
                         showAccessLinks(player, accessInfo);
                     }
                 }

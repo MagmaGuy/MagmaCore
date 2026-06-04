@@ -92,6 +92,10 @@ public abstract class AbstractNightbreakContentPackage extends ContentPackage im
             setCachedAccessInfo(accessInfo);
             if (!player.isOnline()) return;
             if (accessInfo == null) {
+                if (NightbreakAccount.hasAuthFailure()) {
+                    NightbreakSetupMenuHelper.sendTokenUpdatePrompt(player, getPluginDisplayName());
+                    return;
+                }
                 Logger.sendSimpleMessage(player, "&cFailed to contact Nightbreak for access information.");
                 return;
             }

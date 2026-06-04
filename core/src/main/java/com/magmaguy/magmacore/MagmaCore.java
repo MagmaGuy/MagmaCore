@@ -131,6 +131,7 @@ public final class MagmaCore {
     }
 
     public static void shutdown() {
+        shutdownNMSAdapter();
         CommandManager.shutdown();
         CustomBiomeCompatibility.shutdown();
         MatchInstance.shutdown();
@@ -147,6 +148,17 @@ public final class MagmaCore {
             NightbreakPluginStateRegistry.clear(plugin);
         }
         shutdown();
+    }
+
+    private static void shutdownNMSAdapter() {
+        try {
+            Class<?> nmsManagerClass = Class.forName("com.magmaguy.easyminecraftgoals.NMSManager");
+            nmsManagerClass.getMethod("shutdown").invoke(null);
+        } catch (ClassNotFoundException ignored) {
+            // MagmaCore core can be used without the shaded NMS module on the classpath.
+        } catch (ReflectiveOperationException e) {
+            Logger.warn("Failed to shut down NMS adapter: " + e.getMessage());
+        }
     }
 
     public static void initializeImporter() {
