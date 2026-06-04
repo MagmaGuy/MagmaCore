@@ -30,7 +30,7 @@ public class Logger {
     }
 
     public static void debug(String msg) {
-        Bukkit.getLogger().warning("[" + MagmaCore.getInstance().getRequestingPlugin().getName() + "] Developer message:" + msg);
+        Bukkit.getLogger().info("[" + MagmaCore.getInstance().getRequestingPlugin().getName() + "] Developer message:" + msg);
     }
 
     public static void sendMessage(CommandSender commandSender, String message) {

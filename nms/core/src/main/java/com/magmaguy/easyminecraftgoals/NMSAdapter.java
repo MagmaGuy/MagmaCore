@@ -202,6 +202,14 @@ public abstract class NMSAdapter {
     }
 
     /**
+     * Hides the numeric score column for a sidebar objective while keeping score values available
+     * for ordering. Supported on modern versions with scoreboard number formats.
+     */
+    public boolean hideScoreboardNumbers(org.bukkit.scoreboard.Objective objective) {
+        return false;
+    }
+
+    /**
      * Creates a FakeText that automatically uses TextDisplay for Java Edition players
      * and ArmorStand for Bedrock Edition players.
      *

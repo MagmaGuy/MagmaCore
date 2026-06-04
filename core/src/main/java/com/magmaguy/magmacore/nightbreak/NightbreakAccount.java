@@ -417,6 +417,8 @@ public class NightbreakAccount {
     // Network failures (IOException): rate-limit to one summary per window;
     // counts of suppressed entries are flushed when the window resets.
     private static volatile boolean suppressAuthFailureLogs = false;
+    private static volatile int lastAuthFailureStatus = 0;
+    private static volatile String lastAuthFailureBody = null;
     private static volatile long networkFailureWindowStart = 0L;
     private static volatile int networkFailuresInWindow = 0;
     private static volatile String lastNetworkFailureMessage = null;
@@ -472,13 +474,15 @@ public class NightbreakAccount {
         // sees what went wrong; suppress everything that follows until the
         // token is replaced via registerToken() (which clears the flag).
         if (responseCode == 401 || responseCode == 403) {
+            lastAuthFailureStatus = responseCode;
+            lastAuthFailureBody = errorResponse;
             if (suppressAuthFailureLogs) return;
             suppressAuthFailureLogs = true;
             String body = errorResponse != null ? errorResponse : "(no body)";
-            Logger.warn("Nightbreak auth failed (" + responseCode + ") for " + urlString
+            Logger.warn("Nightbreak token was rejected (" + responseCode + ") for " + urlString
                     + ": " + body
-                    + " — suppressing further auth-error logs until token is updated. "
-                    + "Run /nightbreaklogin <token> with a valid token, then retry.");
+                    + ". Get a new token at https://nightbreak.io/account/ and run "
+                    + "/nightbreaklogin <token>, then try again. Further token errors will be hidden until the token changes.");
             return;
         }
         // Other HTTP errors are rare enough to log every time.
@@ -515,6 +519,24 @@ public class NightbreakAccount {
     /** Re-enables auth-failure logging. Call after a token is replaced. */
     public static void resetAuthFailureSuppression() {
         suppressAuthFailureLogs = false;
+        lastAuthFailureStatus = 0;
+        lastAuthFailureBody = null;
+    }
+
+    /**
+     * Returns true after Nightbreak rejects the current token with 401/403.
+     * Cleared when a new token is loaded or registered.
+     */
+    public static boolean hasAuthFailure() {
+        return suppressAuthFailureLogs;
+    }
+
+    public static int getLastAuthFailureStatus() {
+        return lastAuthFailureStatus;
+    }
+
+    public static String getLastAuthFailureBody() {
+        return lastAuthFailureBody;
     }
 
     private boolean httpDownload(String urlString, File destinationFile) {

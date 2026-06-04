@@ -30,6 +30,10 @@ public final class NightbreakBulkDownloader {
             sender.sendMessage(ChatColorConverter.convert("&c[" + pluginDisplayName + "] No Nightbreak token registered. Use /nightbreaklogin <token> first."));
             return;
         }
+        if (NightbreakAccount.hasAuthFailure()) {
+            NightbreakSetupMenuHelper.sendTokenUpdatePrompt(sender, pluginDisplayName);
+            return;
+        }
 
         if (!guard.compareAndSet(false, true)) {
             sender.sendMessage(ChatColorConverter.convert("&c[" + pluginDisplayName + "] A bulk download is already in progress! Please wait for it to finish."));
@@ -37,6 +41,11 @@ public final class NightbreakBulkDownloader {
         }
 
         NightbreakContentRefresher.refreshAsync(plugin, allPackages, content -> true, outdated -> {
+            if (NightbreakAccount.hasAuthFailure()) {
+                guard.set(false);
+                NightbreakSetupMenuHelper.sendTokenUpdatePrompt(sender, pluginDisplayName);
+                return;
+            }
             List<T> downloadable = collectPackages(allPackages, updatesOnly);
 
             if (downloadable.isEmpty()) {
@@ -128,6 +137,7 @@ public final class NightbreakBulkDownloader {
                                         completed, failed, failedNames, guard, reloadAction, updatesOnly);
                             }));
                 } else {
+                    if (abortIfAuthFailure(pluginDisplayName, sender, player, guard)) return;
                     failed.incrementAndGet();
                     failedNames.add(pkg.getDisplayName());
                     downloadNext(plugin, pluginDisplayName, packages, index + 1, importsFolder, sender, player,
@@ -175,6 +185,7 @@ public final class NightbreakBulkDownloader {
                                     completed, failed, failedNames, guard, reloadAction, updatesOnly);
                         }));
             } else {
+                if (abortIfAuthFailure(pluginDisplayName, sender, player, guard)) return;
                 failed.incrementAndGet();
                 failedNames.add(pkg.getDisplayName());
                 sender.sendMessage(ChatColorConverter.convert("&c[" + pluginDisplayName + "] Failed to download: " + pkg.getDisplayName()));
@@ -182,5 +193,16 @@ public final class NightbreakBulkDownloader {
                         completed, failed, failedNames, guard, reloadAction, updatesOnly);
             }
         });
+    }
+
+    private static boolean abortIfAuthFailure(String pluginDisplayName,
+                                              CommandSender sender,
+                                              Player player,
+                                              AtomicBoolean guard) {
+        if (!NightbreakAccount.hasAuthFailure()) return false;
+        guard.set(false);
+        CommandSender target = player != null && !player.isOnline() ? Bukkit.getConsoleSender() : sender;
+        NightbreakSetupMenuHelper.sendTokenUpdatePrompt(target, pluginDisplayName);
+        return true;
     }
 }

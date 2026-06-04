@@ -2,6 +2,7 @@ package com.magmaguy.magmacore.menus;
 
 import com.magmaguy.magmacore.nightbreak.NightbreakAccount;
 import com.magmaguy.magmacore.nightbreak.NightbreakManagedContent;
+import com.magmaguy.magmacore.nightbreak.NightbreakSetupMenuHelper;
 import com.magmaguy.magmacore.util.ChatColorConverter;
 import com.magmaguy.magmacore.util.SpigotMessage;
 import org.bukkit.Bukkit;
@@ -42,6 +43,11 @@ public class NightbreakBulkActionPackage<T extends NightbreakManagedContent> ext
             baseMaterial = Material.RED_STAINED_GLASS_PANE;
             displayName = "&cDownload All";
             lore = List.of("&7No Nightbreak token linked.", "&7Click for setup instructions.");
+        } else if (NightbreakAccount.hasAuthFailure()) {
+            iconModel = NightbreakSetupIcons.MODEL_RED_CROSS;
+            baseMaterial = Material.RED_STAINED_GLASS_PANE;
+            displayName = "&eUpdate Nightbreak Token";
+            lore = List.of("&7Your saved Nightbreak token needs", "&7to be updated before downloads work.");
         } else {
             long notDownloadedCount = countNotDownloaded();
             long outdatedCount = countOutdated();
@@ -124,6 +130,10 @@ public class NightbreakBulkActionPackage<T extends NightbreakManagedContent> ext
                     SpigotMessage.hoverLinkMessage("&9&n" + contentPageUrl, "&7Click to browse content", contentPageUrl));
             player.sendMessage(ChatColorConverter.convert("&aUse &2/nightbreaklogin <token> &ato link your account, then click this button again."));
             player.sendMessage(ChatColorConverter.convert("&8&m----------------------------------------------------"));
+            return;
+        }
+        if (NightbreakAccount.hasAuthFailure()) {
+            NightbreakSetupMenuHelper.sendTokenUpdatePrompt(player, pluginDisplayName);
             return;
         }
 

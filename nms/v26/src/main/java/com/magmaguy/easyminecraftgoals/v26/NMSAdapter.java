@@ -24,6 +24,7 @@ import com.magmaguy.easyminecraftgoals.v26.packets.PacketDisplayEntity;
 import com.magmaguy.easyminecraftgoals.v26.packets.PacketGenericEntity;
 import com.magmaguy.easyminecraftgoals.v26.packets.PacketInteractionListener;
 import com.magmaguy.easyminecraftgoals.v26.wanderbacktopoint.WanderBackToPointBehavior;
+import net.minecraft.network.chat.numbers.BlankFormat;
 import org.bukkit.plugin.Plugin;
 import com.magmaguy.easyminecraftgoals.v26.wanderbacktopoint.WanderBackToPointGoal;
 import net.minecraft.world.entity.Mob;
@@ -32,6 +33,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.block.data.BlockData;
+import org.bukkit.craftbukkit.scoreboard.CraftScoreboard;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.LivingEntity;
@@ -172,6 +174,16 @@ public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter {
     @Override
     public AbstractPacketBundle createPacketBundle() {
         return new PacketBundle();
+    }
+
+    @Override
+    public boolean hideScoreboardNumbers(org.bukkit.scoreboard.Objective objective) {
+        if (objective == null || !(objective.getScoreboard() instanceof CraftScoreboard craftScoreboard))
+            return false;
+        net.minecraft.world.scores.Objective nmsObjective = craftScoreboard.getHandle().getObjective(objective.getName());
+        if (nmsObjective == null) return false;
+        nmsObjective.setNumberFormat(BlankFormat.INSTANCE);
+        return true;
     }
 
     @Override

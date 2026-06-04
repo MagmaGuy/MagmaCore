@@ -140,6 +140,23 @@ public final class NightbreakSetupMenuHelper {
         Logger.sendSimpleMessage(player, SEPARATOR);
     }
 
+    public static void sendTokenUpdatePrompt(CommandSender sender, String pluginName) {
+        if (sender == null) return;
+        Logger.sendSimpleMessage(sender, SEPARATOR);
+        Logger.sendSimpleMessage(sender, "&e[" + pluginName + "] Nightbreak token needs to be updated.");
+        if (sender instanceof Player player) {
+            player.spigot().sendMessage(
+                    SpigotMessage.simpleMessage("&7Get a new token here: "),
+                    SpigotMessage.hoverLinkMessage("&9&nhttps://nightbreak.io/account/",
+                            "&7Click to open your Nightbreak account page.",
+                            "https://nightbreak.io/account/"));
+        } else {
+            Logger.sendSimpleMessage(sender, "&7Get a new token here: &9https://nightbreak.io/account/");
+        }
+        Logger.sendSimpleMessage(sender, "&7Then run &a/nightbreaklogin <token>&7 and try again.");
+        Logger.sendSimpleMessage(sender, SEPARATOR);
+    }
+
     public static void sendFirstTimeSetupResources(Player player, NightbreakFirstTimeSetupSpec spec) {
         Logger.sendSimpleMessage(player, "&8&m-----------------------------------------------------");
         player.spigot().sendMessage(
