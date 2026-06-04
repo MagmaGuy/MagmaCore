@@ -42,6 +42,18 @@ public abstract class ScriptableEntity {
     public abstract Location getLocation();
 
     /**
+     * Whether the scripted owner should keep its runtime alive.
+     * <p>
+     * Entity-backed owners use their Bukkit entity by default. Non-entity owners
+     * such as scripted items can override this and keep ticking while their
+     * logical owner is still valid.
+     */
+    public boolean isScriptOwnerActive() {
+        Entity entity = getBukkitEntity();
+        return entity != null && !entity.isDead();
+    }
+
+    /**
      * Resolve additional context values beyond standard ones.
      * Return LuaValue.NIL if the key is not recognized.
      */

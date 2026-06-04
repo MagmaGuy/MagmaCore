@@ -191,7 +191,7 @@ public class ScriptInstance {
      */
     public void onTick() {
         if (closed) return;
-        if (entity.getBukkitEntity() == null || entity.getBukkitEntity().isDead()) {
+        if (!entity.isScriptOwnerActive()) {
             shutdown();
             return;
         }
@@ -289,8 +289,18 @@ public class ScriptInstance {
             }
             case "zones" -> createZonesTable();
             case "event" -> createEventTable();
+            case "player" -> {
+                LivingEntity player = resolveContextPlayer(directTarget, eventActor);
+                yield player == null ? LuaValue.NIL : LuaLivingEntityTable.build(player);
+            }
             default -> LuaValue.NIL;
         };
+    }
+
+    private LivingEntity resolveContextPlayer(LivingEntity directTarget, LivingEntity eventActor) {
+        if (eventActor instanceof Player) return eventActor;
+        if (directTarget instanceof Player) return directTarget;
+        return null;
     }
 
     // ── Log table ────────────────────────────────────────────────────────
@@ -446,9 +456,8 @@ public class ScriptInstance {
 
     private void updateTickRegistration() {
         boolean shouldTick = !closed
-                && entity.getBukkitEntity() != null
-                && !entity.getBukkitEntity().isDead()
-                && definition.supportsHook(ScriptHook.ON_TICK);
+                && entity.isScriptOwnerActive()
+                && (definition.supportsHook(ScriptHook.ON_TICK) || !zoneWatches.isEmpty());
         if (shouldTick && tickTaskId == null) {
             JavaPlugin plugin = MagmaCore.getInstance().getRequestingPlugin();
             BukkitTask task = Bukkit.getScheduler().runTaskTimer(plugin, this::onTick, 1L, 1L);
@@ -561,11 +570,11 @@ public class ScriptInstance {
             if (zone == null) return LuaValue.NIL;
             if (onEnter != null) {
                 zone.setOnEnter((player, z) ->
-                        handleEvent(ScriptHook.ON_ZONE_ENTER, null, player, null));
+                        handleEvent(ScriptHook.ON_ZONE_ENTER, null, player, player));
             }
             if (onLeave != null) {
                 zone.setOnLeave((player, z) ->
-                        handleEvent(ScriptHook.ON_ZONE_LEAVE, null, player, null));
+                        handleEvent(ScriptHook.ON_ZONE_LEAVE, null, player, player));
             }
             return LuaValue.TRUE;
         }));
@@ -575,6 +584,7 @@ public class ScriptInstance {
             int handle = args.checkint(1);
             ScriptZone zone = zoneWatches.remove(handle);
             if (zone != null) zone.shutdown();
+            updateTickRegistration();
             return LuaValue.NIL;
         }));
 
@@ -614,6 +624,7 @@ public class ScriptInstance {
     private int registerZone(ScriptZone zone) {
         int handle = nextZoneHandle++;
         zoneWatches.put(handle, zone);
+        updateTickRegistration();
         return handle;
     }
 
