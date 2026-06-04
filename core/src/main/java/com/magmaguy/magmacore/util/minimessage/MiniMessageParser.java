@@ -80,6 +80,7 @@ public final class MiniMessageParser {
     /** Parses MiniMessage and serialises down to a legacy {@code §}-coded string (hex-aware). */
     public static String toLegacy(String input) {
         if (input == null) return "";
+        if (!containsFormatting(input)) return input;
         BaseComponent[] parsed = parse(input);
         try {
             return BaseComponent.toLegacyText(parsed);
@@ -99,6 +100,22 @@ public final class MiniMessageParser {
             }
             return sb.toString();
         }
+    }
+
+    private static boolean containsFormatting(String input) {
+        for (int i = 0; i < input.length(); i++) {
+            char c = input.charAt(i);
+            if ((c == '&' || c == '§') && i + 1 < input.length()) {
+                char n = Character.toLowerCase(input.charAt(i + 1));
+                if (n == '#' && i + 8 <= input.length() && isHex6(input, i + 2)) return true;
+                if (readSpreadHex(input, i) != null) return true;
+                if (legacyCodeToTag(n) != null) return true;
+            } else if (c == '<') {
+                int end = findTagEnd(input, i);
+                if (end > 0 && parseTag(input.substring(i + 1, end)) != null) return true;
+            }
+        }
+        return false;
     }
 
     // ─────────────────────────────────────────────────────── legacy code bridge

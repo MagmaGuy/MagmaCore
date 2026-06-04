@@ -3,10 +3,13 @@ package com.magmaguy.magmacore.dialog;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
+import com.magmaguy.magmacore.util.minimessage.MiniMessageParser;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
+import net.md_5.bungee.chat.ComponentSerializer;
 
 import java.util.*;
 
@@ -25,6 +28,20 @@ public class DialogManager {
     private DialogManager() {
     }
 
+    private static String stripLegacyColorCodes(String value) {
+        if (value == null || value.indexOf('§') < 0) return value;
+        StringBuilder sanitized = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c == '§' && i + 1 < value.length()) {
+                i++;
+                continue;
+            }
+            sanitized.append(c);
+        }
+        return sanitized.toString();
+    }
+
     public static JsonObject serializeItemComponents(ItemStack itemStack) {
         try {
             JsonObject components = new JsonObject();
@@ -37,18 +54,14 @@ public class DialogManager {
 
             // Custom name
             if (meta.hasDisplayName()) {
-                JsonObject customName = new JsonObject();
-                customName.addProperty("text", meta.getDisplayName());
-                components.add("minecraft:custom_name", customName);
+                components.add("minecraft:custom_name", TextComponent.of(meta.getDisplayName()));
             }
 
             // Lore
             if (meta.hasLore() && meta.getLore() != null) {
                 JsonArray loreArray = new JsonArray();
                 for (String loreLine : meta.getLore()) {
-                    JsonObject loreComponent = new JsonObject();
-                    loreComponent.addProperty("text", loreLine);
-                    loreArray.add(loreComponent);
+                    loreArray.add(TextComponent.of(loreLine));
                 }
                 components.add("minecraft:lore", loreArray);
             }
@@ -1442,7 +1455,7 @@ public class DialogManager {
         private final String command;
 
         public RunCommandAction(String command) {
-            this.command = Objects.requireNonNull(command, "command");
+            this.command = stripLegacyColorCodes(Objects.requireNonNull(command, "command"));
         }
 
         @Override
@@ -1461,7 +1474,7 @@ public class DialogManager {
         private final String command;
 
         public SuggestCommandAction(String command) {
-            this.command = Objects.requireNonNull(command, "command");
+            this.command = stripLegacyColorCodes(Objects.requireNonNull(command, "command"));
         }
 
         @Override
@@ -1566,7 +1579,7 @@ public class DialogManager {
         private final String template;
 
         public DynamicRunCommandAction(String template) {
-            this.template = Objects.requireNonNull(template, "template");
+            this.template = stripLegacyColorCodes(Objects.requireNonNull(template, "template"));
         }
 
         @Override
@@ -1647,9 +1660,26 @@ public class DialogManager {
          * @return JsonElement representing the text component
          */
         public static JsonElement of(String text) {
-            JsonObject obj = new JsonObject();
-            obj.addProperty("text", text);
-            return obj;
+            if (text == null) text = "";
+            if (!containsFormatting(text)) {
+                JsonObject obj = new JsonObject();
+                obj.addProperty("text", text);
+                return obj;
+            }
+            return JsonParser.parseString(ComponentSerializer.toString(MiniMessageParser.parse(text)));
+        }
+
+        private static boolean containsFormatting(String text) {
+            for (int i = 0; i < text.length() - 1; i++) {
+                char c = text.charAt(i);
+                if (c == '§') return true;
+                if (c == '&' && isLegacyCode(text.charAt(i + 1))) return true;
+            }
+            return text.contains("<");
+        }
+
+        private static boolean isLegacyCode(char c) {
+            return "0123456789AaBbCcDdEeFfKkLlMmNnOoRrXx#".indexOf(c) >= 0;
         }
     }
 

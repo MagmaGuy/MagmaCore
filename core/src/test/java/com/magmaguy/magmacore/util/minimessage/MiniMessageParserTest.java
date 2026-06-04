@@ -153,6 +153,13 @@ class MiniMessageParserTest {
     }
 
     @Test
+    void toLegacyKeepsPlainStructuralStringsUntouched() {
+        assertEquals("vampire_gargoyle.yml", MiniMessageParser.toLegacy("vampire_gargoyle.yml"));
+        assertEquals("68,10,68", MiniMessageParser.toLegacy("68,10,68"));
+        assertEquals("NORMAL", MiniMessageParser.toLegacy("NORMAL"));
+    }
+
+    @Test
     void toLegacyHandlesGradientAsHex() {
         // gradient downconverts to per-char §x hex sequences; just assert it renders the text
         String legacy = MiniMessageParser.toLegacy("<gradient:#ff0000:#0000ff>Boss</gradient>");
@@ -244,6 +251,8 @@ class MiniMessageParserTest {
         assertEquals("Hi", legacy.replaceAll("§.", ""));
         // and plain legacy input still works
         assertEquals("§cred", com.magmaguy.magmacore.util.ChatColorConverter.convert("&cred"));
+        // plain non-message config values must not be mutated by the universal facade
+        assertEquals("vampire_gargoyle.yml", com.magmaguy.magmacore.util.ChatColorConverter.convert("vampire_gargoyle.yml"));
     }
 
     // ── hardening: every bug found in the pre-merge review pass ──
