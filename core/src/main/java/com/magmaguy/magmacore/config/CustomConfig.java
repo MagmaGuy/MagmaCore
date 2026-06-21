@@ -186,6 +186,11 @@ public class CustomConfig {
             instancedCustomConfigFields.setFile(file);
             //Parse actual fields and load into RAM to be used
             instancedCustomConfigFields.processConfigFields();
+            //Persist any newly-defaulted keys (e.g. options added in a newer version) back to disk so they
+            //become visible and editable. fileSaverCustomValues uses copyDefaults(true) which only writes
+            //missing defaults; it never overwrites existing user-set values or strips comments. This mirrors
+            //the fresh-generation path so pre-existing user files also gain newly added defaults.
+            ConfigurationEngine.fileSaverCustomValues(fileConfiguration, file);
             //if (instancedCustomConfigFields.isEnabled)
             //Store for use by the plugin
             addCustomConfigFields(file.getName(), instancedCustomConfigFields);
