@@ -119,3 +119,11 @@ run/
 .claude/
 # Local design docs and plan notes - not tracked
 docs/
+
+# Local IDE/tooling and generated debris
+.run/
+.vscode/
+.classpath
+.project
+.settings/
+codex-build.log

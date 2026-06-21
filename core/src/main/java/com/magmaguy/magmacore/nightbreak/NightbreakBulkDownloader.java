@@ -26,8 +26,19 @@ public final class NightbreakBulkDownloader {
                                                                     boolean updatesOnly,
                                                                     AtomicBoolean guard,
                                                                     Consumer<CommandSender> reloadAction) {
+        execute(plugin, pluginDisplayName, sender, allPackages, updatesOnly, guard, reloadAction, true);
+    }
+
+    public static <T extends NightbreakManagedContent> void execute(JavaPlugin plugin,
+                                                                    String pluginDisplayName,
+                                                                    CommandSender sender,
+                                                                    List<T> allPackages,
+                                                                    boolean updatesOnly,
+                                                                    AtomicBoolean guard,
+                                                                    Consumer<CommandSender> reloadAction,
+                                                                    boolean reloadAfterDownloads) {
         if (!NightbreakAccount.hasToken()) {
-            sender.sendMessage(ChatColorConverter.convert("&c[" + pluginDisplayName + "] No Nightbreak token registered. Use /nightbreaklogin <token> first."));
+            sender.sendMessage(ChatColorConverter.convert("&c[" + pluginDisplayName + "] No account token registered. Use /nightbreaklogin <token> first."));
             return;
         }
         if (NightbreakAccount.hasAuthFailure()) {
@@ -55,7 +66,7 @@ public final class NightbreakBulkDownloader {
                 } else if (hasAnySlug(allPackages)) {
                     sender.sendMessage(ChatColorConverter.convert("&a[" + pluginDisplayName + "] No new content to download! All available packages are already downloaded."));
                 } else {
-                    sender.sendMessage(ChatColorConverter.convert("&c[" + pluginDisplayName + "] No accessible content found. Link your Nightbreak account and ensure you have access."));
+                    sender.sendMessage(ChatColorConverter.convert("&c[" + pluginDisplayName + "] No accessible content found. Connect this server and ensure you have access."));
                 }
                 return;
             }
@@ -69,7 +80,7 @@ public final class NightbreakBulkDownloader {
             }
 
             downloadNext(plugin, pluginDisplayName, downloadable, 0, importsFolder, sender, player,
-                    new AtomicInteger(), new AtomicInteger(), new ArrayList<>(), guard, reloadAction, updatesOnly);
+                    new AtomicInteger(), new AtomicInteger(), new ArrayList<>(), guard, reloadAction, updatesOnly, reloadAfterDownloads);
         });
     }
 
@@ -109,15 +120,18 @@ public final class NightbreakBulkDownloader {
                                                                           Player player,
                                                                           AtomicInteger completed,
                                                                           AtomicInteger failed,
-                                                                          List<String> failedNames,
-                                                                          AtomicBoolean guard,
-                                                                          Consumer<CommandSender> reloadAction,
-                                                                          boolean updatesOnly) {
+                                                                           List<String> failedNames,
+                                                                           AtomicBoolean guard,
+                                                                           Consumer<CommandSender> reloadAction,
+                                                                           boolean updatesOnly,
+                                                                           boolean reloadAfterDownloads) {
         if (player != null && !player.isOnline()) {
             if (index >= packages.size()) {
                 guard.set(false);
-                if (completed.get() > 0) {
+                if (completed.get() > 0 && reloadAfterDownloads) {
                     Bukkit.getScheduler().runTaskLater(plugin, () -> reloadAction.accept(Bukkit.getConsoleSender()), 20L);
+                } else if (completed.get() > 0) {
+                    Bukkit.getConsoleSender().sendMessage(ChatColorConverter.convert("&a[" + pluginDisplayName + "] Downloaded content updates. Restart the server to use them."));
                 }
                 return;
             }
@@ -134,14 +148,14 @@ public final class NightbreakBulkDownloader {
                                     failedNames.add(pkg.getDisplayName());
                                 }
                                 downloadNext(plugin, pluginDisplayName, packages, index + 1, importsFolder, sender, player,
-                                        completed, failed, failedNames, guard, reloadAction, updatesOnly);
+                                        completed, failed, failedNames, guard, reloadAction, updatesOnly, reloadAfterDownloads);
                             }));
                 } else {
                     if (abortIfAuthFailure(pluginDisplayName, sender, player, guard)) return;
                     failed.incrementAndGet();
                     failedNames.add(pkg.getDisplayName());
                     downloadNext(plugin, pluginDisplayName, packages, index + 1, importsFolder, sender, player,
-                            completed, failed, failedNames, guard, reloadAction, updatesOnly);
+                            completed, failed, failedNames, guard, reloadAction, updatesOnly, reloadAfterDownloads);
                 }
             });
             return;
@@ -155,8 +169,12 @@ public final class NightbreakBulkDownloader {
                 sender.sendMessage(ChatColorConverter.convert("&c[" + pluginDisplayName + "] Failed packages: " + String.join(", ", failedNames)));
             }
             if (completed.get() > 0) {
-                sender.sendMessage(ChatColorConverter.convert("&a[" + pluginDisplayName + "] Reloading to apply downloads..."));
-                Bukkit.getScheduler().runTaskLater(plugin, () -> reloadAction.accept(sender), 20L);
+                if (reloadAfterDownloads) {
+                    sender.sendMessage(ChatColorConverter.convert("&a[" + pluginDisplayName + "] Reloading to apply downloads..."));
+                    Bukkit.getScheduler().runTaskLater(plugin, () -> reloadAction.accept(sender), 20L);
+                } else {
+                    sender.sendMessage(ChatColorConverter.convert("&a[" + pluginDisplayName + "] Downloaded content updates. Restart the server to use them."));
+                }
             }
             return;
         }
@@ -182,7 +200,7 @@ public final class NightbreakBulkDownloader {
                                 sender.sendMessage(ChatColorConverter.convert("&c[" + pluginDisplayName + "] Failed to prepare: " + pkg.getDisplayName()));
                             }
                             downloadNext(plugin, pluginDisplayName, packages, index + 1, importsFolder, sender, player,
-                                    completed, failed, failedNames, guard, reloadAction, updatesOnly);
+                                    completed, failed, failedNames, guard, reloadAction, updatesOnly, reloadAfterDownloads);
                         }));
             } else {
                 if (abortIfAuthFailure(pluginDisplayName, sender, player, guard)) return;
@@ -190,7 +208,7 @@ public final class NightbreakBulkDownloader {
                 failedNames.add(pkg.getDisplayName());
                 sender.sendMessage(ChatColorConverter.convert("&c[" + pluginDisplayName + "] Failed to download: " + pkg.getDisplayName()));
                 downloadNext(plugin, pluginDisplayName, packages, index + 1, importsFolder, sender, player,
-                        completed, failed, failedNames, guard, reloadAction, updatesOnly);
+                        completed, failed, failedNames, guard, reloadAction, updatesOnly, reloadAfterDownloads);
             }
         });
     }

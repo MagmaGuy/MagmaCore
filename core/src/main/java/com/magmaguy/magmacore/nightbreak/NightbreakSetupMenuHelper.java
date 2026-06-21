@@ -43,7 +43,7 @@ public final class NightbreakSetupMenuHelper {
     public static ItemStack createInstalledItem(String displayName, List<String> description) {
         return createItem(displayName, description, Material.GREEN_STAINED_GLASS_PANE,
                 NightbreakSetupIcons.MODEL_CHECKMARK,
-                List.of("&aContent is installed!", "&7Click to uninstall it."));
+                List.of("&aContent is installed and up to date.", "&7Click to uninstall it."));
     }
 
     public static ItemStack createPartiallyInstalledItem(String displayName, List<String> description) {
@@ -83,7 +83,7 @@ public final class NightbreakSetupMenuHelper {
                                                   List<String> description,
                                                   NightbreakAccount.AccessInfo accessInfo) {
         List<String> stateLore = new ArrayList<>();
-        stateLore.add("&dNightbreak access is required.");
+        stateLore.add("&dAccount access is required.");
         stateLore.add("&7Click to view access links.");
         if (accessInfo != null) {
             if (accessInfo.patreonLink != null && !accessInfo.patreonLink.isEmpty()) {
@@ -119,23 +119,23 @@ public final class NightbreakSetupMenuHelper {
         return createItem(displayName, description, Material.ORANGE_STAINED_GLASS_PANE,
                 NightbreakSetupIcons.MODEL_UPDATE_UNPAID,
                 List.of("&6An update is available!",
-                        "&7You need Nightbreak access before you can update it.",
+                        "&7You need account access before you can update it.",
                         "&7Click to view access links."));
     }
 
     public static void sendNoTokenPrompt(Player player, String pluginName, String contentUrl) {
         Logger.sendSimpleMessage(player, SEPARATOR);
-        Logger.sendSimpleMessage(player, "&6Link your Nightbreak account to manage " + pluginName + " content in-game.");
+        Logger.sendSimpleMessage(player, "&6Connect this server so " + pluginName + " can install content and download plugin updates from in-game.");
         player.spigot().sendMessage(
-                SpigotMessage.simpleMessage("&2Account page: "),
+                SpigotMessage.simpleMessage("&2Account token: "),
                 SpigotMessage.hoverLinkMessage("&ahttps://nightbreak.io/account/",
-                        "&7Click to open your Nightbreak account page.",
+                        "&7Click to open the account token page.",
                         "https://nightbreak.io/account/"));
         Logger.sendSimpleMessage(player, "&2Link command: &a/nightbreaklogin <token>");
         player.spigot().sendMessage(
                 SpigotMessage.simpleMessage("&2" + pluginName + " content: "),
                 SpigotMessage.hoverLinkMessage("&a" + contentUrl,
-                        "&7Click to browse Nightbreak content for " + pluginName + ".",
+                        "&7Click to browse content for " + pluginName + ".",
                         contentUrl));
         Logger.sendSimpleMessage(player, SEPARATOR);
     }
@@ -143,12 +143,12 @@ public final class NightbreakSetupMenuHelper {
     public static void sendTokenUpdatePrompt(CommandSender sender, String pluginName) {
         if (sender == null) return;
         Logger.sendSimpleMessage(sender, SEPARATOR);
-        Logger.sendSimpleMessage(sender, "&e[" + pluginName + "] Nightbreak token needs to be updated.");
+        Logger.sendSimpleMessage(sender, "&e[" + pluginName + "] The saved account token needs to be updated.");
         if (sender instanceof Player player) {
             player.spigot().sendMessage(
                     SpigotMessage.simpleMessage("&7Get a new token here: "),
                     SpigotMessage.hoverLinkMessage("&9&nhttps://nightbreak.io/account/",
-                            "&7Click to open your Nightbreak account page.",
+                            "&7Click to open the account token page.",
                             "https://nightbreak.io/account/"));
         } else {
             Logger.sendSimpleMessage(sender, "&7Get a new token here: &9https://nightbreak.io/account/");
@@ -160,12 +160,12 @@ public final class NightbreakSetupMenuHelper {
     public static void sendFirstTimeSetupResources(Player player, NightbreakFirstTimeSetupSpec spec) {
         Logger.sendSimpleMessage(player, "&8&m-----------------------------------------------------");
         player.spigot().sendMessage(
-                SpigotMessage.simpleMessage("&2Nightbreak account: "),
+                SpigotMessage.simpleMessage("&2Account token: "),
                 SpigotMessage.hoverLinkMessage("&9&nhttps://nightbreak.io/account/",
-                        "&7Click to open your Nightbreak account page.",
+                        "&7Click to open the account token page.",
                         "https://nightbreak.io/account/"));
         player.spigot().sendMessage(
-                SpigotMessage.simpleMessage("&2Content page: "),
+                SpigotMessage.simpleMessage("&2Plugin page: "),
                 SpigotMessage.hoverLinkMessage("&9&n" + spec.contentUrl(),
                         "&7Click to browse " + spec.pluginDisplayName() + " content.",
                         spec.contentUrl()));
@@ -174,11 +174,14 @@ public final class NightbreakSetupMenuHelper {
                 SpigotMessage.commandHoverMessage("&a" + spec.setupCommand(),
                         "&7Click to open the " + spec.pluginDisplayName() + " setup menu.",
                         spec.setupCommand()));
-        player.spigot().sendMessage(
-                SpigotMessage.simpleMessage("&2Bulk install: "),
-                SpigotMessage.commandHoverMessage("&a" + spec.downloadAllCommand(),
-                        "&7Click to install all available " + spec.pluginDisplayName() + " content.",
-                        spec.downloadAllCommand()));
+        String recommendedCommand = recommendedPluginsCommand(spec);
+        if (!recommendedCommand.isBlank()) {
+            player.spigot().sendMessage(
+                    SpigotMessage.simpleMessage("&2Recommended plugins: "),
+                    SpigotMessage.commandHoverMessage("&a" + recommendedCommand,
+                            "&7Click to see plugins that work well with " + spec.pluginDisplayName() + ".",
+                            recommendedCommand));
+        }
         if (spec.supportUrl() != null && !spec.supportUrl().isEmpty()) {
             player.spigot().sendMessage(
                     SpigotMessage.simpleMessage("&2Support: "),
@@ -192,25 +195,30 @@ public final class NightbreakSetupMenuHelper {
     public static void sendRecommendedSetupInstructions(Player player, NightbreakFirstTimeSetupSpec spec) {
         Logger.sendSimpleMessage(player, "&8&m-----------------------------------------------------");
         Logger.sendSimpleMessage(player, "&a" + spec.pluginDisplayName() + " setup is now marked as complete.");
+        Logger.sendSimpleMessage(player, "&7Connect this server so " + spec.pluginDisplayName() + " can install content and download plugin updates from in-game.");
         player.spigot().sendMessage(
-                SpigotMessage.simpleMessage("&7Step 1: get your Nightbreak token at "),
+                SpigotMessage.simpleMessage("&7Step 1: get your account token at "),
                 SpigotMessage.hoverLinkMessage("&9&nhttps://nightbreak.io/account/",
-                        "&7Click to open your Nightbreak account page.",
+                        "&7Click to open the account token page.",
                         "https://nightbreak.io/account/"));
         player.spigot().sendMessage(
                 SpigotMessage.simpleMessage("&7Step 2: link it in-game with "),
                 SpigotMessage.commandHoverMessage("&a/nightbreaklogin <token>",
-                        "&7Click to run the Nightbreak login command.",
+                        "&7Click to prepare the token command.",
                         "/nightbreaklogin "));
         player.spigot().sendMessage(
-                SpigotMessage.simpleMessage("&7Step 3: install content with "),
-                SpigotMessage.commandHoverMessage("&a" + spec.downloadAllCommand(),
-                        "&7Click to download all available " + spec.pluginDisplayName() + " content.",
-                        spec.downloadAllCommand()),
-                SpigotMessage.simpleMessage(" &7or browse it with "),
+                SpigotMessage.simpleMessage("&7Step 3: open the setup menu with "),
                 SpigotMessage.commandHoverMessage("&a" + spec.setupCommand(),
                         "&7Click to open the " + spec.pluginDisplayName() + " setup menu.",
                         spec.setupCommand()));
+        String recommendedCommand = recommendedPluginsCommand(spec);
+        if (!recommendedCommand.isBlank()) {
+            player.spigot().sendMessage(
+                    SpigotMessage.simpleMessage("&7Recommended plugins: "),
+                    SpigotMessage.commandHoverMessage("&a" + recommendedCommand,
+                            "&7Click to see plugins that work well with " + spec.pluginDisplayName() + ".",
+                            recommendedCommand));
+        }
         for (String note : spec.recommendedNotes()) {
             Logger.sendSimpleMessage(player, note);
         }
@@ -247,7 +255,7 @@ public final class NightbreakSetupMenuHelper {
         player.spigot().sendMessage(
                 SpigotMessage.simpleMessage("&2Browse the content page: "),
                 SpigotMessage.hoverLinkMessage("&a" + contentUrl,
-                        "&7Click to open the Nightbreak content page.",
+                        "&7Click to open the content page.",
                         contentUrl));
         if (accessInfo != null) {
             if (accessInfo.patreonLink != null && !accessInfo.patreonLink.isEmpty()) {
@@ -271,5 +279,12 @@ public final class NightbreakSetupMenuHelper {
 
     public static String getSeparator() {
         return SEPARATOR;
+    }
+
+    private static String recommendedPluginsCommand(NightbreakFirstTimeSetupSpec spec) {
+        if (spec == null || spec.setupCommand() == null || spec.setupCommand().isBlank()) return "";
+        String setupCommand = spec.setupCommand().trim();
+        if (!setupCommand.endsWith(" setup")) return "";
+        return setupCommand.substring(0, setupCommand.length() - " setup".length()) + " recommendedplugins";
     }
 }

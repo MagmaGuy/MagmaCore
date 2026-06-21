@@ -1,6 +1,14 @@
 package com.magmaguy.easyminecraftgoals;
 
 import com.magmaguy.easyminecraftgoals.constants.OverridableWanderPriority;
+import com.magmaguy.easyminecraftgoals.customentity.BukkitCustomEntity;
+import com.magmaguy.easyminecraftgoals.customentity.BukkitCustomEntityImpl;
+import com.magmaguy.easyminecraftgoals.customentity.CustomEntityDefinition;
+import com.magmaguy.easyminecraftgoals.customentity.CustomEntityLifecycleHook;
+import com.magmaguy.easyminecraftgoals.customentity.CustomEntityPropertySchema;
+import com.magmaguy.easyminecraftgoals.customentity.CustomEntityViewerHook;
+import com.magmaguy.easyminecraftgoals.customentity.FakeCustomEntity;
+import com.magmaguy.easyminecraftgoals.customentity.FakeCustomEntityImpl;
 import com.magmaguy.easyminecraftgoals.internal.AbstractPacketBundle;
 import com.magmaguy.easyminecraftgoals.internal.AbstractWanderBackToPoint;
 import com.magmaguy.easyminecraftgoals.internal.DamageIndicatorClamp;
@@ -135,13 +143,42 @@ public abstract class NMSAdapter {
      * Creates a generic packet entity of the specified type.
      * The entity exists only in packets - not added to the world.
      * Use getBukkitEntity() to modify properties, then syncMetadata() to update viewers.
+     * All MagmaCore-supported adapters are expected to implement this.
      *
      * @param entityType The Bukkit entity type to create
      * @param location   The spawn location
      * @return A packet entity that can be shown to players
      */
     public PacketEntityInterface createPacketEntity(EntityType entityType, Location location) {
-        throw new UnsupportedOperationException("createPacketEntity is only supported in Minecraft 1.21.11+");
+        throw new UnsupportedOperationException("createPacketEntity is not supported by this adapter");
+    }
+
+    /**
+     * Creates a packet-only custom visual entity. Java viewers receive the carrier
+     * entity packets directly; Bedrock viewers first receive the registered custom
+     * Bedrock definition id through the active BedrockCustomEntityBridge.
+     */
+    public FakeCustomEntity createFakeCustomEntity(Location location, CustomEntityDefinition definition) {
+        return new FakeCustomEntityImpl(this, location, definition);
+    }
+
+    public FakeCustomEntity.Builder fakeCustomEntityBuilder() {
+        return new FakeCustomEntityBuilderImpl(this);
+    }
+
+    /**
+     * Creates a custom Bedrock presentation bound to an existing Bukkit entity.
+     * The Bukkit entity remains the authoritative server entity for AI,
+     * targeting, damage, persistence and events. Call
+     * {@link BukkitCustomEntity#prepareSpawnFor(org.bukkit.entity.Player)}
+     * before Bedrock viewers receive the entity spawn packet.
+     */
+    public BukkitCustomEntity createBukkitCustomEntity(Entity entity, CustomEntityDefinition definition) {
+        return new BukkitCustomEntityImpl(entity, definition);
+    }
+
+    public BukkitCustomEntity.Builder bukkitCustomEntityBuilder() {
+        return new BukkitCustomEntityBuilderImpl(this);
     }
 
     /**
@@ -404,6 +441,174 @@ public abstract class NMSAdapter {
         @Override
         public FakeItem build(Location location) {
             return adapter.createFakeItem(location, settings);
+        }
+    }
+
+    private static class FakeCustomEntityBuilderImpl implements FakeCustomEntity.Builder {
+        private final NMSAdapter adapter;
+        private final CustomEntityDefinition.Builder definitionBuilder =
+                CustomEntityDefinition.builder("magmacore:custom_entity");
+
+        FakeCustomEntityBuilderImpl(NMSAdapter adapter) {
+            this.adapter = adapter;
+        }
+
+        @Override
+        public FakeCustomEntity.Builder identifier(String identifier) {
+            definitionBuilder.identifier(identifier);
+            return this;
+        }
+
+        @Override
+        public FakeCustomEntity.Builder carrierEntityType(EntityType entityType) {
+            definitionBuilder.carrierEntityType(entityType);
+            return this;
+        }
+
+        @Override
+        public FakeCustomEntity.Builder dimensions(float width, float height) {
+            definitionBuilder.dimensions(width, height);
+            return this;
+        }
+
+        @Override
+        public FakeCustomEntity.Builder scale(float scale) {
+            definitionBuilder.scale(scale);
+            return this;
+        }
+
+        @Override
+        public FakeCustomEntity.Builder color(Integer color) {
+            definitionBuilder.color(color);
+            return this;
+        }
+
+        @Override
+        public FakeCustomEntity.Builder variant(Integer variant) {
+            definitionBuilder.variant(variant);
+            return this;
+        }
+
+        @Override
+        public FakeCustomEntity.Builder tracked(boolean tracked) {
+            definitionBuilder.tracked(tracked);
+            return this;
+        }
+
+        @Override
+        public FakeCustomEntity.Builder propertySchema(CustomEntityPropertySchema schema) {
+            definitionBuilder.propertySchema(schema);
+            return this;
+        }
+
+        @Override
+        public FakeCustomEntity.Builder onShow(CustomEntityViewerHook showHook) {
+            definitionBuilder.onShow(showHook);
+            return this;
+        }
+
+        @Override
+        public FakeCustomEntity.Builder onHide(CustomEntityViewerHook hideHook) {
+            definitionBuilder.onHide(hideHook);
+            return this;
+        }
+
+        @Override
+        public FakeCustomEntity.Builder onRemove(CustomEntityLifecycleHook removeHook) {
+            definitionBuilder.onRemove(removeHook);
+            return this;
+        }
+
+        @Override
+        public FakeCustomEntity build(Location location) {
+            return adapter.createFakeCustomEntity(location, definitionBuilder.build());
+        }
+    }
+
+    private static class BukkitCustomEntityBuilderImpl implements BukkitCustomEntity.Builder {
+        private final NMSAdapter adapter;
+        private final CustomEntityDefinition.Builder definitionBuilder =
+                CustomEntityDefinition.builder("magmacore:custom_entity");
+        private boolean carrierEntityTypeSet;
+
+        BukkitCustomEntityBuilderImpl(NMSAdapter adapter) {
+            this.adapter = adapter;
+        }
+
+        @Override
+        public BukkitCustomEntity.Builder identifier(String identifier) {
+            definitionBuilder.identifier(identifier);
+            return this;
+        }
+
+        @Override
+        public BukkitCustomEntity.Builder carrierEntityType(EntityType entityType) {
+            definitionBuilder.carrierEntityType(entityType);
+            carrierEntityTypeSet = true;
+            return this;
+        }
+
+        @Override
+        public BukkitCustomEntity.Builder dimensions(float width, float height) {
+            definitionBuilder.dimensions(width, height);
+            return this;
+        }
+
+        @Override
+        public BukkitCustomEntity.Builder scale(float scale) {
+            definitionBuilder.scale(scale);
+            return this;
+        }
+
+        @Override
+        public BukkitCustomEntity.Builder color(Integer color) {
+            definitionBuilder.color(color);
+            return this;
+        }
+
+        @Override
+        public BukkitCustomEntity.Builder variant(Integer variant) {
+            definitionBuilder.variant(variant);
+            return this;
+        }
+
+        @Override
+        public BukkitCustomEntity.Builder tracked(boolean tracked) {
+            definitionBuilder.tracked(tracked);
+            return this;
+        }
+
+        @Override
+        public BukkitCustomEntity.Builder propertySchema(CustomEntityPropertySchema schema) {
+            definitionBuilder.propertySchema(schema);
+            return this;
+        }
+
+        @Override
+        public BukkitCustomEntity.Builder onShow(CustomEntityViewerHook showHook) {
+            definitionBuilder.onShow(showHook);
+            return this;
+        }
+
+        @Override
+        public BukkitCustomEntity.Builder onHide(CustomEntityViewerHook hideHook) {
+            definitionBuilder.onHide(hideHook);
+            return this;
+        }
+
+        @Override
+        public BukkitCustomEntity.Builder onRemove(CustomEntityLifecycleHook removeHook) {
+            definitionBuilder.onRemove(removeHook);
+            return this;
+        }
+
+        @Override
+        public BukkitCustomEntity build(Entity entity) {
+            if (entity == null) throw new IllegalArgumentException("entity cannot be null");
+            if (!carrierEntityTypeSet) {
+                definitionBuilder.carrierEntityType(entity.getType());
+            }
+            return adapter.createBukkitCustomEntity(entity, definitionBuilder.build());
         }
     }
 

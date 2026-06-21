@@ -2,13 +2,14 @@ package com.magmaguy.magmacore.command;
 
 import com.magmaguy.magmacore.command.arguments.ListStringCommandArgument;
 import com.magmaguy.magmacore.nightbreak.NightbreakAccount;
+import com.magmaguy.magmacore.nightbreak.NightbreakCatalogMenu;
 import com.magmaguy.magmacore.util.Logger;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.ArrayList;
 
 /**
- * Command to register a Nightbreak account token.
+ * Command to register an account token.
  * Usage: /nightbreaklogin <token>
  * <p>
  * This command saves the token to a shared MagmaCore config folder
@@ -20,7 +21,7 @@ public class NightbreakLoginCommand extends AdvancedCommand {
     public NightbreakLoginCommand(JavaPlugin plugin) {
         super(new ArrayList<>());
         setUsage("/nightbreaklogin <token>");
-        setDescription("Register your Nightbreak account token for DLC access");
+        setDescription("Register your account token");
         setSenderType(SenderType.ANY);
         setPermission("nightbreak.login");
         this.plugin = plugin;
@@ -49,7 +50,7 @@ public class NightbreakLoginCommand extends AdvancedCommand {
 
         // Warn if token doesn't look like a Nightbreak token (they typically start with nbk_)
         if (!token.startsWith("nbk_")) {
-            Logger.sendMessage(commandData.getCommandSender(), "&eWarning: Token doesn't appear to be a Nightbreak token (should start with 'nbk_').");
+            Logger.sendMessage(commandData.getCommandSender(), "&eWarning: Token doesn't appear to be an account token (should start with 'nbk_').");
             Logger.sendMessage(commandData.getCommandSender(), "&eProceeding anyway...");
         }
 
@@ -57,9 +58,7 @@ public class NightbreakLoginCommand extends AdvancedCommand {
         NightbreakAccount account = NightbreakAccount.registerToken(plugin, token);
 
         if (account != null) {
-            Logger.sendMessage(commandData.getCommandSender(), "&aNightbreak token registered successfully!");
-            Logger.sendMessage(commandData.getCommandSender(), "&7Your token has been saved to the MagmaCore shared config folder.");
-            Logger.sendMessage(commandData.getCommandSender(), "&7All MagmaGuy plugins will now have access to Nightbreak DLC features.");
+            NightbreakCatalogMenu.sendLoginSuccess(commandData.getCommandSender(), plugin);
 
             // Optionally verify the token works by checking access to a test endpoint
             // This is commented out to avoid unnecessary API calls on login
@@ -69,7 +68,7 @@ public class NightbreakLoginCommand extends AdvancedCommand {
             // Make a quick API call to verify
             */
         } else {
-            Logger.sendMessage(commandData.getCommandSender(), "&cFailed to save Nightbreak token. Check console for errors.");
+            Logger.sendMessage(commandData.getCommandSender(), "&cFailed to save account token. Check console for errors.");
         }
     }
 }

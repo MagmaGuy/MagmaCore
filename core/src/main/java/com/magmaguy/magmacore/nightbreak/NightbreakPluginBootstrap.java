@@ -32,6 +32,7 @@ public final class NightbreakPluginBootstrap {
                 context -> hooks.syncInitialization(context),
                 () -> {
                     hooks.onInitializationSuccess();
+                    NightbreakPluginUpdater.autoDownloadPluginUpdateIfEnabled(plugin, pluginSpec);
                     CommandSender pendingReloadSender = NightbreakPluginStateRegistry.consumePendingReloadSender(plugin);
                     if (pendingReloadSender != null) {
                         Logger.sendMessage(pendingReloadSender, pluginSpec.reloadSuccessMessage());
@@ -58,9 +59,12 @@ public final class NightbreakPluginBootstrap {
         commandManager.registerCommand(new SetupCommand(pluginSpec, setupAction));
         if (pluginSpec.hasPresetModes())
             commandManager.registerCommand(new InitializeCommand(pluginSpec, initializeAction));
+        commandManager.registerCommand(new NightbreakRecommendedPluginsCommand(plugin, pluginSpec));
+        commandManager.registerCommand(new NightbreakDownloadPluginUpdateCommand(plugin, pluginSpec));
+        commandManager.registerCommand(new NightbreakDownloadEverythingCommand<>(plugin, pluginSpec, packagesSupplier, guard, reloadAction));
         if (pluginSpec.hasContentPackages()) {
-            commandManager.registerCommand(new DownloadAllCommand<>(plugin, pluginSpec, packagesSupplier, guard, reloadAction, false));
-            commandManager.registerCommand(new DownloadAllCommand<>(plugin, pluginSpec, packagesSupplier, guard, reloadAction, true));
+            commandManager.registerCommand(new NightbreakDownloadContentCommand<>(plugin, pluginSpec, packagesSupplier, guard, reloadAction, false));
+            commandManager.registerCommand(new NightbreakDownloadContentCommand<>(plugin, pluginSpec, packagesSupplier, guard, reloadAction, true));
         }
     }
 
@@ -84,7 +88,7 @@ public final class NightbreakPluginBootstrap {
             this.setupAction = setupAction;
             setPermission(pluginSpec.setupPermission());
             setSenderType(SenderType.PLAYER);
-            setDescription("Opens the Nightbreak setup menu for " + pluginSpec.displayName() + ".");
+            setDescription("Opens the setup menu for " + pluginSpec.displayName() + ".");
             setUsage("/" + pluginSpec.rootCommand() + " setup");
         }
 
@@ -112,44 +116,4 @@ public final class NightbreakPluginBootstrap {
         }
     }
 
-    private static final class DownloadAllCommand<T extends NightbreakManagedContent> extends AdvancedCommand {
-        private final JavaPlugin plugin;
-        private final NightbreakPluginSpec pluginSpec;
-        private final Supplier<List<T>> packagesSupplier;
-        private final AtomicBoolean guard;
-        private final Consumer<CommandSender> reloadAction;
-        private final boolean updatesOnly;
-
-        private DownloadAllCommand(JavaPlugin plugin,
-                                   NightbreakPluginSpec pluginSpec,
-                                   Supplier<List<T>> packagesSupplier,
-                                   AtomicBoolean guard,
-                                   Consumer<CommandSender> reloadAction,
-                                   boolean updatesOnly) {
-            super(updatesOnly ? List.of("updatecontent", "updateall") : List.of("downloadall"));
-            this.plugin = plugin;
-            this.pluginSpec = pluginSpec;
-            this.packagesSupplier = packagesSupplier;
-            this.guard = guard;
-            this.reloadAction = reloadAction;
-            this.updatesOnly = updatesOnly;
-            setPermission(pluginSpec.setupPermission());
-            setSenderType(SenderType.ANY);
-            setDescription(updatesOnly
-                    ? "Downloads updates for outdated " + pluginSpec.displayName() + " Nightbreak content."
-                    : "Downloads all " + pluginSpec.displayName() + " content available through Nightbreak.");
-            setUsage("/" + pluginSpec.rootCommand() + " " + (updatesOnly ? "updatecontent" : "downloadall"));
-        }
-
-        @Override
-        public void execute(CommandData commandData) {
-            NightbreakBulkDownloader.execute(plugin,
-                    pluginSpec.displayName(),
-                    commandData.getCommandSender(),
-                    packagesSupplier.get(),
-                    updatesOnly,
-                    guard,
-                    reloadAction);
-        }
-    }
 }

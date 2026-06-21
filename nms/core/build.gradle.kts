@@ -20,4 +20,10 @@ dependencies {
     // Bedrock detection - optional runtime dependencies
     compileOnly("org.geysermc.floodgate:api:2.2.3-SNAPSHOT")
     compileOnly("org.geysermc.geyser:api:2.4.2-SNAPSHOT")
+    testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.10.2")
+}
+
+tasks.test {
+    useJUnitPlatform()
 }

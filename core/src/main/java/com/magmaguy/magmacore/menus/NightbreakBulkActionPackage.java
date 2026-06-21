@@ -42,12 +42,12 @@ public class NightbreakBulkActionPackage<T extends NightbreakManagedContent> ext
             iconModel = NightbreakSetupIcons.MODEL_RED_CROSS;
             baseMaterial = Material.RED_STAINED_GLASS_PANE;
             displayName = "&cDownload All";
-            lore = List.of("&7No Nightbreak token linked.", "&7Click for setup instructions.");
+            lore = List.of("&7No account token linked.", "&7Click for setup instructions.");
         } else if (NightbreakAccount.hasAuthFailure()) {
             iconModel = NightbreakSetupIcons.MODEL_RED_CROSS;
             baseMaterial = Material.RED_STAINED_GLASS_PANE;
-            displayName = "&eUpdate Nightbreak Token";
-            lore = List.of("&7Your saved Nightbreak token needs", "&7to be updated before downloads work.");
+            displayName = "&eUpdate Account Token";
+            lore = List.of("&7Your saved account token needs", "&7to be updated before downloads work.");
         } else {
             long notDownloadedCount = countNotDownloaded();
             long outdatedCount = countOutdated();
@@ -121,10 +121,10 @@ public class NightbreakBulkActionPackage<T extends NightbreakManagedContent> ext
 
         if (!NightbreakAccount.hasToken()) {
             player.sendMessage(ChatColorConverter.convert("&8&m----------------------------------------------------"));
-            player.sendMessage(ChatColorConverter.convert("&eLink your Nightbreak account first to install " + pluginDisplayName + " content in-game."));
+            player.sendMessage(ChatColorConverter.convert("&eConnect this server first to install " + pluginDisplayName + " content in-game."));
             player.spigot().sendMessage(
                     SpigotMessage.simpleMessage("&6Account page: "),
-                    SpigotMessage.hoverLinkMessage("&9&nhttps://nightbreak.io/account/", "&7Click to open Nightbreak account", "https://nightbreak.io/account/"));
+                    SpigotMessage.hoverLinkMessage("&9&nhttps://nightbreak.io/account/", "&7Click to open the account token page", "https://nightbreak.io/account/"));
             player.spigot().sendMessage(
                     SpigotMessage.simpleMessage("&6Content page: "),
                     SpigotMessage.hoverLinkMessage("&9&n" + contentPageUrl, "&7Click to browse content", contentPageUrl));

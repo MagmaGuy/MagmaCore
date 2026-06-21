@@ -15,7 +15,7 @@ public final class NightbreakSetupVisuals {
     }
 
     public static ItemStack installedItem(String name, List<String> description) {
-        return stateItem(name, description, List.of("Content is installed!", "Click to uninstall!"),
+        return stateItem(name, description, List.of("&aContent is installed and up to date.", "&7Click to uninstall."),
                 Material.GREEN_STAINED_GLASS_PANE, NightbreakSetupIcons.MODEL_CHECKMARK);
     }
 
