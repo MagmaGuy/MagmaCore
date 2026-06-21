@@ -31,6 +31,11 @@ public class PacketEntityTracker {
     // Update visibility every 20 ticks (1 second)
     private static final int VISIBILITY_UPDATE_INTERVAL = 20;
 
+    // Re-mount sweep every 40 ticks (2 seconds). The mount packet is only (re)sent on a hidden->visible
+    // transition, so an already-visible display that gets silently detached by a server-side passenger
+    // re-sync (vehicle rides, Paper periodic re-track, etc.) would never be remounted otherwise.
+    private static final int REMOUNT_SWEEP_INTERVAL = 40;
+
     // Default tracking range (blocks) - uses squared distance for performance
     private double trackingRangeSquared = 64 * 64; // 64 blocks default
 
@@ -115,12 +120,50 @@ public class PacketEntityTracker {
     private void tick() {
         tickCounter++;
 
+        // Low-frequency self-healing re-mount sweep. Re-issues the mount packet for already-visible
+        // displays whose passenger link may have been silently dropped server-side.
+        if (tickCounter % REMOUNT_SWEEP_INTERVAL == 0) {
+            remountSweep();
+        }
+
         // Only update visibility every VISIBILITY_UPDATE_INTERVAL ticks
         if (tickCounter % VISIBILITY_UPDATE_INTERVAL != 0) {
             return;
         }
 
         updateVisibility();
+    }
+
+    /**
+     * Periodically re-issues the mount (SetPassengers) packet for tracked entities that are attached to a
+     * vehicle and have at least one viewer. This heals displays that were silently detached by a server-side
+     * passenger re-sync without changing the spawn/hide transition logic. remount() only re-sends one packet
+     * per current viewer per attached display, so this stays cheap.
+     */
+    private void remountSweep() {
+        Iterator<TrackedPacketEntity> iterator = trackedEntities.iterator();
+
+        while (iterator.hasNext()) {
+            TrackedPacketEntity entity = iterator.next();
+
+            // Drop entities that are no longer valid; matches updateVisibility() cleanup behavior.
+            if (!entity.isValid()) {
+                iterator.remove();
+                continue;
+            }
+
+            // Only remount entities that are actually attached to a vehicle...
+            if (entity.getVehicle() == null) {
+                continue;
+            }
+
+            // ...and that someone is currently viewing (no point re-sending to nobody).
+            if (entity.getCurrentViewers().isEmpty()) {
+                continue;
+            }
+
+            entity.remount();
+        }
     }
 
     /**
