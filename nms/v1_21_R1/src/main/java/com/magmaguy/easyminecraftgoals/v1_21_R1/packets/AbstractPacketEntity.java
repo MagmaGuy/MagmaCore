@@ -169,7 +169,8 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
                         entity.getYRot(),
                         entity.getType(),
                         0,
-                        new Vec3(0, 0, 0), 0),
+                        new Vec3(0, 0, 0), headYaw()),
+                generateHeadRotationPacket(),
                 createEntityDataPacket()
         );
     }
@@ -177,15 +178,37 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
     //Teleports - affects all viewers
     public void teleport(Location location) {
         entity.teleportTo(location.getX(), location.getY(), location.getZ());
+        applyRotation(location);
         sendTeleportPacket();
+    }
+
+    protected void applyRotation(Location location) {
+        entity.setYRot(location.getYaw());
+        entity.setXRot(location.getPitch());
+        if (entity instanceof net.minecraft.world.entity.LivingEntity livingEntity) {
+            livingEntity.setYHeadRot(location.getYaw());
+            livingEntity.setYBodyRot(location.getYaw());
+        }
+    }
+
+    protected float headYaw() {
+        if (entity instanceof net.minecraft.world.entity.LivingEntity livingEntity) {
+            return livingEntity.yHeadRot;
+        }
+        return entity.getYRot();
     }
 
     protected void sendTeleportPacket() {
         sendPacketToAll(generateTeleportPacket());
+        sendPacketToAll(generateHeadRotationPacket());
     }
 
     protected Packet<?> generateTeleportPacket() {
         return new ClientboundTeleportEntityPacket(entity);
+    }
+
+    protected Packet<?> generateHeadRotationPacket() {
+        return new ClientboundRotateHeadPacket(entity, (byte) (headYaw() * 256.0F / 360.0F));
     }
 
     // Simplified move packet - uses teleport for reliability
@@ -197,8 +220,7 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
 
         // Update entity position AND rotation
         entity.setPos(location.getX(), location.getY(), location.getZ());
-        entity.setYRot(location.getYaw());
-        entity.setXRot(location.getPitch());
+        applyRotation(location);
 
         // Use teleport packet for absolute positioning
         return generateTeleportPacket();
@@ -206,6 +228,7 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
 
     public void move(Location location) {
         sendPacketToAll(generateMovePacket(location));
+        sendPacketToAll(generateHeadRotationPacket());
     }
 
     // ==== Packet sending methods - RENAMED AND CLARIFIED ====

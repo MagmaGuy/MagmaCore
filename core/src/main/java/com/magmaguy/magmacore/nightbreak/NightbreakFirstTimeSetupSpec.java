@@ -13,8 +13,13 @@ public record NightbreakFirstTimeSetupSpec(String pluginDisplayName,
                                            List<String> recommendedNotes) {
     public NightbreakFirstTimeSetupSpec {
         initializeCommand = initializeCommand == null ? "" : initializeCommand;
-        downloadAllCommand = downloadAllCommand == null ? "" : downloadAllCommand;
+        downloadAllCommand = downloadAllCommand == null ? "" : downloadAllCommand.trim();
         warningNotes = warningNotes == null ? List.of() : List.copyOf(warningNotes);
         recommendedNotes = recommendedNotes == null ? List.of() : List.copyOf(recommendedNotes);
+    }
+
+    public static String normalizeContentDownloadCommand(String command) {
+        if (command == null || command.isBlank()) return "";
+        return command.trim();
     }
 }

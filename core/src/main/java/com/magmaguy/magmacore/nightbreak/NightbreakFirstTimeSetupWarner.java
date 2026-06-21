@@ -56,7 +56,7 @@ public class NightbreakFirstTimeSetupWarner implements Listener {
 
                 if (showPresetModes && spec.initializeCommand() != null && !spec.initializeCommand().isEmpty()) {
                     String wording = showContentPackages
-                            ? " &7to walk through the Nightbreak-powered content setup."
+                            ? " &7to walk through the guided content setup."
                             : " &7to walk through the first-time setup.";
                     event.getPlayer().spigot().sendMessage(
                             SpigotMessage.simpleMessage("&7Use "),

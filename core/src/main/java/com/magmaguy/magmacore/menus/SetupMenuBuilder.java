@@ -30,7 +30,10 @@ public class SetupMenuBuilder {
     private String titleIconPrefix = MENU_SKIN_PREFIX;
     private MenuButton infoButton = null;
     private List<? extends ContentPackage> packages = null;
+    private final List<ContentPackage> prependedPackages = new ArrayList<>();
     private final List<ContentPackage> appendedPackages = new ArrayList<>();
+    private final List<FilterDefinition> filterDefinitions = new ArrayList<>();
+    private final List<MenuButton> toolbarButtons = new ArrayList<>();
 
     public SetupMenuBuilder(JavaPlugin plugin, Player player) {
         this.plugin = plugin;
@@ -57,6 +60,13 @@ public class SetupMenuBuilder {
         return this;
     }
 
+    public SetupMenuBuilder prependPackage(ContentPackage extraPackage) {
+        if (extraPackage != null) {
+            this.prependedPackages.add(extraPackage);
+        }
+        return this;
+    }
+
     public SetupMenuBuilder appendPackage(ContentPackage extraPackage) {
         if (extraPackage != null) {
             this.appendedPackages.add(extraPackage);
@@ -64,10 +74,15 @@ public class SetupMenuBuilder {
         return this;
     }
 
+    public SetupMenuBuilder addToolbarButton(MenuButton toolbarButton) {
+        if (toolbarButton != null) {
+            this.toolbarButtons.add(toolbarButton);
+        }
+        return this;
+    }
+
     public SetupMenuBuilder addFilter(Material material, String name, Predicate<? extends ContentPackage> predicate) {
-        ItemStack filterItem = ItemStackGenerator.generateItemStack(material, name);
-        List<ContentPackage> filtered = filterPackages(predicate);
-        filters.add(new SetupMenu.SetupMenuFilter(filterItem, filtered));
+        filterDefinitions.add(new FilterDefinition(material, name, predicate));
         return this;
     }
 
@@ -75,6 +90,7 @@ public class SetupMenuBuilder {
     private List<ContentPackage> filterPackages(Predicate<? extends ContentPackage> predicate) {
         List<ContentPackage> result = new ArrayList<>();
         if (packages == null) return result;
+        result.addAll(prependedPackages);
         Predicate rawPredicate = predicate;
         for (ContentPackage pkg : packages) {
             if (rawPredicate.test(pkg)) result.add(pkg);
@@ -92,7 +108,15 @@ public class SetupMenuBuilder {
             return null;
         }
 
-        List<ContentPackage> finalPackages = new ArrayList<>(packages);
+        filters.clear();
+        for (FilterDefinition filterDefinition : filterDefinitions) {
+            ItemStack filterItem = ItemStackGenerator.generateItemStack(filterDefinition.material(), filterDefinition.name());
+            List<ContentPackage> filtered = filterPackages(filterDefinition.predicate());
+            filters.add(new SetupMenu.SetupMenuFilter(filterItem, filtered));
+        }
+
+        List<ContentPackage> finalPackages = new ArrayList<>(prependedPackages);
+        finalPackages.addAll(packages);
         finalPackages.addAll(appendedPackages);
 
         String finalTitle = title;
@@ -100,6 +124,11 @@ public class SetupMenuBuilder {
             finalTitle = ChatColor.WHITE + titleIconPrefix + finalTitle;
         }
 
-        return new SetupMenu(plugin, player, infoButton, finalPackages, filters, finalTitle);
+        return new SetupMenu(plugin, player, infoButton, finalPackages, filters, toolbarButtons, finalTitle);
+    }
+
+    private record FilterDefinition(Material material,
+                                    String name,
+                                    Predicate<? extends ContentPackage> predicate) {
     }
 }

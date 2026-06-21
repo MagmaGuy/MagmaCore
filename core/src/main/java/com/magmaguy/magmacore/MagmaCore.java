@@ -3,6 +3,7 @@ package com.magmaguy.magmacore;
 import com.magmaguy.magmacore.command.AdvancedCommand;
 import com.magmaguy.magmacore.command.CommandManager;
 import com.magmaguy.magmacore.command.LogifyCommand;
+import com.magmaguy.magmacore.command.NightbreakCommand;
 import com.magmaguy.magmacore.command.NightbreakLoginCommand;
 import com.magmaguy.magmacore.dlc.ConfigurationImporter;
 import com.magmaguy.magmacore.initialization.PluginInitializationConfig;
@@ -68,12 +69,13 @@ public final class MagmaCore {
         Logger.info("MagmaCore v1.29-SNAPSHOT initialized!");
         instance.registerLogify();
         instance.registerNightbreakLogin();
+        instance.registerNightbreak();
         NightbreakAccount.initialize(requestingPlugin);
     }
 
     public static void checkVersionUpdate(String resourceID, String downloadURL) {
-        VersionChecker.checkPluginVersion(resourceID);
         VersionChecker.VersionCheckerEvents.setDownloadURL(downloadURL);
+        VersionChecker.checkPluginVersion(resourceID, downloadURL);
         Bukkit.getPluginManager().registerEvents(new VersionChecker.VersionCheckerEvents(), instance.requestingPlugin);
     }
 
@@ -280,7 +282,7 @@ public final class MagmaCore {
         if (Bukkit.getPluginManager().getPermission("nightbreak.login") == null) {
             Permission perm = new Permission(
                     "nightbreak.login",
-                    "Lets admins register their Nightbreak account token for DLC access.",
+                    "Lets admins register their account token for in-game plugin content and updates.",
                     PermissionDefault.OP
             );
             Bukkit.getPluginManager().addPermission(perm);
@@ -296,6 +298,42 @@ public final class MagmaCore {
         commandMap.register(requestingPlugin.getName(), wrapper);
 
         Logger.info("Registered /nightbreaklogin command");
+    }
+
+    private void registerNightbreak() {
+        SimpleCommandMap commandMap = null;
+        try {
+            Field f = Bukkit.getServer().getClass().getDeclaredField("commandMap");
+            f.setAccessible(true);
+            commandMap = (SimpleCommandMap) f.get(Bukkit.getServer());
+        } catch (ReflectiveOperationException e) {
+            requestingPlugin.getLogger().warning("Couldn't access CommandMap: " + e.getMessage());
+            return;
+        }
+
+        if (commandMap.getCommand("nightbreak") != null) {
+            requestingPlugin.getLogger().info("/nightbreak is already registered, skipping.");
+            return;
+        }
+
+        if (Bukkit.getPluginManager().getPermission("nightbreak.plugins") == null) {
+            Permission perm = new Permission(
+                    "nightbreak.plugins",
+                    "Lets admins browse the plugin catalog.",
+                    PermissionDefault.OP
+            );
+            Bukkit.getPluginManager().addPermission(perm);
+        }
+
+        Command wrapper = AdvancedCommand.toBukkitCommand(
+                requestingPlugin,
+                new NightbreakCommand(requestingPlugin),
+                "nightbreak",
+                List.of()
+        );
+        commandMap.register(requestingPlugin.getName(), wrapper);
+
+        Logger.info("Registered /nightbreak command");
     }
 
     // ---------------------------------------------------------------

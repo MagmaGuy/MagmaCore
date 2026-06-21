@@ -38,6 +38,7 @@ public class SetupMenu {
     private final MenuButton infoButton;
     private final List<? extends ContentPackage> contentPackages;
     private final List<SetupMenuFilter> filterList;
+    private final List<MenuButton> toolbarButtons;
     private final List<Integer> filterSlots = List.of(2, 3, 4, 5, 6);
     private final Map<Integer, List<? extends ContentPackage>> filterMap = new HashMap();
     private Inventory inventory;
@@ -74,12 +75,23 @@ public class SetupMenu {
                      List<? extends ContentPackage> mainContentList,
                      List<SetupMenuFilter> filterList,
                      String title) {
+        this(ownerPlugin, player, infoButton, mainContentList, filterList, List.of(), title);
+    }
+
+    public SetupMenu(JavaPlugin ownerPlugin,
+                     Player player,
+                     MenuButton infoButton,
+                     List<? extends ContentPackage> mainContentList,
+                     List<SetupMenuFilter> filterList,
+                     List<MenuButton> toolbarButtons,
+                     String title) {
         this.inventory = Bukkit.createInventory(player, 45, title);
         this.player = player;
         this.ownerPlugin = ownerPlugin;
         this.contentPackages = mainContentList;
         this.displayedContentPackages = contentPackages;
         this.filterList = filterList;
+        this.toolbarButtons = toolbarButtons == null ? List.of() : List.copyOf(toolbarButtons);
         this.infoButton = infoButton;
         this.redrawMenu(1, this.inventory);
         setupMenus.put(this.inventory, this);
@@ -133,6 +145,7 @@ public class SetupMenu {
     }
 
     private void populateFilterElements() {
+        filterMap.clear();
         int counter = 0;
         for (SetupMenuFilter setupMenuFilter : filterList) {
             if (counter >= filterSlots.size()) break;
@@ -155,6 +168,20 @@ public class SetupMenu {
             };
             inventory.setItem(filterSlots.get(counter), setupMenuFilter.itemStack);
             inventoryMap.put(filterSlots.get(counter), filterButton);
+            counter++;
+        }
+        populateToolbarElements(counter);
+    }
+
+    private void populateToolbarElements(int counter) {
+        for (MenuButton toolbarButton : toolbarButtons) {
+            if (counter >= filterSlots.size()) break;
+            int slot = filterSlots.get(counter);
+            ItemStack itemStack = toolbarButton instanceof ContentPackage contentPackage
+                    ? contentPackage.getItemstack()
+                    : toolbarButton.getItemStack();
+            inventory.setItem(slot, itemStack);
+            inventoryMap.put(slot, toolbarButton);
             counter++;
         }
     }

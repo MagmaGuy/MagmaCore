@@ -160,7 +160,8 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
                 entity.getYRot(),
                 entity.getType(),
                 0,
-                new Vec3(0,0,0), 0));
+                new Vec3(0,0,0), headYaw()));
+        packets.add(generateHeadRotationPacket());
         packets.add(createEntityDataPacket());
         return packets;
     }
@@ -172,23 +173,44 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
     //Teleports
     public void teleport(Location location) {
         entity.teleportTo(location.getX(), location.getY(), location.getZ());
+        applyRotation(location);
         sendTeleportPacket();
+    }
+
+    protected void applyRotation(Location location) {
+        entity.setYRot(location.getYaw());
+        entity.setXRot(location.getPitch());
+        if (entity instanceof net.minecraft.world.entity.LivingEntity livingEntity) {
+            livingEntity.setYHeadRot(location.getYaw());
+            livingEntity.setYBodyRot(location.getYaw());
+        }
+    }
+
+    protected float headYaw() {
+        if (entity instanceof net.minecraft.world.entity.LivingEntity livingEntity) {
+            return livingEntity.yHeadRot;
+        }
+        return entity.getYRot();
     }
 
     protected void sendTeleportPacket() {
         sendPacket(generateTeleportPacket());
+        sendPacket(generateHeadRotationPacket());
     }
 
     protected Packet<?> generateTeleportPacket() {
         return new ClientboundTeleportEntityPacket(entity);
     }
 
+    protected Packet<?> generateHeadRotationPacket() {
+        return new ClientboundRotateHeadPacket(entity, (byte) (headYaw() * 256.0F / 360.0F));
+    }
+
     //Move
     public Packet generateMovePacket(Location location){
         Location oldPos = getLocation();
         entity.setPos(location.getX(), location.getY(), location.getZ());
-        entity.setYRot(location.getYaw());
-        entity.setXRot(location.getPitch());
+        applyRotation(location);
 
         Packet<?> movePacket = null;
 
@@ -221,6 +243,7 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
 
     public void move(Location location) {
         sendPacket(generateMovePacket(location));
+        sendPacket(generateHeadRotationPacket());
     }
 
     //Packet sending

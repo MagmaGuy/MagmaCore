@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
@@ -77,16 +78,16 @@ public class NightbreakAccount {
         // shaded copy can be picked up by THIS plugin's next access.
         configFilePath = configFile;
         if (!configFile.exists()) {
-            Logger.info("No Nightbreak token found. Use /nightbreaklogin <token> to register your token.");
+            Logger.info("No account token found. Use /nightbreaklogin <token> to register your token.");
             return null;
         }
 
         loadTokenFromFile(configFile);
         lastFileMtime = configFile.lastModified();
         if (instance != null) {
-            Logger.info("Nightbreak account loaded successfully!");
+            Logger.info("Account token loaded successfully!");
         } else {
-            Logger.info("No Nightbreak token configured. Use /nightbreaklogin <token> to register your token.");
+            Logger.info("No account token configured. Use /nightbreaklogin <token> to register your token.");
         }
         return instance;
     }
@@ -169,7 +170,7 @@ public class NightbreakAccount {
             try {
                 listener.run();
             } catch (Throwable t) {
-                Logger.warn("Nightbreak token-change listener threw: " + t.getMessage());
+                Logger.warn("Account token-change listener threw: " + t.getMessage());
             }
         }
     }
@@ -208,7 +209,7 @@ public class NightbreakAccount {
                 "- And others!",
                 "",
                 "This folder can be deleted without causing too many problems,",
-                "but you may need to reconfigure shared settings like your Nightbreak token.",
+                "but you may need to reconfigure shared settings like your account token.",
                 "",
                 "Get your token at: https://nightbreak.io/account"
         ));
@@ -218,7 +219,7 @@ public class NightbreakAccount {
         try {
             config.save(configFile);
         } catch (IOException e) {
-            Logger.warn("Failed to save Nightbreak token: " + e.getMessage());
+            Logger.warn("Failed to save account token: " + e.getMessage());
             return null;
         }
 
@@ -319,7 +320,7 @@ public class NightbreakAccount {
      */
     public AccessInfo checkAccess(String slug) {
         if (!hasToken()) {
-            Logger.warn("Cannot check access: No Nightbreak token registered. Use /nightbreaklogin <token> first.");
+            Logger.warn("Cannot check access: No account token registered. Use /nightbreaklogin <token> first.");
             return null;
         }
 
@@ -359,7 +360,7 @@ public class NightbreakAccount {
      */
     public boolean download(String slug, File destinationFile, String version) {
         if (!hasToken()) {
-            Logger.warn("Cannot download: No Nightbreak token registered. Use /nightbreaklogin <token> first.");
+            Logger.warn("Cannot download: No account token registered. Use /nightbreaklogin <token> first.");
             return false;
         }
 
@@ -388,7 +389,7 @@ public class NightbreakAccount {
      */
     public boolean download(String slug, File destinationFile, String version, DownloadProgressCallback progressCallback) {
         if (!hasToken()) {
-            Logger.warn("Cannot download: No Nightbreak token registered. Use /nightbreaklogin <token> first.");
+            Logger.warn("Cannot download: No account token registered. Use /nightbreaklogin <token> first.");
             return false;
         }
         try {
@@ -403,10 +404,107 @@ public class NightbreakAccount {
         }
     }
 
+    public VersionInfo getPluginVersion(String slug) {
+        return getPublicPluginVersion(slug);
+    }
+
+    public static VersionInfo getPublicPluginVersion(String slug) {
+        try {
+            String url = BASE_URL + "/server/plugins/" + encodePathSegment(slug) + "/version";
+            String response = httpGetPublic(url);
+            if (response == null) return null;
+            return parseVersionInfo(response);
+        } catch (Exception e) {
+            Logger.warn("Error getting plugin version for '" + slug + "': " + e.getMessage());
+            return null;
+        }
+    }
+
+    public AccessInfo checkPluginAccess(String slug) {
+        if (!hasToken()) {
+            Logger.warn("Cannot check plugin update access: No account token registered. Use /nightbreaklogin <token> first.");
+            return null;
+        }
+
+        try {
+            String url = BASE_URL + "/server/plugins/" + encodePathSegment(slug) + "/access";
+            String response = httpGet(url, true);
+            if (response == null) return null;
+            return parseAccessInfo(response);
+        } catch (Exception e) {
+            Logger.warn("Error checking plugin update access for '" + slug + "': " + e.getMessage());
+            return null;
+        }
+    }
+
+    public boolean downloadPlugin(String slug, File destinationFile, DownloadProgressCallback progressCallback) {
+        return downloadPluginUpdate(slug, destinationFile, progressCallback).success;
+    }
+
+    public PluginDownloadResult downloadPluginUpdate(String slug, File destinationFile, DownloadProgressCallback progressCallback) {
+        if (!hasToken()) {
+            Logger.warn("Cannot download plugin update: No account token registered. Use /nightbreaklogin <token> first.");
+            return new PluginDownloadResult(false, 0, "NO_TOKEN",
+                    "No account token registered.", null, null);
+        }
+
+        try {
+            String url = BASE_URL + "/server/plugins/" + encodePathSegment(slug) + "/download";
+            return httpDownloadWithProgressResult(url, destinationFile, progressCallback);
+        } catch (Exception e) {
+            Logger.warn("Error downloading plugin update '" + slug + "': " + e.getMessage());
+            return new PluginDownloadResult(false, 0, "DOWNLOAD_ERROR",
+                    e.getMessage(), null, null);
+        }
+    }
+
     // ==================== HTTP HELPERS ====================
 
     private static final int CONNECT_TIMEOUT_MS = 10000;
     private static final int READ_TIMEOUT_MS = 10000;
+
+    private static String encodePathSegment(String value) {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
+    }
+
+    private static String httpGetPublic(String urlString) {
+        try {
+            URL url = new URL(urlString);
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("GET");
+            connection.setRequestProperty("Accept", "application/json");
+            connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
+            connection.setReadTimeout(READ_TIMEOUT_MS);
+
+            int responseCode = connection.getResponseCode();
+            if (responseCode == 200) {
+                Scanner scanner = new Scanner(connection.getInputStream(), StandardCharsets.UTF_8);
+                StringBuilder response = new StringBuilder();
+                while (scanner.hasNext()) {
+                    response.append(scanner.nextLine());
+                }
+                scanner.close();
+                return response.toString();
+            }
+
+            String errorResponse = null;
+            InputStream errorStream = connection.getErrorStream();
+            if (errorStream != null) {
+                Scanner scanner = new Scanner(errorStream, StandardCharsets.UTF_8);
+                StringBuilder sb = new StringBuilder();
+                while (scanner.hasNext()) {
+                    sb.append(scanner.nextLine());
+                }
+                scanner.close();
+                errorResponse = sb.toString();
+            }
+            logHttpError(urlString, responseCode, errorResponse);
+            return null;
+        } catch (IOException e) {
+            logNetworkFailure(urlString, e.getMessage());
+            return null;
+        }
+    }
 
     // Spam control for noisy failure modes. With many DLC slugs being checked
     // on startup, a dead token or unreachable remote would otherwise spew one
@@ -479,7 +577,7 @@ public class NightbreakAccount {
             if (suppressAuthFailureLogs) return;
             suppressAuthFailureLogs = true;
             String body = errorResponse != null ? errorResponse : "(no body)";
-            Logger.warn("Nightbreak token was rejected (" + responseCode + ") for " + urlString
+            Logger.warn("The account token was rejected (" + responseCode + ") for " + urlString
                     + ": " + body
                     + ". Get a new token at https://nightbreak.io/account/ and run "
                     + "/nightbreaklogin <token>, then try again. Further token errors will be hidden until the token changes.");
@@ -658,20 +756,107 @@ public class NightbreakAccount {
         }
     }
 
+    private PluginDownloadResult httpDownloadWithProgressResult(String urlString, File destinationFile, DownloadProgressCallback callback) {
+        try {
+            URL url = new URL(urlString);
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("GET");
+            connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
+            connection.setReadTimeout(READ_TIMEOUT_MS);
+            if (token != null) {
+                connection.setRequestProperty("Authorization", "Bearer " + token);
+            }
+
+            int responseCode = connection.getResponseCode();
+            if (responseCode == 200) {
+                if (!destinationFile.getParentFile().exists()) {
+                    destinationFile.getParentFile().mkdirs();
+                }
+                long totalBytes = connection.getContentLengthLong();
+                long bytesDownloaded = 0;
+                long lastProgressUpdate = 0;
+                try (InputStream in = connection.getInputStream();
+                     FileOutputStream out = new FileOutputStream(destinationFile)) {
+                    byte[] buffer = new byte[8192];
+                    int bytesRead;
+                    while ((bytesRead = in.read(buffer)) != -1) {
+                        out.write(buffer, 0, bytesRead);
+                        bytesDownloaded += bytesRead;
+                        if (callback != null && bytesDownloaded - lastProgressUpdate >= 102400) {
+                            callback.onProgress(bytesDownloaded, totalBytes);
+                            lastProgressUpdate = bytesDownloaded;
+                        }
+                    }
+                    if (callback != null) {
+                        callback.onProgress(bytesDownloaded, totalBytes);
+                    }
+                } catch (IOException e) {
+                    if (destinationFile.exists()) destinationFile.delete();
+                    throw e;
+                }
+                return new PluginDownloadResult(true, responseCode, null, null, null, null);
+            }
+
+            String errorResponse = readErrorResponse(connection);
+            if (responseCode == 401) {
+                logHttpError(urlString, responseCode, errorResponse);
+            } else if (responseCode >= 500) {
+                Logger.warn("Nightbreak plugin update download failed (" + responseCode + ") for " + urlString
+                        + (errorResponse == null ? "" : ": " + errorResponse));
+            }
+            return PluginDownloadResult.fromHttp(responseCode, errorResponse);
+        } catch (IOException e) {
+            if (destinationFile.exists()) destinationFile.delete();
+            logNetworkFailure(urlString, e.getMessage());
+            return new PluginDownloadResult(false, 0, "NETWORK_ERROR", e.getMessage(), null, null);
+        }
+    }
+
+    private static String readErrorResponse(HttpURLConnection connection) throws IOException {
+        InputStream errorStream = connection.getErrorStream();
+        if (errorStream == null) return null;
+        Scanner scanner = new Scanner(errorStream, StandardCharsets.UTF_8);
+        StringBuilder errorResponse = new StringBuilder();
+        while (scanner.hasNext()) {
+            errorResponse.append(scanner.nextLine());
+        }
+        scanner.close();
+        return errorResponse.toString();
+    }
+
     // ==================== JSON PARSING ====================
 
-    private VersionInfo parseVersionInfo(String json) {
+    private static VersionInfo parseVersionInfo(String json) {
         // Simple JSON parsing without external dependencies
         VersionInfo info = new VersionInfo();
         info.slug = extractJsonString(json, "slug");
         info.version = extractJsonString(json, "version");
+        if (info.version == null) info.version = extractJsonString(json, "currentVersion");
         info.versionInt = extractJsonInt(json, "versionInt");
+        if (info.versionInt < 0) info.versionInt = parseIntegerVersion(info.version);
         info.fileSize = extractJsonLong(json, "fileSize");
         info.fileName = extractJsonString(json, "fileName");
+        info.checksum = extractJsonString(json, "checksum");
+        info.changelog = extractJsonString(json, "changelog");
+        info.downloadPageUrl = extractJsonString(json, "downloadPageUrl");
         return info;
     }
 
-    private AccessInfo parseAccessInfo(String json) {
+    private static int parseIntegerVersion(String version) {
+        if (version == null) return -1;
+        String normalized = version.trim();
+        if (normalized.startsWith("v") || normalized.startsWith("V")) {
+            normalized = normalized.substring(1);
+        }
+        if (!normalized.matches("\\d+")) return -1;
+        try {
+            return Integer.parseInt(normalized);
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    private static AccessInfo parseAccessInfo(String json) {
         AccessInfo info = new AccessInfo();
         info.slug = extractJsonString(json, "slug");
         info.hasAccess = extractJsonBoolean(json, "hasAccess");
@@ -687,7 +872,7 @@ public class NightbreakAccount {
         return info;
     }
 
-    private String extractJsonString(String json, String key) {
+    private static String extractJsonString(String json, String key) {
         String searchKey = "\"" + key + "\":\"";
         int startIndex = json.indexOf(searchKey);
         if (startIndex == -1) return null;
@@ -697,7 +882,7 @@ public class NightbreakAccount {
         return json.substring(startIndex, endIndex);
     }
 
-    private int extractJsonInt(String json, String key) {
+    private static int extractJsonInt(String json, String key) {
         String searchKey = "\"" + key + "\":";
         int startIndex = json.indexOf(searchKey);
         if (startIndex == -1) return -1;
@@ -713,7 +898,7 @@ public class NightbreakAccount {
         }
     }
 
-    private long extractJsonLong(String json, String key) {
+    private static long extractJsonLong(String json, String key) {
         String searchKey = "\"" + key + "\":";
         int startIndex = json.indexOf(searchKey);
         if (startIndex == -1) return -1;
@@ -729,7 +914,7 @@ public class NightbreakAccount {
         }
     }
 
-    private boolean extractJsonBoolean(String json, String key) {
+    private static boolean extractJsonBoolean(String json, String key) {
         String searchKey = "\"" + key + "\":";
         int startIndex = json.indexOf(searchKey);
         if (startIndex == -1) return false;
@@ -737,7 +922,7 @@ public class NightbreakAccount {
         return json.substring(startIndex).startsWith("true");
     }
 
-    private Map<String, VersionInfo> parseAllVersionsResponse(String json) {
+    private static Map<String, VersionInfo> parseAllVersionsResponse(String json) {
         Map<String, VersionInfo> versions = new HashMap<>();
         int versionsStart = json.indexOf("\"versions\":");
         if (versionsStart == -1) return versions;
@@ -762,7 +947,7 @@ public class NightbreakAccount {
         return versions;
     }
 
-    private int findMatchingBracket(String json, int openPos, char openChar, char closeChar) {
+    private static int findMatchingBracket(String json, int openPos, char openChar, char closeChar) {
         int depth = 0;
         boolean inString = false;
         for (int i = openPos; i < json.length(); i++) {
@@ -791,11 +976,14 @@ public class NightbreakAccount {
         public int versionInt;
         public long fileSize;
         public String fileName;
+        public String checksum;
+        public String changelog;
+        public String downloadPageUrl;
 
         @Override
         public String toString() {
             return "VersionInfo{slug='" + slug + "', version='" + version + "', versionInt=" + versionInt +
-                    ", fileSize=" + fileSize + ", fileName='" + fileName + "'}";
+                    ", fileSize=" + fileSize + ", fileName='" + fileName + "', checksum='" + checksum + "'}";
         }
     }
 
@@ -828,6 +1016,45 @@ public class NightbreakAccount {
             return "AccessInfo{slug='" + slug + "', hasAccess=" + hasAccess + ", accessSource='" + accessSource +
                     "', reason='" + reason + "', version='" + version + "', fileSize=" + fileSize +
                     ", patreonLink='" + patreonLink + "', itchLink='" + itchLink + "'}";
+        }
+    }
+
+    public static class PluginDownloadResult {
+        public final boolean success;
+        public final int responseCode;
+        public final String error;
+        public final String message;
+        public final String reason;
+        public final String requiredTier;
+
+        public PluginDownloadResult(boolean success,
+                                    int responseCode,
+                                    String error,
+                                    String message,
+                                    String reason,
+                                    String requiredTier) {
+            this.success = success;
+            this.responseCode = responseCode;
+            this.error = error;
+            this.message = message;
+            this.reason = reason;
+            this.requiredTier = requiredTier;
+        }
+
+        private static PluginDownloadResult fromHttp(int responseCode, String json) {
+            String error = json == null ? null : extractJsonString(json, "error");
+            String message = json == null ? null : extractJsonString(json, "message");
+            String reason = json == null ? null : extractJsonString(json, "reason");
+            String requiredTier = json == null ? null : extractJsonString(json, "requiredTier");
+            return new PluginDownloadResult(false, responseCode, error, message, reason, requiredTier);
+        }
+
+        public String displayDetail() {
+            if (reason != null && !reason.isBlank()) return reason;
+            if (message != null && !message.isBlank()) return message;
+            if (error != null && !error.isBlank()) return error;
+            if (responseCode > 0) return "Nightbreak returned HTTP " + responseCode + ".";
+            return null;
         }
     }
 

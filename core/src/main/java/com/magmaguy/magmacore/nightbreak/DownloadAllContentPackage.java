@@ -31,7 +31,7 @@ public class DownloadAllContentPackage<T extends NightbreakManagedContent> exten
         this.packagesSupplier = packagesSupplier;
         this.pluginName = pluginName;
         this.contentUrl = contentUrl;
-        this.downloadAllCommand = downloadAllCommand;
+        this.downloadAllCommand = downloadAllCommand == null ? "" : downloadAllCommand.trim();
     }
 
     @Override
@@ -45,18 +45,26 @@ public class DownloadAllContentPackage<T extends NightbreakManagedContent> exten
         if (!NightbreakAccount.hasToken()) {
             iconModel = NightbreakSetupIcons.MODEL_RED_CROSS;
             baseMaterial = Material.RED_STAINED_GLASS_PANE;
-            displayName = "&cDownload All";
-            lore = List.of("&7No Nightbreak token linked.", "&7Click for setup instructions.");
+            displayName = includesPluginUpdate() ? "&cDownload Everything" : "&cDownload All Content";
+            lore = List.of("&7No account token linked.", "&7Click for setup instructions.");
         } else if (NightbreakAccount.hasAuthFailure()) {
             iconModel = NightbreakSetupIcons.MODEL_RED_CROSS;
             baseMaterial = Material.RED_STAINED_GLASS_PANE;
-            displayName = "&eUpdate Nightbreak Token";
-            lore = List.of("&7Your saved Nightbreak token needs", "&7to be updated before downloads work.");
+            displayName = "&eUpdate Account Token";
+            lore = List.of("&7Your saved account token needs", "&7to be updated before downloads work.");
         } else {
             long notDownloadedCount = countNotDownloaded(allPackages);
             long outdatedCount = countOutdated(allPackages);
 
-            if (notDownloadedCount > 0 && outdatedCount > 0) {
+            if (includesPluginUpdate()) {
+                iconModel = NightbreakSetupIcons.MODEL_CROWN_YELLOW;
+                baseMaterial = Material.YELLOW_STAINED_GLASS_PANE;
+                displayName = "&eDownload / Update Everything";
+                lore = List.of(
+                        "&7Checks for a plugin update,",
+                        "&7then downloads and updates content.",
+                        "&7Restart the server to use plugin updates.");
+            } else if (notDownloadedCount > 0 && outdatedCount > 0) {
                 iconModel = NightbreakSetupIcons.MODEL_CROWN_YELLOW;
                 baseMaterial = Material.YELLOW_STAINED_GLASS_PANE;
                 displayName = "&eDownload & Update All";
@@ -145,12 +153,21 @@ public class DownloadAllContentPackage<T extends NightbreakManagedContent> exten
             if (hasNotDownloaded && hasOutdated) break;
         }
 
+        if (includesPluginUpdate()) {
+            Bukkit.dispatchCommand(player, downloadAllCommand);
+            return;
+        }
+
         if (!hasNotDownloaded && !hasOutdated) {
             Logger.sendSimpleMessage(player, "&aAll available " + pluginName + " content is already downloaded and up to date.");
             return;
         }
 
         Bukkit.dispatchCommand(player, downloadAllCommand);
+    }
+
+    private boolean includesPluginUpdate() {
+        return downloadAllCommand.endsWith(" downloadall");
     }
 
     @Override protected ItemStack getInstalledItemStack() { return getItemstack(); }
