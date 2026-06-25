@@ -9,7 +9,6 @@ import com.magmaguy.easyminecraftgoals.v26.CraftBukkitBridge;
 import com.mojang.math.Transformation;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.Display;
-import net.minecraft.world.entity.EntityType;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
@@ -406,7 +405,7 @@ public class FakeItemImpl implements FakeItem, TrackedPacketEntity {
 
         @Override
         protected Display.ItemDisplay createEntity(Location location) {
-            return new Display.ItemDisplay(EntityType.ITEM_DISPLAY, getNMSLevel(location));
+            return new Display.ItemDisplay(PacketEntityTypes.ITEM_DISPLAY, getNMSLevel(location));
         }
     }
 }

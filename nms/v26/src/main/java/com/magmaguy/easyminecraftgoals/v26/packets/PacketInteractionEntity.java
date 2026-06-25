@@ -41,7 +41,7 @@ public class PacketInteractionEntity extends AbstractPacketEntity<Interaction>
     protected Interaction createEntity(Location location) {
         // Use direct constructor like other packet entities
         Interaction interaction = new Interaction(
-                net.minecraft.world.entity.EntityType.INTERACTION,
+                PacketEntityTypes.INTERACTION,
                 getNMSLevel(location)
         );
 

@@ -5,7 +5,6 @@ import com.magmaguy.easyminecraftgoals.internal.PacketModelEntity;
 import com.magmaguy.easyminecraftgoals.v26.CraftBukkitBridge;
 import com.mojang.math.Transformation;
 import net.minecraft.world.entity.Display;
-import net.minecraft.world.entity.EntityType;
 import org.bukkit.*;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
@@ -54,7 +53,7 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
     @Override
     protected Display.ItemDisplay createEntity(Location location) {
         // This doesn't create a real entity until it gets added to the world, which for packet entity purposes is never
-        return new Display.ItemDisplay(EntityType.ITEM_DISPLAY, getNMSLevel(location));
+        return new Display.ItemDisplay(PacketEntityTypes.ITEM_DISPLAY, getNMSLevel(location));
     }
 
     /**

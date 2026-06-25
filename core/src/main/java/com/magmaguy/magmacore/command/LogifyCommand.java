@@ -1,6 +1,7 @@
 package com.magmaguy.magmacore.command;
 
 import com.magmaguy.magmacore.util.Logger;
+import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -18,6 +19,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class LogifyCommand extends AdvancedCommand {
+    private static final int UPLOAD_TIMEOUT_MS = 10000;
     private final JavaPlugin plugin;
 
     public LogifyCommand(JavaPlugin plugin) {
@@ -65,6 +67,12 @@ public class LogifyCommand extends AdvancedCommand {
             return;
         }
 
+        File selectedLogFile = logFile;
+        sender.sendMessage("§7Uploading latest log...");
+        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> uploadAndReport(selectedLogFile, sender));
+    }
+
+    private void uploadAndReport(File logFile, CommandSender sender) {
         try {
             byte[] fileBytes = Files.readAllBytes(logFile.toPath());
             String content = new String(fileBytes, StandardCharsets.UTF_8);
@@ -76,21 +84,25 @@ public class LogifyCommand extends AdvancedCommand {
             String encodedContent = URLEncoder.encode(content, StandardCharsets.UTF_8);
             String response = uploadLog(encodedContent);
 
-            if (response != null && response.contains("\"success\":true")) {
-                String logUrl = extractLogUrl(response);
-                commandData.getCommandSender().spigot().sendMessage(
-                        Logger.simpleMessage("&aLog uploaded successfully! View it here: "),
-                        Logger.hoverLinkMessage("&9" + logUrl, "Click to go to link!", logUrl),
-                        Logger.simpleMessage(" &a. "),
-                        Logger.hoverCopyMessage("&6Click here to copy it!", "Click to copy link to clipboard!", logUrl)
-                );
-            } else {
-                Logger.sendMessage(commandData.getCommandSender(), "&cFailed to upload log!");
-            }
+            Bukkit.getScheduler().runTask(plugin, () -> sendUploadResult(sender, response));
 
         } catch (IOException e) {
-            sender.sendMessage("§cAn error occurred while processing the log file.");
             Logger.warn("Error reading log file: " + e.getMessage());
+            Bukkit.getScheduler().runTask(plugin, () -> sender.sendMessage("§cAn error occurred while processing the log file."));
+        }
+    }
+
+    private void sendUploadResult(CommandSender sender, String response) {
+        if (response != null && response.contains("\"success\":true")) {
+            String logUrl = extractLogUrl(response);
+            sender.spigot().sendMessage(
+                    Logger.simpleMessage("&aLog uploaded successfully! View it here: "),
+                    Logger.hoverLinkMessage("&9" + logUrl, "Click to go to link!", logUrl),
+                    Logger.simpleMessage(" &a. "),
+                    Logger.hoverCopyMessage("&6Click here to copy it!", "Click to copy link to clipboard!", logUrl)
+            );
+        } else {
+            Logger.sendMessage(sender, "&cFailed to upload log!");
         }
     }
 
@@ -116,6 +128,8 @@ public class LogifyCommand extends AdvancedCommand {
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("POST");
             connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+            connection.setConnectTimeout(UPLOAD_TIMEOUT_MS);
+            connection.setReadTimeout(UPLOAD_TIMEOUT_MS);
             connection.setDoOutput(true);
 
             String postData = "content=" + encodedContent;

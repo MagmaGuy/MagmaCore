@@ -85,7 +85,7 @@ public class VersionChecker {
             String pluginSlug = pluginSlugFromNightbreakUrl(downloadURL);
 
             if (pluginSlug != null) {
-                NightbreakAccount.VersionInfo versionInfo = NightbreakAccount.getPublicPluginVersion(pluginSlug);
+                NightbreakAccount.VersionInfo versionInfo = NightbreakAccount.getPublicPluginVersion(pluginSlug, false);
                 if (versionInfo != null && versionInfo.version != null && !versionInfo.version.isBlank()) {
                     publicVersion = versionInfo.version;
                     VersionCheckerEvents.setDownloadURL(downloadPageUrl(pluginSlug));

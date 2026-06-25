@@ -7,6 +7,7 @@ import com.magmaguy.easyminecraftgoals.utils.Utils;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.entity.ai.goal.Goal;
+import net.minecraft.world.entity.ai.goal.GoalSelector;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.pathfinder.Path;
 import org.bukkit.Bukkit;
@@ -15,6 +16,8 @@ import org.bukkit.attribute.Attribute;
 import org.bukkit.entity.LivingEntity;
 
 import java.util.EnumSet;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 
 public class WanderBackToPointGoal extends Goal implements AbstractWanderBackToPoint {
 
@@ -229,11 +232,43 @@ public class WanderBackToPointGoal extends Goal implements AbstractWanderBackToP
     @Override
     public void register() {
         if (startWithCooldown) updateCooldown();
-        mob.goalSelector.addGoal(priority, this);
+        getGoalSelector().addGoal(priority, this);
     }
 
     @Override
     public void unregister() {
-        mob.goalSelector.removeGoal(this);
+        getGoalSelector().removeGoal(this);
+    }
+
+    private GoalSelector getGoalSelector() {
+        try {
+            Method getter = Mob.class.getMethod("getGoalSelector");
+            return (GoalSelector) getter.invoke(mob);
+        } catch (NoSuchMethodException ignored) {
+            return getGoalSelectorField();
+        } catch (ReflectiveOperationException | RuntimeException getterException) {
+            try {
+                return getGoalSelectorField();
+            } catch (RuntimeException fieldException) {
+                getterException.addSuppressed(fieldException);
+                throw new IllegalStateException("Unable to access the Mob goal selector on this server version.", getterException);
+            }
+        }
+    }
+
+    private GoalSelector getGoalSelectorField() {
+        Class<?> currentClass = Mob.class;
+        while (currentClass != null) {
+            try {
+                Field field = currentClass.getDeclaredField("goalSelector");
+                field.setAccessible(true);
+                return (GoalSelector) field.get(mob);
+            } catch (NoSuchFieldException ignored) {
+                currentClass = currentClass.getSuperclass();
+            } catch (ReflectiveOperationException | RuntimeException fieldException) {
+                throw new IllegalStateException("Unable to read the Mob goalSelector field.", fieldException);
+            }
+        }
+        throw new IllegalStateException("Unable to find the Mob goalSelector field.");
     }
 }

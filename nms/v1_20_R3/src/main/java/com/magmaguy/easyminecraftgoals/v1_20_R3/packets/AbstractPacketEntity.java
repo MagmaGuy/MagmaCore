@@ -44,6 +44,13 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
 //        this.teleport(location); todo: might cause problems
     }
 
+    protected AbstractPacketEntity(T entity) {
+        if (entity == null) {
+            throw new IllegalArgumentException("entity cannot be null");
+        }
+        this.entity = entity;
+    }
+
     protected abstract T createEntity(Location location);
 
     @Override
