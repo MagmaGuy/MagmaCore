@@ -9,7 +9,6 @@ import com.magmaguy.easyminecraftgoals.thirdparty.BedrockChecker;
 import com.magmaguy.easyminecraftgoals.v26.CraftBukkitBridge;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.Display;
-import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.decoration.ArmorStand;
 import org.bukkit.Bukkit;
 import org.bukkit.Color;
@@ -483,7 +482,7 @@ public class FakeTextImpl implements FakeText, TrackedPacketEntity {
 
         @Override
         protected Display.TextDisplay createEntity(Location location) {
-            return new Display.TextDisplay(EntityType.TEXT_DISPLAY, getNMSLevel(location));
+            return new Display.TextDisplay(PacketEntityTypes.TEXT_DISPLAY, getNMSLevel(location));
         }
     }
 
@@ -497,7 +496,7 @@ public class FakeTextImpl implements FakeText, TrackedPacketEntity {
 
         @Override
         protected ArmorStand createEntity(Location location) {
-            return new ArmorStand(EntityType.ARMOR_STAND, getNMSLevel(location));
+            return new ArmorStand(PacketEntityTypes.ARMOR_STAND, getNMSLevel(location));
         }
     }
 }

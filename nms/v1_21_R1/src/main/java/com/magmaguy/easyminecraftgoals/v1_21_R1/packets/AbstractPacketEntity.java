@@ -29,6 +29,14 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
         EntityID = entity.getId();
     }
 
+    protected AbstractPacketEntity(T entity) {
+        if (entity == null) {
+            throw new IllegalArgumentException("entity cannot be null");
+        }
+        this.entity = entity;
+        EntityID = entity.getId();
+    }
+
     public List<Player> getViewersAsPlayers() {
         List<Player> players = new ArrayList<>();
         for (UUID viewer : viewers) {

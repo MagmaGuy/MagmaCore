@@ -10,7 +10,6 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket;
 import net.minecraft.network.protocol.game.ClientboundSetEquipmentPacket;
 import net.minecraft.network.syncher.SynchedEntityData;
-import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.item.ItemStack;
@@ -35,7 +34,7 @@ public class PacketArmorStandEntity extends AbstractPacketEntity<ArmorStand> imp
     @Override
     protected ArmorStand createEntity(Location location) {
         //This doesn't create a real entity until it gets added to the world, which for packet entity purposes is never
-        return new ArmorStand(EntityType.ARMOR_STAND, getNMSLevel(location));
+        return new ArmorStand(PacketEntityTypes.ARMOR_STAND, getNMSLevel(location));
     }
 
     public void initializeModel(Location location, String modelID) {

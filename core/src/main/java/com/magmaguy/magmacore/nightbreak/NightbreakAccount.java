@@ -409,13 +409,19 @@ public class NightbreakAccount {
     }
 
     public static VersionInfo getPublicPluginVersion(String slug) {
+        return getPublicPluginVersion(slug, true);
+    }
+
+    public static VersionInfo getPublicPluginVersion(String slug, boolean logFailures) {
         try {
             String url = BASE_URL + "/server/plugins/" + encodePathSegment(slug) + "/version";
-            String response = httpGetPublic(url);
+            String response = httpGetPublic(url, logFailures);
             if (response == null) return null;
             return parseVersionInfo(response);
         } catch (Exception e) {
-            Logger.warn("Error getting plugin version for '" + slug + "': " + e.getMessage());
+            if (logFailures) {
+                Logger.warn("Error getting plugin version for '" + slug + "': " + e.getMessage());
+            }
             return null;
         }
     }
@@ -468,6 +474,10 @@ public class NightbreakAccount {
     }
 
     private static String httpGetPublic(String urlString) {
+        return httpGetPublic(urlString, true);
+    }
+
+    private static String httpGetPublic(String urlString, boolean logFailures) {
         try {
             URL url = new URL(urlString);
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
@@ -498,10 +508,14 @@ public class NightbreakAccount {
                 scanner.close();
                 errorResponse = sb.toString();
             }
-            logHttpError(urlString, responseCode, errorResponse);
+            if (logFailures) {
+                logHttpError(urlString, responseCode, errorResponse);
+            }
             return null;
         } catch (IOException e) {
-            logNetworkFailure(urlString, e.getMessage());
+            if (logFailures) {
+                logNetworkFailure(urlString, e.getMessage());
+            }
             return null;
         }
     }

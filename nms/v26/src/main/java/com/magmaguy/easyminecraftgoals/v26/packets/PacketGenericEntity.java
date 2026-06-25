@@ -25,6 +25,9 @@ public class PacketGenericEntity extends AbstractPacketEntity<Entity> {
     }
 
     private static Entity createGenericEntity(EntityType bukkitType, Location location) {
+        if (bukkitType == null) {
+            throw new IllegalArgumentException("entityType cannot be null");
+        }
         // Use CraftBukkitBridge.getServerLevel directly since createNMSEntity requires ServerLevel
         return CraftBukkitBridge.createNMSEntity(bukkitType, CraftBukkitBridge.getServerLevel(location), location);
     }
