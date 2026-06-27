@@ -113,6 +113,16 @@ public class PacketArmorStandEntity extends AbstractPacketEntity<ArmorStand> imp
         }
     }
 
+    public void displayTo(Player player, AbstractPacketBundle packetBundle) {
+        super.displayTo(player, packetBundle);
+        if (player == null || packetBundle == null) return;
+        if (nmsLeatherHorseArmor != null) {
+            packetBundle.addPacket(
+                    new ClientboundSetEquipmentPacket(entity.getId(), List.of(Pair.of(EquipmentSlot.HEAD, nmsLeatherHorseArmor))),
+                    List.of(player));
+        }
+    }
+
     public void displayTo(UUID player) {
         displayTo(Bukkit.getPlayer(player));
     }
