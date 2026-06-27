@@ -40,6 +40,14 @@ import org.bukkit.entity.LivingEntity;
 
 public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter {
 
+    public NMSAdapter() {
+        // Register the real packet-size measurer so the FMM packet sampler reports true
+        // serialized bytes instead of a flat estimate. Defensive: if the codec reflection
+        // fails at runtime it returns -1 and the sampler falls back to estimating.
+        com.magmaguy.easyminecraftgoals.internal.PacketSizeEstimator.setImpl(
+                new com.magmaguy.easyminecraftgoals.v26.packets.NmsPacketSizeFunction());
+    }
+
     private PacketInteractionListener packetInteractionListener;
 
     private PathfinderMob getPathfinderMob(Entity entity) {

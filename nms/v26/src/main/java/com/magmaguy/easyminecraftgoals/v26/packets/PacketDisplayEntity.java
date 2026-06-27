@@ -169,7 +169,19 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
         );
 
         entity.setTransformation(transformation);
-        packetBundle.addPacket(createEntityDataPacket(), getViewersAsPlayers());
+
+        // Per-tick metadata: send only the changed (dirty) data values instead of the full
+        // non-default snapshot, which re-serializes the entire item-display item blob every
+        // tick. packDirty() returns just the transformation that actually changed (and null
+        // when nothing did). Display-entity bones are shown to Java viewers only — Bedrock V2
+        // uses a separate path — so vanilla delta-metadata semantics apply cleanly here.
+        // Full snapshots still go out on displayTo (spawn) and the periodic resync.
+        if (com.magmaguy.easyminecraftgoals.internal.PacketEntityTuning.useDeltaMetadataUpdates) {
+            net.minecraft.network.protocol.Packet<?> dirty = createDirtyEntityDataPacket();
+            if (dirty != null) packetBundle.addPacket(dirty, getViewersAsPlayers());
+        } else {
+            packetBundle.addPacket(createEntityDataPacket(), getViewersAsPlayers());
+        }
 
         return packetBundle;
     }

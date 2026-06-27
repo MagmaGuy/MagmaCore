@@ -1,6 +1,7 @@
 package com.magmaguy.easyminecraftgoals.v26.packets;
 
 import com.google.common.collect.Sets;
+import com.magmaguy.easyminecraftgoals.internal.AbstractPacketBundle;
 import com.magmaguy.easyminecraftgoals.internal.PacketEntityInterface;
 import com.magmaguy.easyminecraftgoals.v26.CraftBukkitBridge;
 import net.minecraft.network.protocol.Packet;
@@ -108,6 +109,28 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
         return new ClientboundSetEntityDataPacket(EntityID, dataValues);
     }
 
+    /**
+     * Per-tick metadata packet carrying ONLY the entity-data values that changed since the
+     * last call ({@code SynchedEntityData.packDirty()}), as opposed to {@link #createEntityDataPacket()}
+     * which re-serializes the entire non-default set (including the item-display item blob)
+     * every time. An animating bone whose transform changed thus resends just its
+     * transformation, not its whole item definition.
+     *
+     * <p>Returns {@code null} when nothing changed — callers must skip adding it to the bundle.
+     * The full snapshot still goes out on spawn ({@code displayTo}) and on the periodic resync,
+     * so newly added viewers and any drift are always reconciled. {@code packDirty()} also clears
+     * the dirty flags, so this must be called at most once per tick per entity.</p>
+     */
+    protected Packet<?> createDirtyEntityDataPacket() {
+        List<SynchedEntityData.DataValue<?>> dataValues = entity.getEntityData().packDirty();
+
+        if (dataValues == null || dataValues.isEmpty()) {
+            return null;
+        }
+
+        return new ClientboundSetEntityDataPacket(EntityID, dataValues);
+    }
+
     public Packet<?> generateRemovePacket() {
         return new ClientboundRemoveEntitiesPacket(EntityID);
     }
@@ -178,6 +201,32 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
         );
     }
 
+    public void displayTo(Player player, AbstractPacketBundle packetBundle) {
+        if (packetBundle == null) {
+            displayTo(player);
+            return;
+        }
+        if (player == null || !player.isOnline() || viewers.contains(player.getUniqueId())) {
+            return;
+        }
+
+        addViewer(player.getUniqueId());
+        List<Player> playerOnly = List.of(player);
+        packetBundle.addPacket(new ClientboundAddEntityPacket(
+                EntityID,
+                entity.getUUID(),
+                entity.getX(),
+                entity.getY(),
+                entity.getZ(),
+                entity.getXRot(),
+                entity.getYRot(),
+                entity.getType(),
+                0,
+                new Vec3(0, 0, 0), headYaw()), playerOnly);
+        packetBundle.addPacket(generateHeadRotationPacket(), playerOnly);
+        packetBundle.addPacket(createEntityDataPacket(), playerOnly);
+    }
+
     @Override
     public void displayTo(UUID uuid) {
         Player player = Bukkit.getPlayer(uuid);
@@ -232,7 +281,29 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
     }
 
     protected Packet<?> generateHeadRotationPacket() {
+        // Head rotation only exists for entities that have a head (living entities). For
+        // display/interaction packet entities (ItemDisplay, Interaction) it does nothing on the
+        // client, so returning null here makes every send path (direct, per-player, bundle) skip
+        // it automatically. The Bedrock-bridge change had been emitting it unconditionally, which
+        // added a wasted packet per tick for every model's hitbox interaction entity.
+        if (!(entity instanceof net.minecraft.world.entity.LivingEntity)) return null;
         return new ClientboundRotateHeadPacket(entity, (byte) (headYaw() * 256.0F / 360.0F));
+    }
+
+    @Override
+    public void teleport(Location location, com.magmaguy.easyminecraftgoals.internal.AbstractPacketBundle bundle) {
+        if (bundle == null) {
+            teleport(location);
+            return;
+        }
+        // Bundled per-tick teleport: ride the shared bundle instead of sending directly, so the
+        // hitbox interaction entity stops bypassing the bundler. generateMovePacket() updates the
+        // entity's position/rotation and returns the position-sync packet; head rotation is null
+        // for non-living entities (see generateHeadRotationPacket).
+        Packet<?> move = generateMovePacket(location);
+        if (move != null) bundle.addPacket(move, getViewersAsPlayers());
+        Packet<?> head = generateHeadRotationPacket();
+        if (head != null) bundle.addPacket(head, getViewersAsPlayers());
     }
 
     // Also update generateMovePacket to ensure yaw is handled correctly
@@ -328,6 +399,7 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
     protected void sendPacketToAll(Packet<?> nmsPacket) {
         if (nmsPacket == null) return;
 
+        int delivered = 0;
         for (UUID viewer : viewers) {
             Player player = Bukkit.getPlayer(viewer);
             if (player == null) {
@@ -335,7 +407,12 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
                 continue;
             }
             sendPacketToPlayer(player, nmsPacket);
+            delivered++;
         }
+        // Report this unbundled broadcast so the FMM packet sampler can account for direct sends
+        // (no-op unless a sampler is actively observing).
+        if (delivered > 0)
+            com.magmaguy.easyminecraftgoals.internal.PacketSendObserver.observe(nmsPacket, delivered);
     }
 
     /**

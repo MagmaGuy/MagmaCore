@@ -24,6 +24,17 @@ public interface PacketEntityInterface {
     void teleport(Location location);
 
     /**
+     * Bundled teleport: adds this entity's position update to the given packet bundle instead of
+     * sending it directly, so per-tick movers (e.g. the hitbox interaction entity) ride the same
+     * {@link AbstractPacketBundle} as everything else rather than bypassing the bundler. The
+     * default falls back to a direct {@link #teleport(Location)} for impls that don't override it
+     * (and when {@code bundle} is null).
+     */
+    default void teleport(Location location, AbstractPacketBundle bundle) {
+        teleport(location);
+    }
+
+    /**
      * Makes this packet entity ride another entity (the vehicle).
      * Sends mount packets to all viewers so the client handles positioning.
      *
