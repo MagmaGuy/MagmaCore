@@ -3,6 +3,8 @@ package com.magmaguy.magmacore.thirdparty.griefprevention;
 import com.magmaguy.magmacore.location.RegionProtectionProvider;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.Material;
+import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 
 import java.lang.invoke.MethodHandle;
@@ -23,6 +25,7 @@ import java.lang.reflect.Field;
 public class GriefPreventionProtectionProvider implements RegionProtectionProvider {
     private final Object dataStore;
     private final MethodHandle getClaimAt;
+    private final MethodHandle allowBuild;
 
     public GriefPreventionProtectionProvider() throws ReflectiveOperationException {
         Plugin plugin = Bukkit.getPluginManager().getPlugin("GriefPrevention");
@@ -30,11 +33,14 @@ public class GriefPreventionProtectionProvider implements RegionProtectionProvid
         Field dataStoreField = plugin.getClass().getField("dataStore");
         this.dataStore = dataStoreField.get(plugin);
         if (this.dataStore == null) throw new IllegalStateException("GriefPrevention dataStore is null");
+        Class<?> claimClass = Class.forName("me.ryanhamshire.GriefPrevention.Claim");
         MethodType type = MethodType.methodType(
-                Class.forName("me.ryanhamshire.GriefPrevention.Claim"),
-                Location.class, boolean.class, Class.forName("me.ryanhamshire.GriefPrevention.Claim"));
+                claimClass, Location.class, boolean.class, claimClass);
         this.getClaimAt = MethodHandles.lookup()
                 .findVirtual(dataStore.getClass(), "getClaimAt", type);
+        this.allowBuild = MethodHandles.lookup().findVirtual(
+                claimClass, "allowBuild",
+                MethodType.methodType(String.class, Player.class, Material.class));
     }
 
     @Override
@@ -42,6 +48,17 @@ public class GriefPreventionProtectionProvider implements RegionProtectionProvid
         try {
             Object claim = getClaimAt.invoke(dataStore, location, true, null);
             return claim != null;
+        } catch (Throwable t) {
+            throw new IllegalStateException(
+                    "GriefPrevention claim lookup failed", t);
+        }
+    }
+
+    @Override
+    public boolean canBuild(Player player, Location location) {
+        try {
+            Object claim = getClaimAt.invoke(dataStore, location, true, null);
+            return claim == null || allowBuild.invoke(claim, player, Material.STONE) == null;
         } catch (Throwable t) {
             return false;
         }

@@ -42,6 +42,13 @@ public class SpigotMessage {
         return textComponent;
     }
 
+    public static TextComponent suggestHoverMessage(String message, String hoverMessage, String commandString) {
+        TextComponent textComponent = hoverMessage(message, ChatColorConverter.convert(hoverMessage));
+        if (!commandString.isEmpty())
+            textComponent.setClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, commandString));
+        return textComponent;
+    }
+
     public static TextComponent hoverLinkMessage(String message, String hoverMessage, String link) {
         TextComponent textComponent = hoverMessage(message, hoverMessage);
         textComponent.setClickEvent(new ClickEvent(ClickEvent.Action.OPEN_URL, link));

@@ -5,6 +5,7 @@ import com.magmaguy.magmacore.command.CommandManager;
 import com.magmaguy.magmacore.command.LogifyCommand;
 import com.magmaguy.magmacore.command.NightbreakCommand;
 import com.magmaguy.magmacore.command.NightbreakLoginCommand;
+import com.magmaguy.magmacore.command.NightbreakLogoutCommand;
 import com.magmaguy.magmacore.dlc.ConfigurationImporter;
 import com.magmaguy.magmacore.initialization.PluginInitializationConfig;
 import com.magmaguy.magmacore.initialization.PluginInitializationContext;
@@ -17,7 +18,12 @@ import com.magmaguy.magmacore.instance.MatchPlayer;
 import com.magmaguy.magmacore.menus.AdvancedMenuHandler;
 import com.magmaguy.magmacore.menus.SetupMenu;
 import com.magmaguy.magmacore.nightbreak.NightbreakAccount;
+import com.magmaguy.magmacore.nightbreak.NightbreakBulkDownloader;
+import com.magmaguy.magmacore.nightbreak.NightbreakContentRefresher;
+import com.magmaguy.magmacore.nightbreak.NightbreakLogoutMessages;
+import com.magmaguy.magmacore.nightbreak.NightbreakPluginSpec;
 import com.magmaguy.magmacore.nightbreak.NightbreakPluginStateRegistry;
+import com.magmaguy.magmacore.nightbreak.NightbreakPluginUpdater;
 import com.magmaguy.magmacore.thirdparty.CustomBiomeCompatibility;
 import com.magmaguy.magmacore.util.Logger;
 import com.magmaguy.magmacore.util.TemporaryBlockManager;
@@ -35,6 +41,7 @@ import java.io.InputStream;
 import java.lang.reflect.Field;
 import java.net.JarURLConnection;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -42,12 +49,13 @@ import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Enumeration;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
@@ -61,7 +69,7 @@ public final class MagmaCore {
     @Getter
     private final JavaPlugin requestingPlugin;
 
-    private MagmaCore(JavaPlugin requestingPlugin) {
+    private MagmaCore(JavaPlugin requestingPlugin, NightbreakPluginSpec pluginSpec) {
         instance = this;
         this.requestingPlugin = requestingPlugin;
         new AdvancedMenuHandler();
@@ -69,6 +77,7 @@ public final class MagmaCore {
         Logger.info("MagmaCore v1.29-SNAPSHOT initialized!");
         instance.registerLogify();
         instance.registerNightbreakLogin();
+        instance.registerNightbreakLogout(pluginSpec);
         instance.registerNightbreak();
         NightbreakAccount.initialize(requestingPlugin);
     }
@@ -86,6 +95,7 @@ public final class MagmaCore {
     public static void onEnable(JavaPlugin plugin) {
         //Register listeners
         if (plugin == null) return;
+        PluginInitializationManager.onEnable(plugin);
         if (!listenerRegistrations.add(plugin.getName())) return;
         Bukkit.getPluginManager().registerEvents(new SetupMenu.SetupMenuListeners(), plugin);
         Bukkit.getPluginManager().registerEvents(new AdvancedMenuHandler.AdvancedMenuListeners(), plugin);
@@ -124,9 +134,18 @@ public final class MagmaCore {
     }
 
     public static MagmaCore createInstance(JavaPlugin requestingPlugin) {
+        return createInstance(requestingPlugin, null);
+    }
+
+    /**
+     * Creates MagmaCore with plugin-specific copy for shared commands. Existing
+     * consumers may continue to use {@link #createInstance(JavaPlugin)}.
+     */
+    public static MagmaCore createInstance(JavaPlugin requestingPlugin,
+                                           NightbreakPluginSpec pluginSpec) {
         registeredPlugins.put(requestingPlugin.getName(), requestingPlugin);
         if (instance == null) {
-            return new MagmaCore(requestingPlugin);
+            return new MagmaCore(requestingPlugin, pluginSpec);
         }
         NightbreakAccount.initialize(requestingPlugin);
         return instance;
@@ -146,7 +165,10 @@ public final class MagmaCore {
         if (plugin != null) {
             registeredPlugins.remove(plugin.getName());
             listenerRegistrations.remove(plugin.getName());
+            NightbreakBulkDownloader.shutdown(plugin);
+            NightbreakContentRefresher.shutdown(plugin);
             PluginInitializationManager.shutdown(plugin);
+            NightbreakPluginUpdater.shutdown(plugin);
             NightbreakPluginStateRegistry.clear(plugin);
         }
         shutdown();
@@ -163,16 +185,16 @@ public final class MagmaCore {
         }
     }
 
-    public static void initializeImporter() {
-        initializeImporter(instance.requestingPlugin);
+    public static ConfigurationImporter initializeImporter() {
+        return initializeImporter(instance.requestingPlugin);
     }
 
-    public static void initializeImporter(JavaPlugin plugin) {
+    public static ConfigurationImporter initializeImporter(JavaPlugin plugin) {
         if (instance == null) {
             Bukkit.getLogger().warning("Attempted to initialize importer without first instantiating MagmaCore!");
-            return;
+            return null;
         }
-        new ConfigurationImporter(plugin);
+        return new ConfigurationImporter(plugin);
     }
 
     public static JavaPlugin getRegisteredPlugin(String pluginName) {
@@ -245,9 +267,6 @@ public final class MagmaCore {
         }
 
         // 4) finally register it
-        commandMap.register(requestingPlugin.getName(), AdvancedCommand.toBukkitCommand(instance.requestingPlugin, new LogifyCommand(instance.requestingPlugin), "logify", new ArrayList<>()));
-
-        // 4) finally register it
         Command wrapper = AdvancedCommand.toBukkitCommand(
                 requestingPlugin,
                 new LogifyCommand(requestingPlugin),
@@ -300,6 +319,46 @@ public final class MagmaCore {
         Logger.info("Registered /nightbreaklogin command");
     }
 
+    private void registerNightbreakLogout(NightbreakPluginSpec pluginSpec) {
+        SimpleCommandMap commandMap = null;
+        try {
+            Field field = Bukkit.getServer().getClass().getDeclaredField("commandMap");
+            field.setAccessible(true);
+            commandMap = (SimpleCommandMap) field.get(Bukkit.getServer());
+        } catch (ReflectiveOperationException exception) {
+            requestingPlugin.getLogger().warning(
+                    "Couldn't access CommandMap: " + exception.getMessage());
+            return;
+        }
+
+        if (commandMap.getCommand("nightbreaklogout") != null) {
+            requestingPlugin.getLogger().info(
+                    "/nightbreaklogout is already registered, skipping.");
+            return;
+        }
+
+        if (Bukkit.getPluginManager().getPermission("nightbreak.login") == null) {
+            Permission permission = new Permission(
+                    "nightbreak.login",
+                    "Lets admins connect or disconnect the shared Nightbreak account token.",
+                    PermissionDefault.OP
+            );
+            Bukkit.getPluginManager().addPermission(permission);
+        }
+
+        Command wrapper = AdvancedCommand.toBukkitCommand(
+                requestingPlugin,
+                new NightbreakLogoutCommand(requestingPlugin,
+                        pluginSpec == null
+                                ? NightbreakLogoutMessages::defaults
+                                : pluginSpec::resolveLogoutMessages),
+                "nightbreaklogout",
+                List.of("nightbreaklogout")
+        );
+        commandMap.register(requestingPlugin.getName(), wrapper);
+        Logger.info("Registered /nightbreaklogout command");
+    }
+
     private void registerNightbreak() {
         SimpleCommandMap commandMap = null;
         try {
@@ -341,12 +400,12 @@ public final class MagmaCore {
     // ---------------------------------------------------------------
 
     private static final String NB_RSP_RESOURCE_PATH = "nightbreak_rsp_defaults";
-    private static final String NB_RSP_CHECKSUM_FILE = ".nb_rsp_checksum_v2";
+    private static final String NB_RSP_CHECKSUM_FILE = ".nb_rsp_checksum_v3";
 
     /**
      * Exports the shared {@code nightbreak_rsp_defaults/} tree from the
      * MagmaCore jar into {@code <host plugin's data folder>/resource_pack/}.
-     * Idempotent: a {@code .nb_rsp_checksum} file alongside the export records
+     * Idempotent: a private checksum file alongside the export records
      * the jar's content checksum, and subsequent calls with a matching checksum
      * are no-ops. Safe to call on every {@code onEnable}.
      * <p>
@@ -356,7 +415,7 @@ public final class MagmaCore {
      *
      * @param host the consuming plugin; its data folder is the export root.
      */
-    public static void exportSharedAssets(JavaPlugin host) {
+    public static synchronized void exportSharedAssets(JavaPlugin host) {
         if (host == null) return;
         try {
             Path targetPath = host.getDataFolder().toPath().resolve("resource_pack");
@@ -384,7 +443,7 @@ public final class MagmaCore {
             }
 
             copyNbRspResourceFolder(targetPath);
-            Files.writeString(checksumFile, jarChecksum);
+            writeStringAtomically(checksumFile, jarChecksum);
             Logger.info("Exported nightbreak_rsp_defaults to " + targetPath + " for plugin " + host.getName() + ".");
         } catch (Exception e) {
             Logger.warn("Failed to export nightbreak_rsp_defaults for " + host.getName() + ": " + e.getMessage());
@@ -403,28 +462,26 @@ public final class MagmaCore {
             if (resourceUrl.getProtocol().equals("jar")) {
                 JarURLConnection jarConnection = (JarURLConnection) resourceUrl.openConnection();
                 try (JarFile jarFile = jarConnection.getJarFile()) {
-                    Enumeration<JarEntry> entries = jarFile.entries();
-                    while (entries.hasMoreElements()) {
-                        JarEntry entry = entries.nextElement();
-                        if (entry.getName().startsWith(NB_RSP_RESOURCE_PATH) && !entry.isDirectory()) {
-                            digest.update(entry.getName().getBytes());
-                            digest.update(Long.toString(entry.getSize()).getBytes());
+                    List<JarEntry> entries = jarFile.stream()
+                            .filter(entry ->
+                                    entry.getName().startsWith(
+                                            NB_RSP_RESOURCE_PATH + "/") &&
+                                            !entry.isDirectory())
+                            .sorted(Comparator.comparing(JarEntry::getName))
+                            .toList();
+                    for (JarEntry entry : entries) {
+                        String relative = entry.getName().substring(
+                                NB_RSP_RESOURCE_PATH.length() + 1);
+                        try (InputStream input =
+                                     jarFile.getInputStream(entry)) {
+                            updateAssetDigest(digest, relative, input);
                         }
                     }
                 }
             } else {
                 // Running from IDE / exploded classpath
                 Path resourcePath = java.nio.file.Paths.get(resourceUrl.toURI());
-                Files.walk(resourcePath)
-                        .filter(Files::isRegularFile)
-                        .sorted()
-                        .forEach(path -> {
-                            try {
-                                digest.update(path.toString().getBytes());
-                                digest.update(Long.toString(Files.size(path)).getBytes());
-                            } catch (IOException ignored) {
-                            }
-                        });
+                updateAssetDigestFromDirectory(digest, resourcePath);
             }
 
             byte[] hashBytes = digest.digest();
@@ -439,6 +496,38 @@ public final class MagmaCore {
         }
     }
 
+    private static void updateAssetDigestFromDirectory(
+            MessageDigest digest, Path sourcePath) throws IOException {
+        try (var paths = Files.walk(sourcePath)) {
+            for (Path path : paths.filter(Files::isRegularFile)
+                    .sorted(Comparator.comparing(candidate ->
+                            sourcePath.relativize(candidate)
+                                    .toString()
+                                    .replace('\\', '/')))
+                    .toList()) {
+                String relative = sourcePath.relativize(path)
+                        .toString()
+                        .replace('\\', '/');
+                try (InputStream input = Files.newInputStream(path)) {
+                    updateAssetDigest(digest, relative, input);
+                }
+            }
+        }
+    }
+
+    private static void updateAssetDigest(
+            MessageDigest digest, String relativePath, InputStream input)
+            throws IOException {
+        digest.update(relativePath.getBytes(StandardCharsets.UTF_8));
+        digest.update((byte) 0);
+        byte[] buffer = new byte[8192];
+        int read;
+        while ((read = input.read(buffer)) != -1) {
+            digest.update(buffer, 0, read);
+        }
+        digest.update((byte) 0);
+    }
+
     private static void copyNbRspResourceFolder(Path targetPath) throws IOException {
         URL resourceUrl = MagmaCore.class.getClassLoader().getResource(NB_RSP_RESOURCE_PATH);
 
@@ -447,27 +536,50 @@ public final class MagmaCore {
             return;
         }
 
+        Path stagedManagedDirectory =
+                Files.createTempDirectory(targetPath, ".nb-rsp-stage-");
+        boolean installed = false;
+        try {
+            populateStagedSharedAssets(resourceUrl, stagedManagedDirectory);
+            replaceManagedAssetDirectory(
+                    stagedManagedDirectory,
+                    targetPath.resolve(NB_RSP_RESOURCE_PATH));
+            installed = true;
+        } finally {
+            if (!installed) {
+                deleteTree(stagedManagedDirectory);
+            }
+        }
+    }
+
+    private static void populateStagedSharedAssets(
+            URL resourceUrl, Path stagedManagedDirectory)
+            throws IOException {
         if (resourceUrl.getProtocol().equals("jar")) {
             JarURLConnection jarConnection = (JarURLConnection) resourceUrl.openConnection();
             try (JarFile jarFile = jarConnection.getJarFile()) {
-                Enumeration<JarEntry> entries = jarFile.entries();
-                while (entries.hasMoreElements()) {
-                    JarEntry entry = entries.nextElement();
+                List<JarEntry> entries = jarFile.stream()
+                        .filter(entry -> entry.getName().startsWith(
+                                NB_RSP_RESOURCE_PATH + "/"))
+                        .sorted(Comparator.comparing(JarEntry::getName))
+                        .toList();
+                for (JarEntry entry : entries) {
                     String entryName = entry.getName();
+                    String relativePath = entryName.substring(
+                            NB_RSP_RESOURCE_PATH.length() + 1);
+                    if (relativePath.isEmpty()) continue;
+                    Path targetFile =
+                            stagedManagedDirectory.resolve(relativePath);
 
-                    if (entryName.startsWith(NB_RSP_RESOURCE_PATH + "/")) {
-                        String relativePath = entryName;
-                        if (relativePath.isEmpty()) continue;
-
-                        Path targetFile = targetPath.resolve(relativePath);
-
-                        if (entry.isDirectory()) {
-                            Files.createDirectories(targetFile);
-                        } else {
-                            Files.createDirectories(targetFile.getParent());
-                            try (InputStream is = jarFile.getInputStream(entry)) {
-                                Files.copy(is, targetFile, StandardCopyOption.REPLACE_EXISTING);
-                            }
+                    if (entry.isDirectory()) {
+                        Files.createDirectories(targetFile);
+                    } else {
+                        Files.createDirectories(targetFile.getParent());
+                        try (InputStream is = jarFile.getInputStream(entry)) {
+                            Files.copy(
+                                    is,
+                                    targetFile,
+                                    StandardCopyOption.REPLACE_EXISTING);
                         }
                     }
                 }
@@ -476,21 +588,172 @@ public final class MagmaCore {
             // Running from IDE — file-system copy
             try {
                 Path sourcePath = java.nio.file.Paths.get(resourceUrl.toURI());
-                Files.walk(sourcePath).forEach(sourceFile -> {
-                    try {
-                        Path targetFile = targetPath.resolve(NB_RSP_RESOURCE_PATH).resolve(sourcePath.relativize(sourceFile).toString());
+                try (var paths = Files.walk(sourcePath)) {
+                    for (Path sourceFile : paths.sorted().toList()) {
+                        Path targetFile = stagedManagedDirectory.resolve(
+                                sourcePath.relativize(sourceFile).toString());
                         if (Files.isDirectory(sourceFile)) {
                             Files.createDirectories(targetFile);
                         } else {
                             Files.createDirectories(targetFile.getParent());
-                            Files.copy(sourceFile, targetFile, StandardCopyOption.REPLACE_EXISTING);
+                            Files.copy(
+                                    sourceFile,
+                                    targetFile,
+                                    StandardCopyOption.REPLACE_EXISTING);
                         }
-                    } catch (IOException e) {
-                        throw new RuntimeException(e);
                     }
-                });
-            } catch (Exception e) {
-                Logger.warn("Failed to copy nightbreak_rsp_defaults from IDE classpath: " + e.getMessage());
+                }
+            } catch (java.net.URISyntaxException e) {
+                throw new IOException(
+                        "Invalid nightbreak_rsp_defaults classpath URI.", e);
+            }
+        }
+    }
+
+    static String calculateDirectoryAssetChecksum(Path sourcePath)
+            throws Exception {
+        MessageDigest digest = MessageDigest.getInstance("SHA-1");
+        updateAssetDigestFromDirectory(digest, sourcePath);
+        StringBuilder result = new StringBuilder();
+        for (byte value : digest.digest()) {
+            result.append(String.format("%02x", value));
+        }
+        return result.toString();
+    }
+
+    static void installSharedAssetDirectory(
+            Path sourcePath, Path resourcePackRoot) throws IOException {
+        Files.createDirectories(resourcePackRoot);
+        Path stagedManagedDirectory =
+                Files.createTempDirectory(resourcePackRoot, ".nb-rsp-stage-");
+        boolean installed = false;
+        try {
+            try (var paths = Files.walk(sourcePath)) {
+                for (Path source : paths.sorted().toList()) {
+                    Path destination = stagedManagedDirectory.resolve(
+                            sourcePath.relativize(source).toString());
+                    if (Files.isDirectory(source)) {
+                        Files.createDirectories(destination);
+                    } else {
+                        Files.createDirectories(destination.getParent());
+                        Files.copy(
+                                source,
+                                destination,
+                                StandardCopyOption.REPLACE_EXISTING);
+                    }
+                }
+            }
+            replaceManagedAssetDirectory(
+                    stagedManagedDirectory,
+                    resourcePackRoot.resolve(NB_RSP_RESOURCE_PATH));
+            installed = true;
+        } finally {
+            if (!installed) {
+                deleteTree(stagedManagedDirectory);
+            }
+        }
+    }
+
+    private static void replaceManagedAssetDirectory(
+            Path stagedDirectory, Path managedDirectory) throws IOException {
+        Path backupDirectory = managedDirectory.resolveSibling(
+                "." + NB_RSP_RESOURCE_PATH + ".backup-" + UUID.randomUUID());
+        boolean previousMoved = false;
+        boolean replacementInstalled = false;
+        try {
+            if (Files.exists(managedDirectory)) {
+                movePath(managedDirectory, backupDirectory);
+                previousMoved = true;
+            }
+            movePath(stagedDirectory, managedDirectory);
+            replacementInstalled = true;
+        } catch (IOException failure) {
+            if (previousMoved && Files.exists(backupDirectory)) {
+                try {
+                    if (Files.exists(managedDirectory)) {
+                        deleteTree(managedDirectory);
+                    }
+                    movePath(backupDirectory, managedDirectory);
+                } catch (IOException restoreFailure) {
+                    failure.addSuppressed(restoreFailure);
+                }
+            }
+            throw failure;
+        } finally {
+            if (replacementInstalled && previousMoved &&
+                    Files.exists(backupDirectory)) {
+                try {
+                    deleteTree(backupDirectory);
+                } catch (IOException cleanupFailure) {
+                    Logger.warn(
+                            "Installed shared resource-pack assets but could " +
+                                    "not remove backup " + backupDirectory +
+                                    ": " + cleanupFailure.getMessage());
+                }
+            }
+        }
+    }
+
+    private static void movePath(Path source, Path destination)
+            throws IOException {
+        try {
+            Files.move(
+                    source,
+                    destination,
+                    StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException atomicFailure) {
+            if (!Files.exists(source)) {
+                throw atomicFailure;
+            }
+            try {
+                Files.move(source, destination);
+            } catch (IOException fallbackFailure) {
+                fallbackFailure.addSuppressed(atomicFailure);
+                throw fallbackFailure;
+            }
+        }
+    }
+
+    private static void writeStringAtomically(Path destination, String value)
+            throws IOException {
+        Path temporary = Files.createTempFile(
+                destination.getParent(), ".nb-rsp-checksum-", ".tmp");
+        boolean moved = false;
+        try {
+            Files.writeString(temporary, value, StandardCharsets.UTF_8);
+            try {
+                Files.move(
+                        temporary,
+                        destination,
+                        StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException atomicFailure) {
+                if (!Files.exists(temporary)) {
+                    throw atomicFailure;
+                }
+                try {
+                    Files.move(
+                            temporary,
+                            destination,
+                            StandardCopyOption.REPLACE_EXISTING);
+                } catch (IOException fallbackFailure) {
+                    fallbackFailure.addSuppressed(atomicFailure);
+                    throw fallbackFailure;
+                }
+            }
+            moved = true;
+        } finally {
+            if (!moved) {
+                Files.deleteIfExists(temporary);
+            }
+        }
+    }
+
+    private static void deleteTree(Path root) throws IOException {
+        if (root == null || !Files.exists(root)) return;
+        try (var paths = Files.walk(root)) {
+            for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
+                Files.deleteIfExists(path);
             }
         }
     }

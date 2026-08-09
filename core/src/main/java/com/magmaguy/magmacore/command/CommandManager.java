@@ -1,7 +1,6 @@
 package com.magmaguy.magmacore.command;
 
 import com.magmaguy.magmacore.command.arguments.ICommandArgument;
-import com.magmaguy.magmacore.command.arguments.LiteralCommandArgument;
 import com.magmaguy.magmacore.util.Logger;
 import lombok.Getter;
 import org.bukkit.command.Command;
@@ -25,6 +24,10 @@ public class CommandManager implements CommandExecutor, TabCompleter {
         javaPlugin.getCommand(commandExtension).setExecutor(this);
         this.commandExtension = commandExtension;
         commandManagers.add(this);
+    }
+
+    CommandManager(String commandExtension) {
+        this.commandExtension = commandExtension;
     }
 
     public static void shutdown() {
@@ -58,43 +61,8 @@ public class CommandManager implements CommandExecutor, TabCompleter {
             return true;
         }
 
-        // Iterate over all commands looking for an exact match
-        for (AdvancedCommand command : commands) {
-            // Must match the primary alias and be enabled
-            if (!command.isEnabled()) continue;
-            if (!command.getAliases().contains(args[0])) continue;
-
-            // Check that the number of provided arguments falls inside the
-            // command's required..total range. Required = total when no
-            // argument was registered via addOptionalArgument(), so commands
-            // that don't use optionals keep their exact-match behavior.
-            // Optional args must be trailing; we treat the first optional
-            // arg as the boundary.
-            int totalArgs = command.getArgumentsList().size();
-            int requiredArgs = totalArgs;
-            for (int i = 0; i < totalArgs; i++) {
-                if (command.getArgumentsList().get(i).isOptional()) {
-                    requiredArgs = i;
-                    break;
-                }
-            }
-            int provided = args.length - 1; // exclude the alias itself
-            if (provided < requiredArgs || provided > totalArgs) continue;
-
-            boolean valid = true;
-            for (int i = 0; i < command.getArgumentsList().size(); i++) {
-                // Only verify literal arguments
-                if (!command.getArgumentsList().get(i).isLiteral()) continue;
-
-                // We use args[i+1] since args[0] is the base alias
-                if (!((LiteralCommandArgument) command.getArgumentsList().get(i))
-                        .getLiteral().equals(args[i + 1])) {
-                    valid = false;
-                    break;
-                }
-            }
-            if (!valid) continue;
-
+        AdvancedCommand command = findMatchingCommand(commands, args);
+        if (command != null) {
             // Check sender type (e.g. command must be run by a player)
             if (command.getSenderType() == SenderType.PLAYER && !(sender instanceof Player)) {
                 Logger.sendMessage(sender, "This command must be run as a player!");
@@ -113,16 +81,7 @@ public class CommandManager implements CommandExecutor, TabCompleter {
         }
 
         // If no matching subcommand was found, provide suggestions:
-        List<AdvancedCommand> suggestions = new ArrayList<>();
-        for (AdvancedCommand command : commands) {
-            if (!command.isEnabled()) continue;
-            for (String alias : command.getAliases()) {
-                if (alias.toLowerCase().startsWith(args[0].toLowerCase())) {
-                    suggestions.add(command);
-                    break;
-                }
-            }
-        }
+        List<AdvancedCommand> suggestions = findAliasSuggestions(commands, args[0]);
 
         if (!suggestions.isEmpty()) {
             Logger.sendMessage(sender, "Unknown command! Did you mean one of the following?");
@@ -133,6 +92,61 @@ public class CommandManager implements CommandExecutor, TabCompleter {
             Logger.sendMessage(sender, "Unknown command!");
         }
         return false;
+    }
+
+    static AdvancedCommand findMatchingCommand(List<AdvancedCommand> commands, String[] args) {
+        if (args.length == 0) return null;
+        for (AdvancedCommand command : commands) {
+            if (!command.isEnabled() || !command.aliasMatches(args[0])) continue;
+            if (argumentsMatch(command, args)) return command;
+        }
+        return null;
+    }
+
+    static List<AdvancedCommand> findAliasSuggestions(List<AdvancedCommand> commands, String input) {
+        List<AdvancedCommand> suggestions = new ArrayList<>();
+        for (AdvancedCommand command : commands) {
+            if (!command.isEnabled()) continue;
+            if (command.aliasStartMatches(input)) suggestions.add(command);
+        }
+        return suggestions;
+    }
+
+    private static boolean argumentsMatch(AdvancedCommand command, String[] args) {
+        List<ICommandArgument> definitions = command.getArgumentsList();
+        int totalDefinitions = definitions.size();
+        int requiredArguments = totalDefinitions;
+        for (int i = 0; i < totalDefinitions; i++) {
+            if (definitions.get(i).isOptional()) {
+                requiredArguments = i;
+                break;
+            }
+        }
+
+        int providedArguments = args.length - 1;
+        boolean acceptsExtraArguments =
+                totalDefinitions > 0 && definitions.getLast().isVarargs();
+        if (providedArguments < requiredArguments) return false;
+        if (!acceptsExtraArguments && providedArguments > totalDefinitions) return false;
+
+        // Non-literal definitions deliberately remain permissive here. Their
+        // parsers provide command-specific validation, while literals select
+        // between overloads which share a primary alias.
+        for (int i = 0; i < providedArguments; i++) {
+            ICommandArgument definition = definitionAt(command, i);
+            if (definition == null) return false;
+            if (definition.isLiteral() && !definition.matchesInput(args[i + 1])) return false;
+        }
+        return true;
+    }
+
+    static ICommandArgument definitionAt(AdvancedCommand command, int inputPosition) {
+        List<ICommandArgument> definitions = command.getArgumentsList();
+        if (inputPosition < definitions.size()) return definitions.get(inputPosition);
+        if (!definitions.isEmpty() && definitions.getLast().isVarargs()) {
+            return definitions.getLast();
+        }
+        return null;
     }
 
     @Override
@@ -160,12 +174,17 @@ public class CommandManager implements CommandExecutor, TabCompleter {
             int currentArgumentIndex = args.length - 2;
             String currentArgument = args[args.length - 1];
 
-            if (currentArgumentIndex >= command.getArgumentsList().size()) continue;
+            ICommandArgument currentDefinition = definitionAt(command, currentArgumentIndex);
+            if (currentDefinition == null) continue;
 
             boolean argumentsSoFarValid = true;
             // Validate all previous arguments (0 to currentArgumentIndex - 1)
             for (int i = 0; i < currentArgumentIndex; i++) {
-                ICommandArgument argDef = command.getArgumentsList().get(i);
+                ICommandArgument argDef = definitionAt(command, i);
+                if (argDef == null) {
+                    argumentsSoFarValid = false;
+                    break;
+                }
                 if (!argDef.matchesInput(args[i + 1])) { // Check all argument types
                     argumentsSoFarValid = false;
                     break;
@@ -173,7 +192,7 @@ public class CommandManager implements CommandExecutor, TabCompleter {
             }
             if (!argumentsSoFarValid) continue;
 
-            completions.addAll(command.getArgumentsList().get(currentArgumentIndex).getSuggestions(sender, currentArgument));
+            completions.addAll(currentDefinition.getSuggestions(sender, currentArgument));
         }
 
         return completions;

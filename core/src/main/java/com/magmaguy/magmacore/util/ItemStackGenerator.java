@@ -1,7 +1,5 @@
 package com.magmaguy.magmacore.util;
 
-import com.google.gson.*;
-import com.google.gson.stream.JsonReader;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
@@ -9,133 +7,44 @@ import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
-import org.bukkit.profile.PlayerProfile;
-import org.bukkit.profile.PlayerTextures;
 
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.net.MalformedURLException;
-import java.net.URL;
 import java.util.*;
 
 public class ItemStackGenerator {
 
-    private static final HashMap<String, PlayerProfile> cachedPlayerProfiles = new HashMap<>();
-
     private ItemStackGenerator() {
     }
 
+    /**
+     * Builds a player head with a display name and lore.
+     * <p>
+     * This used to resolve the head's skin from Mojang: one blocking call to api.mojang.com for the
+     * UUID, then another to sessionserver.mojang.com for the texture. Two problems with that:
+     * <p>
+     * 1. It never worked. The resolved profile came from Bukkit.createPlayerProfile(uuid), which
+     * leaves the profile name null, and the code then only applied the profile when
+     * getName() != null. That guard could never pass, so every fetched texture was discarded.
+     * <p>
+     * 2. It was the single largest cost at server startup. The UUID lookup sat before the cache
+     * check, so it ran on every call even on a cache hit, and neither call set a connect timeout.
+     * Measured on a full-content server: ~19s inside EliteMobs' config load and ~7s inside
+     * FreeMinecraftModels' menu setup, the latter on the main thread.
+     * <p>
+     * Since the textures never rendered, the calls and their profile cache are gone. Heads render
+     * as the default player head, exactly as they did before. If skinned heads are wanted later
+     * they must be resolved off the startup path and cached to disk, and the profile must be
+     * created with a name via Bukkit.createPlayerProfile(uuid, username) so it actually applies.
+     *
+     * @param username retained so callers do not all have to change; currently unused
+     */
     public static ItemStack generateSkullItemStack(String username, String name, List<String> lore) {
         ItemStack itemStack = new ItemStack(Material.PLAYER_HEAD);
-        UUID playerUUID = getUUIDFromUsername(username);
         SkullMeta skullMeta = (SkullMeta) itemStack.getItemMeta();
-
-        if (cachedPlayerProfiles.containsKey(username)) {
-            if (cachedPlayerProfiles.get(username).getName() != null)
-                skullMeta.setOwnerProfile(cachedPlayerProfiles.get(username));
-        } else if (playerUUID != null) {
-            String sessionServerURL = "https://sessionserver.mojang.com/session/minecraft/profile/" + playerUUID;
-            try {
-                // Step 1: Make an HTTP request to the session server URL
-                URL url = new URL(sessionServerURL);
-                HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-                connection.setRequestMethod("GET");
-                connection.setRequestProperty("Accept", "application/json");
-                connection.connect();
-
-                // Step 2: Read the JSON response
-                InputStreamReader reader = new InputStreamReader(connection.getInputStream());
-                Scanner scanner = new Scanner(reader);
-                StringBuilder jsonResponse = new StringBuilder();
-                while (scanner.hasNextLine()) {
-                    jsonResponse.append(scanner.nextLine());
-                }
-
-                // Step 3: Parse the JSON response
-                JsonObject jsonObject = JsonParser.parseString(jsonResponse.toString()).getAsJsonObject();
-                JsonArray properties = jsonObject.getAsJsonArray("properties");
-
-                // Step 4: Extract the Base64 encoded value
-                for (JsonElement property : properties) {
-                    JsonObject propertyObject = property.getAsJsonObject();
-                    if (propertyObject.get("name").getAsString().equals("textures")) {
-                        String encodedValue = propertyObject.get("value").getAsString();
-
-                        // Step 5: Get the URL from the Base64 decoded string
-                        URL skinUrl = getUrlFromBase64(encodedValue);
-
-                        // Set the profile with the decoded textures URL
-                        PlayerProfile playerProfile = Bukkit.createPlayerProfile(playerUUID);
-                        PlayerTextures textures = playerProfile.getTextures();
-                        textures.setSkin(skinUrl);
-                        if (playerProfile.getName() != null)
-                            skullMeta.setOwnerProfile(playerProfile);
-                        cachedPlayerProfiles.put(username, playerProfile);
-                        break;
-                    }
-                }
-                scanner.close();
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        }
 
         skullMeta.setDisplayName(ChatColorConverter.convert(name));
         skullMeta.setLore(ChatColorConverter.convert(lore));
         itemStack.setItemMeta(skullMeta);
         return itemStack;
-    }
-
-    // Method to extract the URL from the Base64-encoded string
-    public static URL getUrlFromBase64(String base64) throws MalformedURLException {
-        String decoded = new String(Base64.getDecoder().decode(base64));
-
-        // Parse the decoded string as JSON to extract the URL
-        JsonObject jsonObject = JsonParser.parseString(decoded).getAsJsonObject();
-        JsonObject textures = jsonObject.getAsJsonObject("textures");
-        JsonObject skin = textures.getAsJsonObject("SKIN");
-        String urlString = skin.get("url").getAsString();
-
-        return new URL(urlString);
-    }
-
-    private static UUID getUUIDFromUsername(String username) throws IllegalStateException {
-
-        try {
-            URL url = new URL("https://api.mojang.com/users/profiles/minecraft/" + username);
-
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-            conn.setReadTimeout(5000);
-            conn.setInstanceFollowRedirects(true);
-            conn.addRequestProperty("User-Agent", "Mozilla/4.0");
-            conn.setDoOutput(false);
-
-            try (JsonReader reader = new JsonReader(new InputStreamReader(conn.getInputStream()))) {
-
-                reader.setLenient(true);
-
-                // read JSON data
-                JsonObject json = new Gson().fromJson(reader, JsonObject.class);
-
-                // close reader
-                reader.close();
-
-                return UUID.fromString(json.get("id").getAsString().replaceFirst(
-                        "(\\p{XDigit}{8})(\\p{XDigit}{4})(\\p{XDigit}{4})(\\p{XDigit}{4})(\\p{XDigit}+)", "$1-$2-$3-$4-$5"
-                ));
-
-            } catch (IOException e) {
-                throw new IllegalStateException("ERROR_CHECKING");
-            }
-
-        } catch (Exception e) {
-            /*
-             * Fail quietly.
-             * No need to spam a stack trace.
-             */
-            return null;
-        }
     }
 
     public static ItemStack generateItemStack(ItemStack itemStack, String name, List<String> lore) {

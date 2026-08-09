@@ -22,15 +22,64 @@ public class PluginInitializationProgressBar {
     }
 
     public static void start(JavaPlugin plugin, String displayName, String permission, int totalSteps) {
-        complete(plugin);
-        ProgressBarData progressBarData = new ProgressBarData(plugin, displayName, permission, totalSteps);
-        progressBars.put(plugin.getName(), progressBarData);
-        progressBarData.start();
+        install(new ProgressBarData(
+                plugin,
+                null,
+                0,
+                displayName,
+                permission,
+                totalSteps), true);
+    }
+
+    static void start(JavaPlugin plugin,
+                      String ownerToken,
+                      long generation,
+                      String displayName,
+                      String permission,
+                      int totalSteps) {
+        install(new ProgressBarData(
+                plugin,
+                ownerToken,
+                generation,
+                displayName,
+                permission,
+                totalSteps), false);
+    }
+
+    private static void install(ProgressBarData replacement, boolean force) {
+        String pluginName = replacement.plugin.getName();
+        ProgressBarData previous;
+        while (true) {
+            previous = progressBars.get(pluginName);
+            if (!force
+                    && previous != null
+                    && previous.generation > replacement.generation) {
+                return;
+            }
+
+            boolean installed = previous == null
+                    ? progressBars.putIfAbsent(pluginName, replacement) == null
+                    : progressBars.replace(pluginName, previous, replacement);
+            if (installed) {
+                break;
+            }
+        }
+
+        if (previous != null) {
+            previous.complete();
+        }
+        replacement.start();
     }
 
     public static void step(JavaPlugin plugin, String description) {
         ProgressBarData progressBarData = progressBars.get(plugin.getName());
         if (progressBarData == null) return;
+        progressBarData.step(description);
+    }
+
+    static void step(JavaPlugin plugin, String ownerToken, String description) {
+        ProgressBarData progressBarData = progressBars.get(plugin.getName());
+        if (progressBarData == null || !progressBarData.isOwnedBy(ownerToken)) return;
         progressBarData.step(description);
     }
 
@@ -40,29 +89,54 @@ public class PluginInitializationProgressBar {
         progressBarData.status(description);
     }
 
+    static void status(JavaPlugin plugin, String ownerToken, String description) {
+        ProgressBarData progressBarData = progressBars.get(plugin.getName());
+        if (progressBarData == null || !progressBarData.isOwnedBy(ownerToken)) return;
+        progressBarData.status(description);
+    }
+
     public static void complete(JavaPlugin plugin) {
         ProgressBarData progressBarData = progressBars.remove(plugin.getName());
         if (progressBarData == null) return;
         progressBarData.complete();
     }
 
+    static void complete(JavaPlugin plugin, String ownerToken) {
+        ProgressBarData progressBarData = progressBars.get(plugin.getName());
+        if (progressBarData == null || !progressBarData.isOwnedBy(ownerToken)) return;
+        if (progressBars.remove(plugin.getName(), progressBarData)) {
+            progressBarData.complete();
+        }
+    }
+
     private static class ProgressBarData {
         private final JavaPlugin plugin;
+        private final String ownerToken;
+        private final long generation;
         private final String displayName;
         private final String permission;
         private final int totalSteps;
         private int currentStep;
         private BossBar bossBar;
         private Listener listener;
+        private boolean completed;
 
-        private ProgressBarData(JavaPlugin plugin, String displayName, String permission, int totalSteps) {
+        private ProgressBarData(JavaPlugin plugin,
+                                String ownerToken,
+                                long generation,
+                                String displayName,
+                                String permission,
+                                int totalSteps) {
             this.plugin = plugin;
+            this.ownerToken = ownerToken;
+            this.generation = generation;
             this.displayName = displayName;
             this.permission = permission;
             this.totalSteps = totalSteps;
         }
 
-        private void start() {
+        private synchronized void start() {
+            if (completed) return;
             currentStep = 0;
             bossBar = Bukkit.createBossBar(
                     ChatColor.GREEN + "" + ChatColor.BOLD + displayName + ChatColor.WHITE + " ▸ Initializing...",
@@ -85,22 +159,26 @@ public class PluginInitializationProgressBar {
             Bukkit.getPluginManager().registerEvents(listener, plugin);
         }
 
-        private void step(String description) {
+        private synchronized void step(String description) {
+            if (completed) return;
             currentStep++;
             double progress = totalSteps <= 0 ? 1.0 : Math.min((double) currentStep / totalSteps, 1.0);
             update(description, progress);
         }
 
-        private void status(String description) {
+        private synchronized void status(String description) {
+            if (completed) return;
             double progress = totalSteps <= 0 ? 0 : Math.min((double) currentStep / totalSteps, 1.0);
             update(description, progress);
         }
 
         private void update(String description, double progress) {
             Runnable task = () -> {
-                if (bossBar == null) return;
-                bossBar.setTitle(ChatColor.GREEN + "" + ChatColor.BOLD + displayName + ChatColor.WHITE + " ▸ " + ChatColor.YELLOW + description);
-                bossBar.setProgress(progress);
+                synchronized (ProgressBarData.this) {
+                    if (completed || bossBar == null) return;
+                    bossBar.setTitle(ChatColor.GREEN + "" + ChatColor.BOLD + displayName + ChatColor.WHITE + " ▸ " + ChatColor.YELLOW + description);
+                    bossBar.setProgress(progress);
+                }
             };
             if (Bukkit.isPrimaryThread()) {
                 task.run();
@@ -109,7 +187,9 @@ public class PluginInitializationProgressBar {
             }
         }
 
-        private void complete() {
+        private synchronized void complete() {
+            if (completed) return;
+            completed = true;
             if (bossBar != null) {
                 bossBar.removeAll();
                 bossBar = null;
@@ -125,6 +205,10 @@ public class PluginInitializationProgressBar {
                 return player.isOp();
             }
             return player.hasPermission(permission);
+        }
+
+        private boolean isOwnedBy(String candidateOwnerToken) {
+            return ownerToken != null && ownerToken.equals(candidateOwnerToken);
         }
     }
 }

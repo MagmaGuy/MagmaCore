@@ -15,10 +15,10 @@ public class ConfigurationLocation {
     }
 
     /*
-    Location format: worldname,x,y,z,pitch,yaw
+    Location format: worldname,x,y,z,yaw,pitch
      */
     public static String deserialize(String worldName, double x, double y, double z, float pitch, float yaw) {
-        return worldName + "," + x + "," + y + "," + z + "," + pitch + "," + yaw;
+        return worldName + "," + x + "," + y + "," + z + "," + yaw + "," + pitch;
     }
 
     public static String deserialize(Location location) {
@@ -75,7 +75,7 @@ public class ConfigurationLocation {
             if (locationString.equals("null"))
                 return null;
             Logger.warn("Attempted to deserialize an invalid location!");
-            Logger.warn("Expected location format: worldname,x,y,z,pitch,yaw");
+            Logger.warn("Expected location format: worldname,x,y,z,yaw,pitch");
             Logger.warn("Actual location format: " + locationString);
             return null;
         }
@@ -125,10 +125,14 @@ public class ConfigurationLocation {
             if (locationString.equals("null"))
                 return null;
             Logger.warn("Attempted to deserialize an invalid location!");
-            Logger.warn("Expected location format: worldname,x,y,z,pitch,yaw");
+            Logger.warn("Expected location format: worldname,x,y,z,yaw,pitch");
             Logger.warn("Actual location format: " + locationString);
             return null;
         }
         return new Location(instancedWorld, x, y, z, yaw, pitch);
+    }
+
+    public static void shutdown() {
+        notLoadedWorldNames.clear();
     }
 }

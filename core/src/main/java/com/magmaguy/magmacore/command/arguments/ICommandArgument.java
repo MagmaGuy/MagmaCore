@@ -32,4 +32,19 @@ public interface ICommandArgument {
     default boolean isOptional() {
         return false;
     }
+
+    /**
+     * Whether this definition consumes every remaining command-line token.
+     * Varargs arguments must be the final definition in an
+     * {@link com.magmaguy.magmacore.command.AdvancedCommand}.
+     *
+     * <p>{@link com.magmaguy.magmacore.command.AdvancedCommand#addVarargsArgument}
+     * and
+     * {@link com.magmaguy.magmacore.command.AdvancedCommand#addOptionalVarargsArgument}
+     * attach this metadata without requiring argument implementations to
+     * override it.
+     */
+    default boolean isVarargs() {
+        return false;
+    }
 }

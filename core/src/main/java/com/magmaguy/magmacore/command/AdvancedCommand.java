@@ -50,13 +50,14 @@ public abstract class AdvancedCommand {
 
     public boolean aliasMatches(String potentialAlias) {
         for (String alias : aliases)
-            if (alias.equals(potentialAlias)) return true;
+            if (alias.equalsIgnoreCase(potentialAlias)) return true;
         return false;
     }
 
     public boolean aliasStartMatches(String potentialAliasStart) {
         for (String alias : aliases)
-            if (alias.startsWith(potentialAliasStart)) return true;
+            if (alias.regionMatches(true, 0, potentialAliasStart, 0, potentialAliasStart.length()))
+                return true;
         return false;
     }
 
@@ -66,6 +67,14 @@ public abstract class AdvancedCommand {
 
     protected void setDescription(String description) {
         this.description = description;
+    }
+
+    /**
+     * Message used when Bukkit performs the permission check itself. Commands
+     * with configuration-backed copy may override this for a live value.
+     */
+    public String getPermissionMessage() {
+        return "§cYou lack permission: " + permission;
     }
 
     protected void setSenderType(SenderType senderType) {
@@ -82,6 +91,14 @@ public abstract class AdvancedCommand {
 
     // or if you want a generic “addArgument(ICommandArgument arg)”
     protected void addArgument(String key, ICommandArgument arg) {
+        if (!argumentsList.isEmpty() && argumentsList.getLast().isVarargs()) {
+            throw new IllegalStateException("A varargs command argument must be the final argument");
+        }
+        if (!arg.isOptional() && !argumentsList.isEmpty() &&
+                argumentsList.getLast().isOptional()) {
+            throw new IllegalStateException(
+                    "A required command argument cannot follow an optional argument");
+        }
         argumentsMap.put(key, argumentsList.size());
         argumentsList.add(arg);
     }
@@ -95,20 +112,43 @@ public abstract class AdvancedCommand {
      * no "Key not found" feedback) when the user didn't provide a value.
      */
     protected void addOptionalArgument(String key, ICommandArgument arg) {
-        addArgument(key, new OptionalArgumentDecorator(arg));
+        addArgument(key, new ArgumentMetadataDecorator(arg, true, false));
     }
 
     /**
-     * Wraps an {@link ICommandArgument} so it reports {@code isOptional() == true}
-     * without forcing every implementation to know about optional-ness. All
-     * other behavior (tab-completion suggestions, validation, literals)
-     * delegates to the wrapped argument unchanged.
+     * Register a required trailing argument which consumes one or more input
+     * tokens. Use this for commands read through
+     * {@link #getStringSequenceArgument(String, CommandSender, String[])};
+     * bounded arguments registered with {@link #addArgument(String,
+     * ICommandArgument)} continue to reject excess input.
      */
-    private static final class OptionalArgumentDecorator implements ICommandArgument {
-        private final ICommandArgument delegate;
+    protected void addVarargsArgument(String key, ICommandArgument arg) {
+        addArgument(key, new ArgumentMetadataDecorator(arg, false, true));
+    }
 
-        OptionalArgumentDecorator(ICommandArgument delegate) {
+    /**
+     * Register an optional trailing argument which consumes zero or more input
+     * tokens.
+     */
+    protected void addOptionalVarargsArgument(String key, ICommandArgument arg) {
+        addArgument(key, new ArgumentMetadataDecorator(arg, true, true));
+    }
+
+    /**
+     * Adds command-shape metadata without forcing every argument
+     * implementation to know about optional or varargs semantics. All other
+     * behavior (tab-completion suggestions, validation, literals) delegates to
+     * the wrapped argument unchanged.
+     */
+    private static final class ArgumentMetadataDecorator implements ICommandArgument {
+        private final ICommandArgument delegate;
+        private final boolean optional;
+        private final boolean varargs;
+
+        ArgumentMetadataDecorator(ICommandArgument delegate, boolean optional, boolean varargs) {
             this.delegate = delegate;
+            this.optional = optional;
+            this.varargs = varargs;
         }
 
         @Override
@@ -138,7 +178,12 @@ public abstract class AdvancedCommand {
 
         @Override
         public boolean isOptional() {
-            return true;
+            return optional || delegate.isOptional();
+        }
+
+        @Override
+        public boolean isVarargs() {
+            return varargs || delegate.isVarargs();
         }
     }
 
@@ -186,6 +231,13 @@ public abstract class AdvancedCommand {
         }
     }
 
+    /**
+     * Return the registered argument and every token following it as one
+     * space-separated value. The corresponding definition should be
+     * registered with {@link #addVarargsArgument(String, ICommandArgument)} or
+     * {@link #addOptionalVarargsArgument(String, ICommandArgument)} so command
+     * dispatch accepts the same shape this accessor reads.
+     */
     public String getStringSequenceArgument(String key, CommandSender commandSender, String[] args) {
         try {
             StringBuilder output = new StringBuilder();
@@ -240,7 +292,7 @@ public abstract class AdvancedCommand {
 
             if (!delegate.getPermission().isBlank()) {
                 setPermission(delegate.getPermission());
-                setPermissionMessage("§cYou lack permission: " + delegate.getPermission());
+                setPermissionMessage(delegate.getPermissionMessage());
             }
         }
 
@@ -249,6 +301,20 @@ public abstract class AdvancedCommand {
             // Delegate back into your AdvancedCommand
             delegate.execute(new CommandData(sender, args, delegate));
             return true;
+        }
+
+        @Override
+        public String getDescription() {
+            String description = delegate.getDescription();
+            return description == null ? super.getDescription() : description;
+        }
+
+        @Override
+        public String getPermissionMessage() {
+            String permissionMessage = delegate.getPermissionMessage();
+            return permissionMessage == null
+                    ? super.getPermissionMessage()
+                    : permissionMessage;
         }
 
         @Override

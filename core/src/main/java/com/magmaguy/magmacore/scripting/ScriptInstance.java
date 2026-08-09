@@ -88,7 +88,7 @@ public class ScriptInstance {
     // ── Public task / callback API for rich ScriptableEntity implementations ─────
     // Lets entities that supply their own context tables (e.g. EliteMobs bosses) schedule
     // OWNED tasks (auto-cancelled on shutdown) and invoke Lua callbacks under the same
-    // 50ms error/time-budget watchdog as built-in hooks — so they reuse this single runtime
+    // CPU-time/instruction watchdog as built-in hooks — so they reuse this single runtime
     // instead of maintaining a parallel one.
 
     /** Schedule a one-shot owned Java task; auto-cancelled on shutdown. Returns its id. */
@@ -128,22 +128,15 @@ public class ScriptInstance {
         cancelOwnedTask(taskId);
     }
 
-    /** Invoke a Lua callback with explicit args under the time/error watchdog. */
+    /** Invoke a Lua callback with explicit args under the CPU-time/instruction watchdog. */
     public void invokeOwnedCallback(String failureContext, LuaFunction callback, LuaValue... args) {
         if (closed) return;
-        long startNanos = System.nanoTime();
         try {
-            callback.invoke(LuaValue.varargsOf(args));
+            LuaExecutionBudget.run(() -> callback.invoke(LuaValue.varargsOf(args)));
         } catch (Exception exception) {
             logLuaError(failureContext, exception);
             shutdown();
             return;
-        }
-        long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000L;
-        if (elapsedMillis > 50) {
-            Logger.warn("[Lua] " + definition.getFileName() + " took " + elapsedMillis + "ms in '"
-                    + failureContext + "' (limit: 50ms) — script disabled to prevent lag.");
-            shutdown();
         }
     }
 
@@ -162,12 +155,12 @@ public class ScriptInstance {
         LuaValue function = scriptTable.get(hook.getKey());
         if (!definition.getHooks().contains(hook) || !function.isfunction()) return;
 
-        long startNanos = System.nanoTime();
         currentEvent = event;
         currentEventActor = eventActor;
         currentDirectTarget = directTarget;
         try {
-            function.checkfunction().call(buildContext(event, directTarget, eventActor));
+            LuaExecutionBudget.run(() ->
+                    function.checkfunction().call(buildContext(event, directTarget, eventActor)));
         } catch (Exception exception) {
             logLuaError(hook.getKey(), exception);
             shutdown();
@@ -178,12 +171,6 @@ public class ScriptInstance {
             currentDirectTarget = null;
         }
 
-        long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000L;
-        if (elapsedMillis > 50) {
-            Logger.warn("[Lua] " + definition.getFileName() + " took " + elapsedMillis + "ms in '"
-                    + hook.getKey() + "' (limit: 50ms) — script disabled to prevent lag.");
-            shutdown();
-        }
     }
 
     /**
@@ -497,20 +484,12 @@ public class ScriptInstance {
 
     private void runCallback(LuaFunction callback) {
         if (closed) return;
-        long startNanos = System.nanoTime();
         try {
-            callback.call(buildContext(null, null, null));
+            LuaExecutionBudget.run(() -> callback.call(buildContext(null, null, null)));
         } catch (Exception exception) {
             logLuaError("scheduled callback", exception);
             shutdown();
             return;
-        }
-
-        long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000L;
-        if (elapsedMillis > 50) {
-            Logger.warn("[Lua] " + definition.getFileName() + " took " + elapsedMillis + "ms in '"
-                    + "scheduled callback' (limit: 50ms) — script disabled to prevent lag.");
-            shutdown();
         }
     }
 

@@ -67,28 +67,48 @@ public class PacketInteractionListener implements Listener {
             }
         }
 
-        // Discover the particle and count fields by type so we can read the
-        // particle type and mutate the count without coupling to obfuscated
-        // field names. ClientboundLevelParticlesPacket has exactly one int
-        // field (count) and one ParticleOptions field (particle), so finding
-        // by type is unambiguous.
+        // Discover the particle and count fields on ClientboundLevelParticlesPacket so
+        // we can read the particle type and clamp the count without hardcoding obfuscated
+        // names. Prefer a field literally named "count" (this runtime is Mojang-mapped);
+        // otherwise fall back to the sole non-static int field. Crucially, if the count
+        // field can't be resolved unambiguously we WARN — a previous silent no-op made
+        // the damageIndicatorParticleCap setting look broken ("the cap does nothing")
+        // when the field simply hadn't bound on that server version.
         try {
             Class<?> cls = ClientboundLevelParticlesPacket.class;
+            java.util.List<Field> intFields = new java.util.ArrayList<>();
             for (Field f : cls.getDeclaredFields()) {
                 if (java.lang.reflect.Modifier.isStatic(f.getModifiers())) continue;
-                if (countField == null && f.getType() == int.class) {
-                    f.setAccessible(true);
-                    countField = f;
+                if (f.getType() == int.class) {
+                    intFields.add(f);
                 } else if (particleField == null && ParticleOptions.class.isAssignableFrom(f.getType())) {
                     f.setAccessible(true);
                     particleField = f;
                 }
             }
+            for (Field f : intFields) {
+                if (f.getName().equals("count")) { countField = f; break; }
+            }
+            if (countField == null && intFields.size() == 1) countField = intFields.get(0);
+            if (countField != null) countField.setAccessible(true);
+
+            if (countField == null && intFields.size() > 1) {
+                StringBuilder names = new StringBuilder();
+                for (Field f : intFields) names.append(f.getName()).append(' ');
+                Bukkit.getLogger().warning("[MagmaCore] Damage-indicator clamp: could not identify the particle count field on "
+                        + cls.getName() + " (int fields: " + names.toString().trim()
+                        + "). damageIndicatorParticleCap will have no effect on this server version — please report this.");
+            } else if (countField == null || particleField == null) {
+                Bukkit.getLogger().warning("[MagmaCore] Damage-indicator clamp disabled on this server version "
+                        + "(count/particle field unresolved); damageIndicatorParticleCap will have no effect.");
+            }
         } catch (Throwable t) {
-            // If reflection fails, the clamp simply becomes a no-op; the rest of
-            // the listener (inbound interactions) keeps working.
+            // If reflection fails the clamp becomes a no-op; the rest of the listener
+            // (inbound interactions) keeps working — but make the failure visible.
             particleField = null;
             countField = null;
+            Bukkit.getLogger().warning("[MagmaCore] Damage-indicator clamp failed to initialize: " + t
+                    + "; damageIndicatorParticleCap will have no effect.");
         }
     }
 
@@ -213,7 +233,7 @@ public class PacketInteractionListener implements Listener {
         @Override
         public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
             if (msg instanceof ClientboundLevelParticlesPacket particlesPacket) {
-                maybeClampDamageIndicator(particlesPacket);
+                msg = maybeClampDamageIndicator(particlesPacket);
             }
             super.write(ctx, msg, promise);
         }
@@ -221,25 +241,31 @@ public class PacketInteractionListener implements Listener {
 
     /**
      * If the packet is a damage-indicator particle burst exceeding the configured
-     * cap, mutates its {@code count} field in place to the cap. No-op otherwise.
-     * Mutation is safe because the packet object is broadcast-shared across all
-     * viewers' pipelines and we want every viewer to see the clamped value.
+     * cap, returns a replacement packet carrying the capped count. The vanilla
+     * packet stores its count in a {@code final} field, so mutating that field
+     * reflectively is not guaranteed to affect the value later serialized by
+     * the JVM. Rebuilding the packet makes the clamped value authoritative.
      */
-    private static void maybeClampDamageIndicator(ClientboundLevelParticlesPacket packet) {
+    private static ClientboundLevelParticlesPacket maybeClampDamageIndicator(ClientboundLevelParticlesPacket packet) {
         int cap = DamageIndicatorClamp.getMaxParticles();
-        if (cap <= 0) return;
-        if (countField == null || particleField == null) return;
+        if (cap <= 0) return packet;
+        if (countField == null || particleField == null) return packet;
 
         try {
             ParticleOptions particle = (ParticleOptions) particleField.get(packet);
-            if (particle == null || particle.getType() != ParticleTypes.DAMAGE_INDICATOR) return;
+            if (particle == null || particle.getType() != ParticleTypes.DAMAGE_INDICATOR) return packet;
 
             int count = countField.getInt(packet);
-            if (count <= cap) return;
+            if (count <= cap) return packet;
 
-            countField.setInt(packet, cap);
+            return new ClientboundLevelParticlesPacket(
+                    particle, packet.isOverrideLimiter(), packet.alwaysShow(),
+                    packet.getX(), packet.getY(), packet.getZ(),
+                    packet.getXDist(), packet.getYDist(), packet.getZDist(),
+                    packet.getMaxSpeed(), cap);
         } catch (Throwable t) {
-            // Fail open: if mutation fails, the original packet still goes through.
+            // Fail open: if reconstruction fails, the original packet still goes through.
+            return packet;
         }
     }
 }

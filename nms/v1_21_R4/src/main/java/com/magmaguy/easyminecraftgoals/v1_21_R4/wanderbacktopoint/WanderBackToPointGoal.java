@@ -1,15 +1,13 @@
 package com.magmaguy.easyminecraftgoals.v1_21_R4.wanderbacktopoint;
 
-import com.magmaguy.easyminecraftgoals.events.WanderBackToPointEndEvent;
-import com.magmaguy.easyminecraftgoals.events.WanderBackToPointStartEvent;
 import com.magmaguy.easyminecraftgoals.internal.AbstractWanderBackToPoint;
+import com.magmaguy.easyminecraftgoals.internal.WanderBackToPointState;
 import com.magmaguy.easyminecraftgoals.utils.Utils;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.pathfinder.Path;
-import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.entity.LivingEntity;
@@ -26,6 +24,7 @@ public class WanderBackToPointGoal extends Goal implements AbstractWanderBackToP
     private int priority;
     private Path path = null;
     private long lastTime;
+    private final WanderBackToPointState returnState = new WanderBackToPointState(this);
 
     private float speed;
     private int stopReturnDistance = 0;
@@ -33,6 +32,7 @@ public class WanderBackToPointGoal extends Goal implements AbstractWanderBackToP
     private int goalRefreshCooldownTicks = 3 * 20;
     private int maxDurationTicks = 5 * 20;
     private boolean hardObjective = false;
+    private boolean returnDuringCombat = false;
     private boolean teleportOnFail = false;
     private boolean startWithCooldown = false;
 
@@ -58,7 +58,8 @@ public class WanderBackToPointGoal extends Goal implements AbstractWanderBackToP
 
     @Override
     public void start() {
-        this.pathfinderMob.getNavigation().moveTo(path, speed);
+        if (!returnState.isActive() || pathfinderMob == null || path == null) return;
+        if (!this.pathfinderMob.getNavigation().moveTo(path, speed)) returnState.end(true);
     }
 
     @Override
@@ -67,20 +68,18 @@ public class WanderBackToPointGoal extends Goal implements AbstractWanderBackToP
 
     @Override
     public void stop() {
+        boolean teleportOnFailure = returnState.isActive() && !returnState.isAtReturnPoint();
         if (pathfinderMob != null) {
             this.pathfinderMob.getNavigation().stop();
             this.path = null;
         }
-        if (hardObjective && (pathfinderMob == null || pathfinderMob.isPathFinding()))
-            livingEntity.teleport(returnLocation);
-        WanderBackToPointEndEvent wanderBackToPointEndEvent = new WanderBackToPointEndEvent(hardObjective, livingEntity, this);
-        Bukkit.getPluginManager().callEvent(wanderBackToPointEndEvent);
+        returnState.end(teleportOnFailure);
         updateCooldown();
     }
 
     @Override
     public boolean canUse() {
-        if (!hardObjective && mob.getTarget() instanceof Player) {
+        if (!hardObjective && !returnDuringCombat && mob.getTarget() instanceof Player) {
             updateCooldown();
             return false;
         }
@@ -88,38 +87,30 @@ public class WanderBackToPointGoal extends Goal implements AbstractWanderBackToP
         updateCooldown();
         if (Utils.distanceShorterThan(returnLocation.toVector(), livingEntity.getLocation().toVector(), maximumDistanceFromPoint))
             return false;
-        if (pathfinderMob != null) {
-            path = this.pathfinderMob.getNavigation().createPath(returnLocation.getX(), returnLocation.getY(), returnLocation.getZ(), stopReturnDistance);
-            // Not 100% sure of why this is happening, but I suspect that sometimes the path can't be updated
-            if (path == null) return false;
-        }
-
-        WanderBackToPointStartEvent wanderBackToPointStartEvent = new WanderBackToPointStartEvent(hardObjective, livingEntity, this);
-        Bukkit.getPluginManager().callEvent(wanderBackToPointStartEvent);
-        if (wanderBackToPointStartEvent.isCancelled()) return false;
-        if (teleportOnFail && (pathfinderMob == null || !path.canReach())) {
-            earlyPathfindingTermination();
+        path = pathfinderMob == null ? null : this.pathfinderMob.getNavigation().createPath(
+                returnLocation.getX(), returnLocation.getY(), returnLocation.getZ(), stopReturnDistance);
+        if (!returnState.begin()) {
+            path = null;
             return false;
         }
-        return true;
-    }
+        if (path != null && path.canReach()) return true;
 
-    private void earlyPathfindingTermination() {
-        livingEntity.teleport(returnLocation);
-        WanderBackToPointEndEvent wanderBackToPointEndEvent = new WanderBackToPointEndEvent(hardObjective, livingEntity, this);
-        Bukkit.getPluginManager().callEvent(wanderBackToPointEndEvent);
+        path = null;
+        returnState.end(true);
+        return false;
     }
 
     @Override
     public boolean canContinueToUse() {
-        if ((lastTime + 50L * maxDurationTicks) - System.currentTimeMillis() < 0) return false;
-        if (!hardObjective && mob.getTarget() instanceof Player) return false;
-        return !pathfinderMob.getNavigation().isDone();
+        if (!returnState.isActive() || !livingEntity.isValid() || livingEntity.isDead()) return false;
+        if (returnState.hasTimedOut()) return false;
+        if (!hardObjective && !returnDuringCombat && mob.getTarget() instanceof Player) return false;
+        return pathfinderMob != null && path != null && path.canReach() && !pathfinderMob.getNavigation().isDone();
     }
 
     @Override
     public boolean isInterruptable() {
-        return !hardObjective;
+        return !hardObjective && !returnDuringCombat;
     }
 
     //AbstractWanderBackToPoint start
@@ -196,6 +187,18 @@ public class WanderBackToPointGoal extends Goal implements AbstractWanderBackToP
     public AbstractWanderBackToPoint setHardObjective(boolean hardObjective) {
         this.priority = -1;
         this.hardObjective = hardObjective;
+        return this;
+    }
+
+    @Override
+    public boolean isReturnDuringCombat() {
+        return returnDuringCombat;
+    }
+
+    @Override
+    public AbstractWanderBackToPoint setReturnDuringCombat(boolean returnDuringCombat) {
+        if (returnDuringCombat) this.priority = -1;
+        this.returnDuringCombat = returnDuringCombat;
         return this;
     }
 

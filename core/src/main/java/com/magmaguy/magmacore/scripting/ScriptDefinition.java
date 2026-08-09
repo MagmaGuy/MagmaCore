@@ -68,7 +68,7 @@ public class ScriptDefinition {
 
     private static LuaTable evaluate(String fileName, String source, Globals globals) {
         LuaValue chunk = globals.load(source, fileName);
-        LuaValue result = chunk.call();
+        LuaValue result = LuaExecutionBudget.run(chunk::call);
         if (!(result instanceof LuaTable scriptTable))
             throw new IllegalArgumentException("Script " + fileName + " must return a table.");
         return scriptTable;

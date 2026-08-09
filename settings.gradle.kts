@@ -9,13 +9,8 @@ rootProject.name = "Magmacore"
 
 include("core")
 include("nms:core")
-include("nms:v1_19_R3")
-include("nms:v1_20_R1")
-include("nms:v1_20_R2")
-include("nms:v1_20_R3")
-include("nms:v1_20_R4")
-include("nms:v1_21_R1")
-include("nms:v1_21_R2")
+// Support floor is Minecraft 1.21.4 (= nms:v1_21_R3). The pre-1.21.4 adapter modules have been
+// deleted; recover them from git history if a version below 1.21.4 ever needs supporting again.
 include("nms:v1_21_R3")
 include("nms:v1_21_R4")
 include("nms:v1_21_R5")

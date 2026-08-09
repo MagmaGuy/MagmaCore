@@ -8,6 +8,7 @@ import org.bukkit.FireworkEffect;
 import org.bukkit.FluidCollisionMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.World;
@@ -53,6 +54,49 @@ public final class LuaWorldTable {
     public static void registerEnricher(BiConsumer<LuaTable, World> enricher) {
         if (enricher == null) return;
         enrichers.add(enricher);
+    }
+
+    /**
+     * Plays either a registered Bukkit sound or a custom resource-pack sound.
+     * Legacy enum-style names are resolved first; custom keys are normalized to
+     * the lowercase namespaced format required by Minecraft resource locations.
+     */
+    public static void playSound(Location location, String soundName, float volume, float pitch) {
+        if (location == null || location.getWorld() == null || soundName == null) return;
+        String candidate = soundName.trim();
+        if (candidate.isEmpty()) return;
+
+        Sound sound = resolveRegisteredSound(candidate);
+        if (sound != null) {
+            location.getWorld().playSound(location, sound, volume, pitch);
+            return;
+        }
+
+        String customSoundKey = normalizeCustomSoundKey(candidate);
+        if (customSoundKey != null) {
+            location.getWorld().playSound(location, customSoundKey, volume, pitch);
+        }
+    }
+
+    public static Sound resolveRegisteredSound(String soundName) {
+        if (soundName == null || soundName.isBlank()) return null;
+        try {
+            return Sound.valueOf(soundName.trim().toUpperCase(Locale.ROOT));
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    static String normalizeCustomSoundKey(String soundName) {
+        if (soundName == null) return null;
+        String normalized = soundName.trim().toLowerCase(Locale.ROOT);
+        if (normalized.isEmpty()) return null;
+        try {
+            NamespacedKey key = NamespacedKey.fromString(normalized);
+            return key == null ? null : key.toString();
+        } catch (RuntimeException ignored) {
+            return null;
+        }
     }
 
     public static LuaTable build(World world) {
@@ -104,19 +148,12 @@ public final class LuaWorldTable {
 
         // play_sound(sound, x, y, z, volume, pitch)
         table.set("play_sound", method(table, args -> {
-            String soundName = args.checkjstring(1).toUpperCase(Locale.ROOT);
-            Sound sound;
-            try {
-                sound = Sound.valueOf(soundName);
-            } catch (IllegalArgumentException e) {
-                return LuaValue.NIL;
-            }
             double x = args.checkdouble(2);
             double y = args.checkdouble(3);
             double z = args.checkdouble(4);
             float volume = (float) args.optdouble(5, 1.0);
             float pitch = (float) args.optdouble(6, 1.0);
-            world.playSound(new Location(world, x, y, z), sound, volume, pitch);
+            playSound(new Location(world, x, y, z), args.checkjstring(1), volume, pitch);
             return LuaValue.NIL;
         }));
 
@@ -359,13 +396,9 @@ public final class LuaWorldTable {
         table.set("play_sound_at_location", method(table, args -> {
             Location loc = locArg(args, world);
             if (loc == null) return LuaValue.NIL;
-            Sound sound;
-            try {
-                sound = Sound.valueOf(args.checkjstring(2).toUpperCase(Locale.ROOT));
-            } catch (IllegalArgumentException e) {
-                return LuaValue.NIL;
-            }
-            world.playSound(loc, sound, (float) args.optdouble(3, 1.0), (float) args.optdouble(4, 1.0));
+            playSound(loc, args.checkjstring(2),
+                    (float) args.optdouble(3, 1.0),
+                    (float) args.optdouble(4, 1.0));
             return LuaValue.NIL;
         }));
         table.set("spawn_particle_at_location", method(table, args -> {

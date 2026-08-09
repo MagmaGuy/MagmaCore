@@ -48,6 +48,19 @@ public final class NightbreakPluginBootstrap {
         NightbreakPluginStateRegistry.setPendingReloadSender(plugin, sender);
     }
 
+    public static void reloadPlugin(JavaPlugin plugin, CommandSender sender) {
+        if (plugin == null) {
+            return;
+        }
+        // Normal disable cleanup removes stale plugin-scoped state, including
+        // reload recipients. Register this recipient after that cleanup so the
+        // new initialization can consume it on success.
+        plugin.onDisable();
+        setPendingReloadSender(plugin, sender);
+        plugin.onLoad();
+        plugin.onEnable();
+    }
+
     public static <T extends NightbreakManagedContent> void registerStandardCommands(JavaPlugin plugin,
                                                                                      CommandManager commandManager,
                                                                                      NightbreakPluginSpec pluginSpec,

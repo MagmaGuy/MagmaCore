@@ -8,8 +8,14 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
 /**
@@ -73,6 +79,25 @@ public class NightbreakContentManager {
     }
 
     public static void checkAccessAsync(JavaPlugin ownerPlugin, String slug, Consumer<NightbreakAccount.AccessInfo> callback) {
+        OperationGate lifecycleGate =
+                NightbreakBulkDownloader.captureOperationGate(ownerPlugin);
+        checkAccessAsync(ownerPlugin, slug, lifecycleGate, callback);
+    }
+
+    static void checkAccessAsync(JavaPlugin ownerPlugin,
+                                 String slug,
+                                 OperationGate lifecycleGate,
+                                 Consumer<NightbreakAccount.AccessInfo> callback) {
+        checkAccessAsync(ownerPlugin, slug, lifecycleGate::isCurrent, callback);
+    }
+
+    private static void checkAccessAsync(JavaPlugin ownerPlugin,
+                                         String slug,
+                                         BooleanSupplier operationCurrent,
+                                         Consumer<NightbreakAccount.AccessInfo> callback) {
+        if (!operationCurrent.getAsBoolean()) {
+            return;
+        }
         if (!NightbreakAccount.hasToken()) {
             callback.accept(null);
             return;
@@ -84,18 +109,25 @@ public class NightbreakContentManager {
 
         // Check cache first
         if (accessCache.containsKey(slug) && !isCacheStale()) {
-            callback.accept(accessCache.get(slug));
+            if (operationCurrent.getAsBoolean()) callback.accept(accessCache.get(slug));
             return;
         }
 
         Bukkit.getScheduler().runTaskAsynchronously(ownerPlugin, () -> {
-            NightbreakAccount.AccessInfo info = NightbreakAccount.getInstance().checkAccess(slug);
-            if (info != null) {
+            if (!operationCurrent.getAsBoolean()) {
+                return;
+            }
+            NightbreakAccount account = NightbreakAccount.getInstance();
+            NightbreakAccount.AccessInfo info = account == null ? null : account.checkAccess(slug);
+            if (info != null && operationCurrent.getAsBoolean()) {
                 accessCache.put(slug, info);
+            }
+            if (!operationCurrent.getAsBoolean()) {
+                return;
             }
             // Return to main thread for callback
             Bukkit.getScheduler().runTask(ownerPlugin, () -> {
-                callback.accept(info);
+                if (operationCurrent.getAsBoolean()) callback.accept(info);
             });
         });
     }
@@ -117,6 +149,22 @@ public class NightbreakContentManager {
                                      File destinationFolder,
                                      Player player,
                                      Consumer<Boolean> onComplete) {
+        downloadAsync(ownerPlugin, slug, destinationFolder, player,
+                NightbreakBulkDownloader.captureOperationGate(ownerPlugin), onComplete);
+    }
+
+    static void downloadAsync(JavaPlugin ownerPlugin,
+                              String slug,
+                              File destinationFolder,
+                              Player player,
+                              OperationGate publicationGate,
+                              Consumer<Boolean> onComplete) {
+        BooleanSupplier operationCurrent = publicationGate == null
+                ? () -> true
+                : publicationGate::isCurrent;
+        if (!operationCurrent.getAsBoolean()) {
+            return;
+        }
         if (!NightbreakAccount.hasToken()) {
             if (player != null && player.isOnline()) {
                 player.sendMessage("§c[Nightbreak] No token registered. Use /nightbreaklogin <token> first.");
@@ -126,7 +174,10 @@ public class NightbreakContentManager {
         }
 
         // First check access
-        checkAccessAsync(ownerPlugin, slug, accessInfo -> {
+        checkAccessAsync(ownerPlugin, slug, operationCurrent, accessInfo -> {
+            if (!operationCurrent.getAsBoolean()) {
+                return;
+            }
             if (accessInfo == null || !accessInfo.hasAccess) {
                 if (player != null && player.isOnline()) {
                     if (accessInfo == null && NightbreakAccount.hasAuthFailure()) {
@@ -148,7 +199,13 @@ public class NightbreakContentManager {
                 ? versionInfo.fileName
                 : slug + ".zip";
 
-            File destinationFile = new File(destinationFolder, fileName);
+            Path destinationRoot = destinationFolder.toPath().toAbsolutePath().normalize();
+            Path destinationFile = destinationRoot.resolve(fileName).normalize();
+            if (!destinationRoot.equals(destinationFile.getParent())) {
+                Logger.warn("Refusing unsafe Nightbreak download filename for '" + slug + "': " + fileName);
+                onComplete.accept(false);
+                return;
+            }
 
             if (player != null && player.isOnline()) {
                 player.sendMessage("§a[Nightbreak] Starting download of " + slug + "...");
@@ -157,37 +214,95 @@ public class NightbreakContentManager {
             // Run download async
             Bukkit.getScheduler().runTaskAsynchronously(ownerPlugin, () -> {
                 final long[] lastUpdate = {0};
-                boolean success = NightbreakAccount.getInstance().download(slug, destinationFile, null,
-                    (bytesDownloaded, totalBytes) -> {
-                        // Throttle progress updates to every 2 seconds
-                        if (player != null && player.isOnline() && System.currentTimeMillis() - lastUpdate[0] > 2000) {
-                            lastUpdate[0] = System.currentTimeMillis();
-                            String progress = totalBytes > 0
-                                ? String.format("%.1f%%", (bytesDownloaded * 100.0 / totalBytes))
-                                : formatBytes(bytesDownloaded);
-                            Bukkit.getScheduler().runTask(ownerPlugin, () -> {
-                                if (player.isOnline()) {
-                                    player.sendMessage("§7[Nightbreak] Downloading... " + progress);
+                Path temporaryFile = null;
+                boolean success = false;
+                try {
+                    if (!operationCurrent.getAsBoolean()) return;
+                    Files.createDirectories(destinationRoot);
+                    temporaryFile = Files.createTempFile(destinationRoot, ".nightbreak-", ".download");
+                    NightbreakAccount account = NightbreakAccount.getInstance();
+                    boolean downloaded = account != null && account.download(slug, temporaryFile.toFile(), null,
+                            (bytesDownloaded, totalBytes) -> {
+                                if (!operationCurrent.getAsBoolean()) return;
+                                // Throttle progress updates to every 2 seconds
+                                if (player != null && player.isOnline() && System.currentTimeMillis() - lastUpdate[0] > 2000) {
+                                    lastUpdate[0] = System.currentTimeMillis();
+                                    String progress = totalBytes > 0
+                                            ? String.format("%.1f%%", (bytesDownloaded * 100.0 / totalBytes))
+                                            : formatBytes(bytesDownloaded);
+                                    Bukkit.getScheduler().runTask(ownerPlugin, () -> {
+                                        if (operationCurrent.getAsBoolean() && player.isOnline()) {
+                                            player.sendMessage("§7[Nightbreak] Downloading... " + progress);
+                                        }
+                                    });
                                 }
                             });
-                        }
-                    });
 
-                // Return to main thread for callback
-                Bukkit.getScheduler().runTask(ownerPlugin, () -> {
-                    if (success) {
-                        if (player != null && player.isOnline()) {
-                            player.sendMessage("§a[Nightbreak] Download complete! File saved to imports folder.");
-                        }
-                    } else {
-                        if (player != null && player.isOnline()) {
-                            player.sendMessage("§c[Nightbreak] Download failed. Please try again later.");
+                    if (downloaded && operationCurrent.getAsBoolean()) {
+                        success = publicationGate == null
+                                ? publishDownloadedFile(temporaryFile, destinationFile)
+                                : publicationGate.publish(temporaryFile, destinationFile);
+                    }
+                } catch (IOException | RuntimeException exception) {
+                    Logger.warn("Failed to publish Nightbreak download '" + slug + "': " + exception.getMessage());
+                } finally {
+                    if (temporaryFile != null) {
+                        try {
+                            Files.deleteIfExists(temporaryFile);
+                        } catch (IOException exception) {
+                            Logger.warn("Failed to remove temporary Nightbreak download " + temporaryFile + ": " + exception.getMessage());
                         }
                     }
-                    onComplete.accept(success);
-                });
+                    completeDownload(ownerPlugin, player, operationCurrent, success, onComplete);
+                }
             });
         });
+    }
+
+    private static boolean publishDownloadedFile(Path temporaryFile, Path destinationFile) throws IOException {
+        try {
+            Files.move(temporaryFile, destinationFile,
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING);
+        } catch (AtomicMoveNotSupportedException ignored) {
+            Files.move(temporaryFile, destinationFile, StandardCopyOption.REPLACE_EXISTING);
+        }
+        return true;
+    }
+
+    private static void completeDownload(JavaPlugin ownerPlugin,
+                                         Player player,
+                                         BooleanSupplier operationCurrent,
+                                         boolean success,
+                                         Consumer<Boolean> onComplete) {
+        if (!operationCurrent.getAsBoolean()) {
+            return;
+        }
+        try {
+            Bukkit.getScheduler().runTask(ownerPlugin, () -> {
+                if (!operationCurrent.getAsBoolean()) {
+                    return;
+                }
+                if (success) {
+                    if (player != null && player.isOnline()) {
+                        player.sendMessage("§a[Nightbreak] Download complete! File saved to imports folder.");
+                    }
+                } else if (player != null && player.isOnline()) {
+                    player.sendMessage("§c[Nightbreak] Download failed. Please try again later.");
+                }
+                onComplete.accept(success);
+            });
+        } catch (RuntimeException ignored) {
+            // A lifecycle shutdown can make Bukkit reject the handoff. The
+            // generation gate already prevents the old operation from being
+            // observed by the replacement lifecycle.
+        }
+    }
+
+    interface OperationGate {
+        boolean isCurrent();
+
+        boolean publish(Path temporaryFile, Path destinationFile) throws IOException;
     }
 
     /**

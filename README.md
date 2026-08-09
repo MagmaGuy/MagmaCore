@@ -26,7 +26,7 @@ This is a multi-module Gradle build (`settings.gradle.kts`):
   DLC/content pipeline, and shared utilities.
 - `nms:core` — the version-independent EasyMinecraftGoals API and the
   `NMSManager`/`NMSAdapter` contract that runtime adapters implement.
-- `nms:v1_19_R3` … `nms:v1_21_R7_*`, `nms:v26` — one adapter per supported server
+- `nms:v1_21_R3` … `nms:v1_21_R7_*`, `nms:v26` — one adapter per supported server
   revision (see range below).
 - `dist` — the shaded distribution module. Its `shadowJar` task assembles `core`,
   `nms:core` and every per-version adapter into a single `MagmaCore` jar
@@ -35,18 +35,13 @@ This is a multi-module Gradle build (`settings.gradle.kts`):
 ## Supported Minecraft versions
 
 `NMSManager` selects an adapter at runtime from the bundled per-version modules,
-spanning **Minecraft 1.19.4 through the 1.21.x line and the new year.drop
-versioning (26.x)**:
+spanning **Minecraft 1.21.4 through the rest of the 1.21.x line and the new
+year.drop versioning (26.x)**. **1.21.4 is the support floor** — servers older
+than that get a clear "unsupported Minecraft version" log line and NMS features
+stay disabled.
 
 | Adapter module        | Minecraft version(s) |
 |-----------------------|----------------------|
-| `v1_19_R3`            | 1.19.4               |
-| `v1_20_R1`            | 1.20 / 1.20.1        |
-| `v1_20_R2`            | 1.20.2               |
-| `v1_20_R3`            | 1.20.3 / 1.20.4      |
-| `v1_20_R4`            | 1.20.5 / 1.20.6      |
-| `v1_21_R1`            | 1.21 / 1.21.1        |
-| `v1_21_R2`            | 1.21.2 / 1.21.3      |
 | `v1_21_R3`            | 1.21.4               |
 | `v1_21_R4`            | 1.21.5               |
 | `v1_21_R5`            | 1.21.6 / 1.21.7 / 1.21.8 |
@@ -56,6 +51,12 @@ versioning (26.x)**:
 
 The authoritative mapping lives in
 `nms/core/.../NMSManager#getInternalsFromRevision`.
+
+The pre-1.21.4 adapter modules (`v1_19_R3`, `v1_20_R1`–`v1_20_R4`, `v1_21_R1`,
+`v1_21_R2`) have been removed from the working tree and from
+`settings.gradle.kts` / `dist/build.gradle.kts`. Recover their sources from git
+history as well as restoring their Gradle entries if support below 1.21.4 is
+ever required again.
 
 ## Consuming MagmaCore
 

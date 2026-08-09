@@ -10,13 +10,7 @@ tasks.withType<GenerateModuleMetadata> {
 dependencies {
     implementation(project(":core"))
     implementation(project(":nms:core"))
-    implementation(project(":nms:v1_19_R3"))
-    implementation(project(":nms:v1_20_R1"))
-    implementation(project(":nms:v1_20_R2"))
-    implementation(project(":nms:v1_20_R3"))
-    implementation(project(":nms:v1_20_R4"))
-    implementation(project(":nms:v1_21_R1"))
-    implementation(project(":nms:v1_21_R2"))
+    // Support floor: Minecraft 1.21.4 (v1_21_R3). Older adapters are no longer built.
     implementation(project(":nms:v1_21_R3"))
     implementation(project(":nms:v1_21_R4"))
     implementation(project(":nms:v1_21_R5"))

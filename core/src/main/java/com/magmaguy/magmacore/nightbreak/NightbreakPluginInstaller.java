@@ -15,9 +15,15 @@ import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Locale;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
 public final class NightbreakPluginInstaller {
+    private static final Set<String> RUNNING_INSTALLS =
+            ConcurrentHashMap.newKeySet();
+
     private NightbreakPluginInstaller() {
     }
 
@@ -44,9 +50,20 @@ public final class NightbreakPluginInstaller {
                                            NightbreakPluginCatalog.Entry entry,
                                            CommandSender sender,
                                            Consumer<InstallResult> callback) {
+        long generation =
+                NightbreakPluginUpdater.lifecycleGeneration(ownerPlugin);
         Bukkit.getScheduler().runTaskAsynchronously(ownerPlugin, () -> {
-            InstallResult result = downloadPlugin(ownerPlugin, entry, sender);
+            InstallResult result = downloadPlugin(
+                    ownerPlugin, entry, sender, generation);
+            if (!NightbreakPluginUpdater.isLifecycleCurrent(
+                    ownerPlugin, generation)) {
+                return;
+            }
             Bukkit.getScheduler().runTask(ownerPlugin, () -> {
+                if (!NightbreakPluginUpdater.isLifecycleCurrent(
+                        ownerPlugin, generation)) {
+                    return;
+                }
                 sendInstallResult(sender, result);
                 if (callback != null) callback.accept(result);
             });
@@ -55,7 +72,40 @@ public final class NightbreakPluginInstaller {
 
     private static InstallResult downloadPlugin(JavaPlugin ownerPlugin,
                                                 NightbreakPluginCatalog.Entry entry,
-                                                CommandSender sender) {
+                                                CommandSender sender,
+                                                long generation) {
+        String runningKey = ownerPlugin.getName()
+                .toLowerCase(Locale.ROOT) + ":" + entry.slug();
+        if (!RUNNING_INSTALLS.add(runningKey)) {
+            return new InstallResult(
+                    InstallStatus.DOWNLOAD_FAILED,
+                    entry,
+                    null,
+                    null,
+                    "An install for this plugin is already in progress.");
+        }
+        try {
+            return performDownloadPlugin(
+                    ownerPlugin, entry, sender, generation);
+        } finally {
+            RUNNING_INSTALLS.remove(runningKey);
+        }
+    }
+
+    private static InstallResult performDownloadPlugin(
+            JavaPlugin ownerPlugin,
+            NightbreakPluginCatalog.Entry entry,
+            CommandSender sender,
+            long generation) {
+        if (!NightbreakPluginUpdater.isLifecycleCurrent(
+                ownerPlugin, generation)) {
+            return new InstallResult(
+                    InstallStatus.DOWNLOAD_FAILED,
+                    entry,
+                    null,
+                    null,
+                    "Plugin lifecycle changed before the install started.");
+        }
         if (entry.sourceType() == NightbreakPluginCatalog.SourceType.EXTERNAL) {
             return new InstallResult(InstallStatus.EXTERNAL_ONLY, entry, null, null, null);
         }
@@ -86,11 +136,25 @@ public final class NightbreakPluginInstaller {
         }
 
         String targetFileName = targetFileName(entry, versionInfo.fileName);
-        File tempFile = new File(updateFolder, targetFileName + ".download");
+        if (targetFileName == null) {
+            return new InstallResult(InstallStatus.DOWNLOAD_FAILED, entry,
+                    versionInfo.version, null,
+                    "The update service returned an unsafe plugin filename.");
+        }
+        File tempFile = new File(
+                updateFolder,
+                targetFileName + "." + generation + "."
+                        + UUID.randomUUID() + ".download");
         File targetFile = new File(updateFolder, targetFileName);
-        if (tempFile.exists() && !tempFile.delete()) {
-            return new InstallResult(InstallStatus.DOWNLOAD_FAILED, entry, versionInfo.version, null,
-                    "Could not clear previous temporary download.");
+        File legacyTempFile =
+                new File(updateFolder, targetFileName + ".download");
+        if (legacyTempFile.exists() && !legacyTempFile.delete()) {
+            return new InstallResult(
+                    InstallStatus.DOWNLOAD_FAILED,
+                    entry,
+                    versionInfo.version,
+                    null,
+                    "Could not clear a legacy temporary download.");
         }
 
         final long[] lastProgressMessage = {0L};
@@ -129,8 +193,30 @@ public final class NightbreakPluginInstaller {
             }
         }
 
+        DownloadedPluginJarValidator.ValidationResult jarValidation =
+                DownloadedPluginJarValidator.validate(
+                        tempFile, entry.allPluginNames(), versionInfo.version);
+        if (!jarValidation.valid()) {
+            tempFile.delete();
+            return new InstallResult(InstallStatus.DOWNLOAD_FAILED, entry,
+                    versionInfo.version, null, jarValidation.detail());
+        }
+
         try {
-            moveReplacing(tempFile, targetFile);
+            boolean published =
+                    NightbreakPluginUpdater.publishIfLifecycleCurrent(
+                            ownerPlugin,
+                            generation,
+                            () -> moveReplacing(tempFile, targetFile));
+            if (!published) {
+                tempFile.delete();
+                return new InstallResult(
+                        InstallStatus.DOWNLOAD_FAILED,
+                        entry,
+                        versionInfo.version,
+                        null,
+                        "Plugin lifecycle changed before the install could be published.");
+            }
         } catch (IOException exception) {
             tempFile.delete();
             return new InstallResult(InstallStatus.DOWNLOAD_FAILED, entry, versionInfo.version, null, exception.getMessage());
@@ -239,9 +325,28 @@ public final class NightbreakPluginInstaller {
     }
 
     private static String targetFileName(NightbreakPluginCatalog.Entry entry, String remoteFileName) {
-        if (remoteFileName != null && remoteFileName.endsWith(".jar")) return remoteFileName;
-        if (!entry.jarFileName().isBlank()) return entry.jarFileName();
-        return entry.displayName().replace(" ", "") + ".jar";
+        String catalogFileName = safeJarFileName(entry.jarFileName());
+        if (catalogFileName != null) return catalogFileName;
+        if (remoteFileName != null && !remoteFileName.isBlank()) {
+            return safeJarFileName(remoteFileName);
+        }
+        return safeJarFileName(
+                entry.displayName().replace(" ", "") + ".jar");
+    }
+
+    private static String safeJarFileName(String candidate) {
+        String value = candidate == null ? "" : candidate.trim();
+        if (value.isBlank() ||
+                !value.toLowerCase(Locale.ROOT).endsWith(".jar") ||
+                value.indexOf('/') >= 0 ||
+                value.indexOf('\\') >= 0 ||
+                value.indexOf(':') >= 0 ||
+                value.indexOf('\0') >= 0 ||
+                ".".equals(value) ||
+                "..".equals(value)) {
+            return null;
+        }
+        return value;
     }
 
     private static File resolveUpdateFolder(JavaPlugin plugin) {

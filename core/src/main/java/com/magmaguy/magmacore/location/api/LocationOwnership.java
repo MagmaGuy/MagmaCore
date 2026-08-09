@@ -11,6 +11,7 @@ import java.lang.reflect.Method;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
@@ -147,9 +148,15 @@ public final class LocationOwnership {
             EntryMethods m = methodsFor(provider.getClass());
             if (m == null) continue;
             try {
+                if (!(boolean) m.test.invoke(provider, loc)) continue;
                 @SuppressWarnings("unchecked")
                 Set<String> kinds = (Set<String>) m.kindsAt.invoke(provider, loc);
-                if (kinds != null) result.addAll(kinds);
+                if (kinds == null) continue;
+                for (String kind : kinds) {
+                    if (kind != null && !kind.isBlank()) {
+                        result.add(kind.toLowerCase(Locale.ROOT));
+                    }
+                }
             } catch (ReflectiveOperationException e) {
                 Logger.warn("LocationOwnership.kindsAt dispatch failed: " + e.getMessage());
             }
@@ -160,7 +167,7 @@ public final class LocationOwnership {
     /** True if any registered owner reports {@code kind} at {@code loc}. */
     public static boolean hasKind(Location loc, String kind) {
         if (kind == null) return false;
-        return kindsAt(loc).contains(kind);
+        return kindsAt(loc).contains(kind.toLowerCase(Locale.ROOT));
     }
 
     /** True if at least one owner claims this location. */

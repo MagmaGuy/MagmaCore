@@ -94,7 +94,6 @@ final class ConfigurationImportRegistry {
             }
         });
         registerGlobal("modelengine", importer -> {
-            importer.markModelsInstalled();
             if (Bukkit.getPluginManager().isPluginEnabled("FreeMinecraftModels")) {
                 return resolveFmmModelsFolder(importer);
             }
@@ -104,7 +103,6 @@ final class ConfigurationImportRegistry {
             return resolveFmmModelsFolder(importer);
         });
         registerGlobal("models", importer -> {
-            importer.markModelsInstalled();
             if (Bukkit.getPluginManager().isPluginEnabled("FreeMinecraftModels")) {
                 return resolveFmmModelsFolder(importer);
             }

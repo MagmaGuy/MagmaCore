@@ -4,9 +4,13 @@ import com.magmaguy.magmacore.location.api.LocationOwnership;
 import com.magmaguy.magmacore.util.Logger;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.entity.Player;
+import org.bukkit.plugin.Plugin;
 
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -31,9 +35,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * second from scripts.
  */
 public final class LocationQueryRegistry {
-    private static final List<DungeonLocator> dungeonLocators = new CopyOnWriteArrayList<>();
-    private static final List<RegionProtectionProvider> protectionProviders = new CopyOnWriteArrayList<>();
-    private static final AtomicBoolean builtInProtectionInitialized = new AtomicBoolean(false);
+    private static final CopyOnWriteArrayList<DungeonLocator> dungeonLocators =
+            new CopyOnWriteArrayList<>();
+    private static final CopyOnWriteArrayList<RegionProtectionProvider> protectionProviders =
+            new CopyOnWriteArrayList<>();
+    private static final Map<String, BuiltInRegistration> builtInProtectionProviders =
+            new ConcurrentHashMap<>();
+    private static final Map<String, Plugin> failedBuiltInAttempts =
+            new ConcurrentHashMap<>();
     private static final AtomicBoolean warnedNoDungeonLocators = new AtomicBoolean(false);
     private static final AtomicBoolean warnedNoProtectionProviders = new AtomicBoolean(false);
 
@@ -42,12 +51,12 @@ public final class LocationQueryRegistry {
 
     public static void registerDungeonLocator(DungeonLocator locator) {
         if (locator == null) return;
-        dungeonLocators.add(locator);
+        dungeonLocators.addIfAbsent(locator);
     }
 
     public static void registerProtectionProvider(RegionProtectionProvider provider) {
         if (provider == null) return;
-        protectionProviders.add(provider);
+        protectionProviders.addIfAbsent(provider);
     }
 
     public static void unregisterDungeonLocator(DungeonLocator locator) {
@@ -70,9 +79,10 @@ public final class LocationQueryRegistry {
             }
         }
 
-        // Cross-plugin discovery via Bukkit's ServicesManager — picks up owners
-        // registered through LocationOwnership.register(...) by any other plugin.
-        if (LocationOwnership.anyOwnerAt(location)) return true;
+        // Cross-plugin discovery via Bukkit's ServicesManager. Ownership alone
+        // is not enough: build zones and other plugin-owned regions are not
+        // dungeons, so providers must explicitly advertise the dungeon kind.
+        if (LocationOwnership.hasKind(location, "dungeon")) return true;
 
         if (dungeonLocators.isEmpty()
                 && Bukkit.getServicesManager().getRegistrations(java.util.function.Predicate.class).isEmpty()
@@ -95,6 +105,10 @@ public final class LocationQueryRegistry {
                 if (provider.isProtected(location)) return true;
             } catch (Throwable t) {
                 Logger.warn("RegionProtectionProvider '" + provider.providerName() + "' threw during query: " + t.getMessage());
+                // This predicate is used to decide whether potentially destructive scripted
+                // actions may proceed. An adapter failure must never be interpreted as an
+                // unprotected location.
+                return true;
             }
         }
 
@@ -112,6 +126,26 @@ public final class LocationQueryRegistry {
                     + "content plugin register via LocationOwnership for this check to work.");
         }
         return false;
+    }
+
+    /**
+     * Asks each provider whether the player may build. No provider means no
+     * extra restriction; adapter failures fail closed rather than bypassing it.
+     */
+    public static boolean canBuild(Player player, Location location) {
+        if (player == null || location == null || location.getWorld() == null) return false;
+        ensureBuiltInProtectionProviders();
+        for (RegionProtectionProvider provider : protectionProviders) {
+            try {
+                if (!provider.canBuild(player, location)) return false;
+            } catch (Throwable t) {
+                Logger.warn("RegionProtectionProvider '" + provider.providerName()
+                        + "' threw during player build query: " + t.getMessage());
+                return false;
+            }
+        }
+        // Ownership providers currently expose only a global protection predicate.
+        return !LocationOwnership.anyProtectedOwnerAt(location);
     }
 
     public static int getDungeonLocatorCount() {
@@ -132,8 +166,8 @@ public final class LocationQueryRegistry {
     public static void initializeBuiltInProtectionProviders() {
         ensureBuiltInProtectionProviders();
         if (protectionProviders.isEmpty()) {
-            boolean wgInstalled = Bukkit.getPluginManager().getPlugin("WorldGuard") != null;
-            boolean gpInstalled = Bukkit.getPluginManager().getPlugin("GriefPrevention") != null;
+            boolean wgInstalled = isPluginEnabled("WorldGuard");
+            boolean gpInstalled = isPluginEnabled("GriefPrevention");
             if (!wgInstalled && !gpInstalled) {
                 Logger.warn("No protection providers registered — WorldGuard and GriefPrevention "
                         + "are both absent. em.location.is_protected() will always return false.");
@@ -151,28 +185,88 @@ public final class LocationQueryRegistry {
     public static void shutdown() {
         dungeonLocators.clear();
         protectionProviders.clear();
-        builtInProtectionInitialized.set(false);
+        builtInProtectionProviders.clear();
+        failedBuiltInAttempts.clear();
         warnedNoDungeonLocators.set(false);
         warnedNoProtectionProviders.set(false);
     }
 
     private static void ensureBuiltInProtectionProviders() {
-        if (!builtInProtectionInitialized.compareAndSet(false, true)) return;
-        tryRegisterProtection("WorldGuard", "com.magmaguy.magmacore.thirdparty.worldguard.WorldGuardProtectionProvider");
-        tryRegisterProtection("GriefPrevention", "com.magmaguy.magmacore.thirdparty.griefprevention.GriefPreventionProtectionProvider");
+        refreshBuiltInProtection(
+                "WorldGuard",
+                "com.magmaguy.magmacore.thirdparty.worldguard.WorldGuardProtectionProvider");
+        refreshBuiltInProtection(
+                "GriefPrevention",
+                "com.magmaguy.magmacore.thirdparty.griefprevention.GriefPreventionProtectionProvider");
     }
 
-    private static void tryRegisterProtection(String pluginName, String providerClassName) {
-        if (Bukkit.getPluginManager().getPlugin(pluginName) == null) return;
-        try {
-            Class<?> cls = Class.forName(providerClassName);
-            Object instance = cls.getDeclaredConstructor().newInstance();
-            if (instance instanceof RegionProtectionProvider provider) {
-                protectionProviders.add(provider);
-                Logger.info("Registered " + provider.providerName() + " protection provider.");
+    private static void refreshBuiltInProtection(
+            String pluginName, String providerClassName) {
+        Plugin plugin = Bukkit.getPluginManager().getPlugin(pluginName);
+        BuiltInRegistration existing =
+                builtInProtectionProviders.get(pluginName);
+        if (plugin != null && plugin.isEnabled() &&
+                existing != null && existing.plugin() == plugin) return;
+        if (plugin != null && plugin.isEnabled() &&
+                failedBuiltInAttempts.get(pluginName) == plugin) return;
+
+        // Registration and provider-list mutation must be one operation. The fast
+        // stable-provider path above stays lock-free, while concurrent first queries
+        // cannot install duplicate adapters or race a plugin-disable removal.
+        synchronized (builtInProtectionProviders) {
+            plugin = Bukkit.getPluginManager().getPlugin(pluginName);
+            existing = builtInProtectionProviders.get(pluginName);
+            if (plugin == null || !plugin.isEnabled()) {
+                if (existing != null &&
+                        builtInProtectionProviders.remove(
+                                pluginName,
+                                existing)) {
+                    protectionProviders.remove(existing.provider());
+                }
+                failedBuiltInAttempts.remove(pluginName);
+                return;
             }
-        } catch (NoClassDefFoundError | ReflectiveOperationException ex) {
-            Logger.warn("Failed to attach " + pluginName + " protection provider: " + ex.getMessage());
+            if (existing != null && existing.plugin() == plugin) return;
+            if (failedBuiltInAttempts.get(pluginName) == plugin) return;
+
+            if (existing != null &&
+                    builtInProtectionProviders.remove(
+                            pluginName,
+                            existing)) {
+                protectionProviders.remove(existing.provider());
+            }
+            try {
+                Class<?> cls = Class.forName(
+                        providerClassName,
+                        true,
+                        LocationQueryRegistry.class.getClassLoader());
+                Object instance = cls.getDeclaredConstructor().newInstance();
+                if (instance instanceof RegionProtectionProvider provider) {
+                    BuiltInRegistration registration =
+                            new BuiltInRegistration(plugin, provider);
+                    builtInProtectionProviders.put(
+                            pluginName,
+                            registration);
+                    protectionProviders.addIfAbsent(provider);
+                    failedBuiltInAttempts.remove(pluginName);
+                    Logger.info("Registered " + provider.providerName()
+                            + " protection provider.");
+                }
+            } catch (LinkageError | ReflectiveOperationException |
+                     RuntimeException ex) {
+                failedBuiltInAttempts.put(pluginName, plugin);
+                Logger.warn("Failed to attach " + pluginName
+                        + " protection provider: " + ex.getMessage());
+            }
         }
+    }
+
+    private static boolean isPluginEnabled(String pluginName) {
+        Plugin plugin = Bukkit.getPluginManager().getPlugin(pluginName);
+        return plugin != null && plugin.isEnabled();
+    }
+
+    private record BuiltInRegistration(
+            Plugin plugin, RegionProtectionProvider provider) {
     }
 }

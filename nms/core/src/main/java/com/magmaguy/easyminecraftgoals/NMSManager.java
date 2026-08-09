@@ -5,11 +5,22 @@ import lombok.Getter;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.Plugin;
 
-import java.util.Objects;
+import java.util.Set;
 import java.util.logging.Level;
 
 public class NMSManager {
     private static final String PACKAGE = "com.magmaguy.easyminecraftgoals.";
+    /**
+     * Oldest Minecraft release this build ships an NMS adapter for. The pre-1.21.4 adapter
+     * modules have been deleted; recover them from git history if they are ever needed again.
+     */
+    private static final String MINIMUM_SUPPORTED_MINECRAFT_VERSION = "1.21.4";
+    /**
+     * Internals names that actually have a bundled adapter. Kept in sync with the
+     * modules included in settings.gradle.kts.
+     */
+    private static final Set<String> SUPPORTED_INTERNALS = Set.of(
+            "v1_21_R3", "v1_21_R4", "v1_21_R5", "v1_21_R6", "v1_21_R7", "v26");
     public static Plugin pluginProvider;
     private static NMSAdapter adapter;
     @Getter
@@ -20,17 +31,15 @@ public class NMSManager {
 //        plugin.getLogger().info(Bukkit.getServer().getClass().getPackage().getName());
         String version = getServerVersion();
         if (version == null) {
-            plugin.getLogger().warning("Server version is null.");
+            // getServerVersion() has already logged exactly why (unsupported or unparsable).
             return;
         }
 
         try {
 //            plugin.getLogger().info("Format: " + PACKAGE + version + ".NMSAdapter");
             String versionName;
-            //1.20.0 is fundamentally the same as 1.20.1 so we use R2
-            if (Objects.equals(version, "v1_20_R0")) versionName = PACKAGE + "v1_20_R1" + ".NMSAdapter";
             // For R7, Paper hard forked and requires separate adapters
-            else if (Objects.equals(version, "v1_21_R7")) {
+            if ("v1_21_R7".equals(version)) {
                 if (isPaper()) versionName = PACKAGE + "v1_21_R7_paper" + ".NMSAdapter";
                 else versionName = PACKAGE + "v1_21_R7_spigot" + ".NMSAdapter";
             }
@@ -88,11 +97,16 @@ public class NMSManager {
 
     private static String getServerVersion() {
         String packageName = Bukkit.getServer().getClass().getPackage().getName();
+        String versionString = Bukkit.getServer().getVersion();
         if (packageName.contains("_R")) {
-            return packageName.split("\\.")[3];
+            String legacyInternals = packageName.split("\\.")[3];
+            if (SUPPORTED_INTERNALS.contains(legacyInternals)) return legacyInternals;
+            // CraftBukkit stopped relocating its package after 1.20.4, so a versioned
+            // package here always means a server below the supported floor.
+            logUnsupportedVersion(versionString);
+            return null;
         }
 
-        String versionString = Bukkit.getServer().getVersion();
         if (!versionString.contains("-")) {
             pluginProvider.getLogger().warning("Incompatible Minecraft version detected! [1] Package: " + packageName + " version: " + versionString + " ! Report this to the developer.");
             return null;
@@ -130,15 +144,9 @@ public class NMSManager {
     }
 
     private static String getInternalsFromRevision(int major, int minor) {
-        if (major == 20) {
-            if (minor == 6)
-                return "v1_20_R4";
-        } else if (major == 21) {
+        // Anything below 1.21.4 is intentionally unsupported - those adapters are no longer built.
+        if (major == 21) {
             String versionString = "v1_21_";
-            if (minor == 0 || minor == 1)
-                return versionString + "R1";
-            if (minor == 2 || minor == 3)
-                return versionString + "R2";
             if (minor == 4)
                 return versionString + "R3";
             if (minor == 5)
@@ -153,11 +161,15 @@ public class NMSManager {
             // MC 26.1+ is fully unobfuscated - uses dedicated v26 adapter
             return "v26";
         }
-        pluginProvider.getLogger().warning(
-                "Incompatible Minecraft version detected! [3] Package: " +
-                        Bukkit.getServer().getClass().getPackage().getName() +
-                        " version: " + Bukkit.getServer().getVersion() + " major: " + major + " minor: " + minor
-                        + " ! Report this to the developer.");
+        logUnsupportedVersion(Bukkit.getServer().getVersion());
         return null;
+    }
+
+    private static void logUnsupportedVersion(String versionString) {
+        pluginProvider.getLogger().log(Level.SEVERE,
+                "Unsupported Minecraft version: {0}. This build requires Minecraft {1} or newer; "
+                        + "NMS features (packet entities, hitboxes, custom pathfinding, scoreboard number hiding) "
+                        + "will stay disabled. Update your server or use an older release of this plugin.",
+                new Object[]{versionString, MINIMUM_SUPPORTED_MINECRAFT_VERSION});
     }
 }

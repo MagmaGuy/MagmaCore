@@ -28,6 +28,9 @@ public class VersionChecker {
     private static final long BOOT_STAGGER_MAX_TICKS = 20L * 60L * 2L;
     private static final int SPIGOT_FALLBACK_TIMEOUT_MS = 3000;
     private static final Set<String> SCHEDULED_VERSION_CHECKS = ConcurrentHashMap.newKeySet();
+    // Remembers the last outcome logged per version-check task so the hourly re-check
+    // doesn't re-print the same "you are running the latest version" lines every hour.
+    private static final ConcurrentHashMap<String, String> LAST_LOGGED_STATE = new ConcurrentHashMap<>();
     private static boolean pluginIsUpToDate = true;
 
     private VersionChecker() {
@@ -77,26 +80,26 @@ public class VersionChecker {
         String taskKey = MagmaCore.getInstance().getRequestingPlugin().getName() + ":" + resourceID + ":" + downloadURL;
         if (!SCHEDULED_VERSION_CHECKS.add(taskKey)) return;
         Bukkit.getScheduler().runTaskTimerAsynchronously(MagmaCore.getInstance().getRequestingPlugin(), () -> {
-            pluginIsUpToDate = true;
             String rawCurrentVersion = MagmaCore.getInstance().getRequestingPlugin().getDescription().getVersion();
             boolean snapshot = rawCurrentVersion.contains("SNAPSHOT");
             String currentVersion = NightbreakPluginUpdater.cleanVersion(rawCurrentVersion);
             String publicVersion = null;
+            String versionSource = null;
             String pluginSlug = pluginSlugFromNightbreakUrl(downloadURL);
 
             if (pluginSlug != null) {
                 NightbreakAccount.VersionInfo versionInfo = NightbreakAccount.getPublicPluginVersion(pluginSlug, false);
                 if (versionInfo != null && versionInfo.version != null && !versionInfo.version.isBlank()) {
                     publicVersion = versionInfo.version;
+                    versionSource = "nightbreak";
                     VersionCheckerEvents.setDownloadURL(downloadPageUrl(pluginSlug));
-                    Logger.info("Latest Nightbreak release is " + publicVersion);
                 }
             }
 
             if ((publicVersion == null || publicVersion.isBlank()) && resourceID != null && !resourceID.isBlank()) {
                 try {
                     publicVersion = VersionChecker.readStringFromURL("https://api.spigotmc.org/legacy/update.php?resource=" + resourceID).trim();
-                    Logger.info("Nightbreak unavailable; latest Spigot release is " + publicVersion);
+                    versionSource = "spigot";
                 } catch (IOException e) {
                     Logger.warn("Couldn't check latest plugin version from Nightbreak or Spigot.");
                     return;
@@ -108,18 +111,27 @@ public class VersionChecker {
                 return;
             }
 
-            Logger.info("Your version is " + rawCurrentVersion);
-            if (NightbreakPluginUpdater.compareVersions(publicVersion, currentVersion) > 0) {
-                outOfDateHandler();
-                pluginIsUpToDate = false;
-            }
+            boolean upToDate = NightbreakPluginUpdater.compareVersions(publicVersion, currentVersion) <= 0;
+            pluginIsUpToDate = upToDate;
 
-            if (pluginIsUpToDate) {
-                if (!snapshot)
-                    Logger.info("You are running the latest version!");
-                else
-                    Logger.info("You are running a snapshot version! You can check for updates in the #releases channel on the Nightbreak Discord!");
-            }
+            // The version check re-runs hourly. Only announce the outcome the first time
+            // and thereafter only when it actually changes (a new release appeared, or
+            // the server was updated). Previously every hourly tick re-logged the same
+            // three lines for every MagmaGuy plugin, which spammed the console.
+            String signature = versionSource + "|" + publicVersion + "|" + rawCurrentVersion + "|" + upToDate;
+            if (signature.equals(LAST_LOGGED_STATE.put(taskKey, signature))) return;
+
+            if ("nightbreak".equals(versionSource))
+                Logger.info("Latest Nightbreak release is " + publicVersion);
+            else
+                Logger.info("Nightbreak unavailable; latest Spigot release is " + publicVersion);
+            Logger.info("Your version is " + rawCurrentVersion);
+            if (!upToDate)
+                outOfDateHandler();
+            else if (!snapshot)
+                Logger.info("You are running the latest version!");
+            else
+                Logger.info("You are running a snapshot version! You can check for updates in the #releases channel on the Nightbreak Discord!");
         }, initialRefreshDelayTicks(taskKey), UPDATE_REFRESH_INTERVAL_TICKS);
     }
 

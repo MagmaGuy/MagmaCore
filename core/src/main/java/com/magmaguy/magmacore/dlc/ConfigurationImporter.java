@@ -13,16 +13,28 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AccessDeniedException;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.*;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.function.BooleanSupplier;
+import java.util.stream.Stream;
 
 public class ConfigurationImporter {
+    private static final int WINDOWS_ACCESS_RETRY_ATTEMPTS = 5;
+    private static final long WINDOWS_ACCESS_RETRY_BASE_DELAY_MILLIS = 25L;
+    private static final long SYNC_WORLD_UNLOAD_POLL_MILLIS = 25L;
     private final JavaPlugin ownerPlugin;
     private final Path eliteMobsPath;
     private final Path extractioncraftPath;
@@ -36,6 +48,7 @@ public class ConfigurationImporter {
     private PluginPlatform pluginPlatform;
     private File importsFolder;
     private boolean modelsInstalled = false;
+    private boolean eliteMobsContentImported = false;
 
     public ConfigurationImporter(JavaPlugin ownerPlugin) {
         this.ownerPlugin = ownerPlugin == null ? MagmaCore.getInstance().getRequestingPlugin() : ownerPlugin;
@@ -51,7 +64,14 @@ public class ConfigurationImporter {
         worldCannonPath = pluginsDirectory.resolve("CannonRTP");
         if (!createImportsDirectory()) return;
         importsFolder = getImportsDirectory();
-        if (importsFolder == null || importsFolder.listFiles().length == 0) return;
+        if (importsFolder == null) return;
+        try {
+            if (sortedChildren(importsFolder).length == 0) return;
+        } catch (IOException exception) {
+            Logger.warn("Failed to inspect import directory " + importsFolder.getPath() + "!");
+            exception.printStackTrace();
+            return;
+        }
         pluginPlatform = getPluginPlatform(this.ownerPlugin.getName());
         processImportsFolder();
         if (Bukkit.getPluginManager().isPluginEnabled("FreeMinecraftModels") && modelsInstalled
@@ -68,83 +88,257 @@ public class ConfigurationImporter {
     private static void deleteDirectory(File file) {
         if (file == null) return;
         if (file.isDirectory()) {
-            for (File iteratedFile : file.listFiles()) {
-                if (iteratedFile != null) deleteDirectory(iteratedFile);
+            File[] children = file.listFiles();
+            if (children != null) {
+                for (File iteratedFile : children) {
+                    if (iteratedFile != null) deleteDirectory(iteratedFile);
+                }
             }
         }
         Logger.info("Cleaning up " + file.getPath());
         file.delete();
     }
 
-    private void moveWorlds(File worldcontainerFile) {
-        for (File file : worldcontainerFile.listFiles()) {
-            try {
-                File worldContainer = Bukkit.getWorldContainer().getCanonicalFile();
-                Path worldContainerPath = worldContainer.toPath().normalize().toAbsolutePath();
-                Path destinationPath = worldContainerPath.resolve(file.getName());
-                File destinationFile = destinationPath.toFile();
+    private void moveWorlds(
+            File worldcontainerFile,
+            ImportTransaction transaction) throws IOException {
+        for (File file : sortedChildren(worldcontainerFile)) {
+            File worldContainer = Bukkit.getWorldContainer().getCanonicalFile();
+            Path worldContainerPath = worldContainer.toPath().normalize().toAbsolutePath();
+            Path destinationPath = worldContainerPath.resolve(file.getName());
+            File destinationFile = destinationPath.toFile();
 
-                if (destinationFile.exists() || WorldFolderResolver.hasModernLayout(file.getName())) {
-                    Logger.info("Overriding existing directory " + destinationFile.getPath());
-                    if (Bukkit.getWorld(file.getName()) != null) {
-                        if (Bukkit.isPrimaryThread()) {
-                            Bukkit.unloadWorld(file.getName(), false);
-                        } else {
-                            try {
+            if (destinationFile.exists() || WorldFolderResolver.hasModernLayout(file.getName())) {
+                Logger.info("Overriding existing directory " + destinationFile.getPath());
+                if (Bukkit.getWorld(file.getName()) != null) {
+                    boolean unloaded;
+                    if (Bukkit.isPrimaryThread()) {
+                        unloaded = Bukkit.unloadWorld(file.getName(), false);
+                    } else {
+                        Future<Boolean> unloadFuture =
                                 Bukkit.getScheduler().callSyncMethod(
                                         ownerPlugin,
-                                        () -> Bukkit.unloadWorld(file.getName(), false)
-                                ).get();
-                            } catch (InterruptedException | ExecutionException e) {
-                                Logger.warn("Failed to unload world " + file.getName() + " on main thread!");
-                                e.printStackTrace();
-                            }
-                        }
-                        Logger.warn("Unloaded world " + file.getName() + " for safe replacement!");
+                                        () -> Bukkit.unloadWorld(
+                                                file.getName(),
+                                                false));
+                        unloaded = awaitWorldUnload(
+                                unloadFuture,
+                                () -> MagmaCore.isShutdownRequested(ownerPlugin),
+                                file.getName());
                     }
-                    // Clear both layouts so a re-import on Paper 26.1+ doesn't leave the
-                    // modern-layout copy intact and trip mergeMove on the next createWorld.
-                    WorldFolderResolver.deleteAllLayouts(file.getName());
+                    if (!unloaded) {
+                        throw new IOException(
+                                "World " + file.getName()
+                                        + " refused to unload; retaining the import archive "
+                                        + "rather than replacing a live world directory.");
+                    }
+                    Logger.warn("Unloaded world " + file.getName() + " for safe replacement!");
                 }
-                moveDirectory(file, destinationPath);
-            } catch (Exception exception) {
-                Logger.warn("Failed to move worlds for " + file.getName() + "! Tell the dev!");
-                exception.printStackTrace();
+                // Move both layouts into the package transaction instead of deleting
+                // them. If any later file in this archive fails, rollback restores the
+                // complete prior world rather than leaving a half-imported replacement.
+                transaction.displaceDirectory(
+                        WorldFolderResolver.legacyFolder(file.getName()));
+                transaction.displaceDirectory(
+                        WorldFolderResolver.modernFolder(file.getName()));
             }
+            moveDirectory(file, destinationPath, transaction);
         }
     }
 
-    private static void moveDirectory(File unzippedDirectory, Path targetPath) {
-        for (File file : unzippedDirectory.listFiles()) {
+    /**
+     * Waits for a Bukkit main-thread world unload without creating a shutdown deadlock.
+     *
+     * <p>Plugin shutdown runs on the main thread and waits for async initialization to become
+     * quiescent. If the unload task is still queued at that point, an unbounded Future#get() would
+     * make each side wait for the other forever. Polling keeps normal imports synchronous while
+     * allowing shutdown to cancel a task that has not started and unwind the import transaction.
+     */
+    static boolean awaitWorldUnload(
+            Future<Boolean> unloadFuture,
+            BooleanSupplier shutdownRequested,
+            String worldName) throws IOException {
+        Objects.requireNonNull(unloadFuture, "unloadFuture");
+        Objects.requireNonNull(shutdownRequested, "shutdownRequested");
+        while (true) {
+            if (shutdownRequested.getAsBoolean()) {
+                throw cancelWorldUnloadForShutdown(unloadFuture, worldName, null);
+            }
             try {
-                moveFile(file, targetPath);
-            } catch (Exception exception) {
-                Logger.warn("Failed to move directories for " + file.getName() + "! Tell the dev!");
-                exception.printStackTrace();
+                boolean unloaded = unloadFuture.get(
+                        SYNC_WORLD_UNLOAD_POLL_MILLIS,
+                        TimeUnit.MILLISECONDS);
+                if (shutdownRequested.getAsBoolean()) {
+                    throw cancelWorldUnloadForShutdown(
+                            unloadFuture,
+                            worldName,
+                            null);
+                }
+                return unloaded;
+            } catch (TimeoutException ignored) {
+                // Recheck the initialization lifecycle before waiting again.
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw cancelWorldUnloadForShutdown(
+                        unloadFuture,
+                        worldName,
+                        exception);
+            } catch (CancellationException exception) {
+                InterruptedIOException interrupted =
+                        new InterruptedIOException(
+                                "Main-thread world unload was canceled for "
+                                        + worldName + ".");
+                interrupted.initCause(exception);
+                throw interrupted;
+            } catch (ExecutionException exception) {
+                Throwable cause = exception.getCause() == null
+                        ? exception
+                        : exception.getCause();
+                throw new IOException(
+                        "Failed to unload world " + worldName
+                                + " on the main thread.",
+                        cause);
             }
         }
     }
 
-    private static void moveFile(File file, Path targetPath) {
-        try {
-            Path destinationPath = targetPath.resolve(file.getName());
-            if (file.isDirectory()) {
-                if (Files.exists(destinationPath)) {
-                    for (File iteratedFile : file.listFiles()) {
-                        moveFile(iteratedFile, destinationPath);
-                    }
-                } else {
-                    Files.createDirectories(targetPath);
-                    Files.move(file.toPath().normalize().toAbsolutePath(), destinationPath, StandardCopyOption.REPLACE_EXISTING);
-                }
-            } else {
-                Files.createDirectories(targetPath);
-                Files.move(file.toPath().normalize().toAbsolutePath(), destinationPath, StandardCopyOption.REPLACE_EXISTING);
-            }
-        } catch (Exception exception) {
-            Logger.warn("Failed to move file/directories for " + file.getName() + "! Tell the dev!");
-            exception.printStackTrace();
+    private static InterruptedIOException cancelWorldUnloadForShutdown(
+            Future<Boolean> unloadFuture,
+            String worldName,
+            Throwable cause) {
+        unloadFuture.cancel(false);
+        InterruptedIOException interrupted =
+                new InterruptedIOException(
+                        "Shutdown requested while waiting to unload world "
+                                + worldName + ".");
+        if (cause != null) interrupted.initCause(cause);
+        return interrupted;
+    }
+
+    private static void moveDirectory(
+            File unzippedDirectory,
+            Path targetPath,
+            ImportTransaction transaction) throws IOException {
+        transaction.prepareDirectory(targetPath);
+        for (File file : sortedChildren(unzippedDirectory)) {
+            mergeImportEntry(
+                    file.toPath(),
+                    targetPath.resolve(file.getName()),
+                    transaction);
         }
+    }
+
+    private static void moveFile(
+            File file,
+            Path targetPath,
+            ImportTransaction transaction) throws IOException {
+        transaction.prepareDirectory(targetPath);
+        mergeImportEntry(
+                file.toPath(),
+                targetPath.resolve(file.getName()),
+                transaction);
+    }
+
+    /**
+     * Merges one extracted import entry into its final destination without renaming the
+     * source directory. Renaming a populated directory is fragile on Windows: any transient
+     * handle opened by a scanner is enough for {@link Files#move(Path, Path, java.nio.file.CopyOption...)}
+     * to fail with {@link AccessDeniedException}. Copying each file through a sibling temporary
+     * file also keeps the complete extracted source available until the caller has successfully
+     * installed every entry and can safely remove the archive.
+     */
+    static void mergeImportEntry(Path source, Path destination) throws IOException {
+        Path normalizedDestination = destination.normalize().toAbsolutePath();
+        Path transactionParent = normalizedDestination.getParent();
+        if (transactionParent == null) {
+            throw new IOException(
+                    "Import destination has no parent: " + destination);
+        }
+        Files.createDirectories(transactionParent);
+        ImportTransaction transaction =
+                ImportTransaction.create(transactionParent);
+        try {
+            mergeImportEntry(source, destination, transaction);
+            transaction.commit();
+        } catch (IOException | RuntimeException failure) {
+            transaction.rollback(failure);
+            throw failure;
+        }
+    }
+
+    private static void mergeImportEntry(
+            Path source,
+            Path destination,
+            ImportTransaction transaction) throws IOException {
+        Path normalizedSource = source.normalize().toAbsolutePath();
+        Path normalizedDestination = destination.normalize().toAbsolutePath();
+        if (Files.isDirectory(normalizedSource)) {
+            transaction.prepareDirectory(normalizedDestination);
+            try (Stream<Path> children = Files.list(normalizedSource)) {
+                List<Path> sortedChildren = children
+                        .sorted(Comparator.comparing(path -> path.getFileName().toString(),
+                                String.CASE_INSENSITIVE_ORDER))
+                        .toList();
+                for (Path child : sortedChildren) {
+                    mergeImportEntry(
+                            child,
+                            normalizedDestination.resolve(child.getFileName()),
+                            transaction);
+                }
+            }
+            return;
+        }
+
+        if (!Files.isRegularFile(normalizedSource)) {
+            throw new IOException(
+                    "Import source is not a regular file: " + normalizedSource);
+        }
+        transaction.prepareFile(normalizedDestination);
+        copyFileAtomicallyWithRetry(normalizedSource, normalizedDestination);
+    }
+
+    private static void copyFileAtomicallyWithRetry(Path source, Path destination) throws IOException {
+        for (int attempt = 1; attempt <= WINDOWS_ACCESS_RETRY_ATTEMPTS; attempt++) {
+            try {
+                copyFileAtomically(source, destination);
+                return;
+            } catch (AccessDeniedException exception) {
+                if (attempt == WINDOWS_ACCESS_RETRY_ATTEMPTS) throw exception;
+                try {
+                    Thread.sleep(WINDOWS_ACCESS_RETRY_BASE_DELAY_MILLIS << (attempt - 1));
+                } catch (InterruptedException interruptedException) {
+                    Thread.currentThread().interrupt();
+                    InterruptedIOException interrupted =
+                            new InterruptedIOException("Interrupted while retrying import of " + source);
+                    interrupted.initCause(interruptedException);
+                    throw interrupted;
+                }
+            }
+        }
+    }
+
+    private static void copyFileAtomically(Path source, Path destination) throws IOException {
+        String destinationName = destination.getFileName().toString();
+        Path temporary = Files.createTempFile(destination.getParent(),
+                "." + destinationName + ".import-", ".tmp");
+        try {
+            Files.copy(source, temporary, StandardCopyOption.REPLACE_EXISTING);
+            try {
+                Files.move(temporary, destination,
+                        StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException exception) {
+                Files.move(temporary, destination, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
+    }
+
+    private static File[] sortedChildren(File directory) throws IOException {
+        File[] children = directory.listFiles();
+        if (children == null) throw new IOException("Failed to list directory " + directory.getPath());
+        Arrays.sort(children, Comparator.comparing(File::getName, String.CASE_INSENSITIVE_ORDER));
+        return children;
     }
 
     private boolean createImportsDirectory() {
@@ -177,9 +371,19 @@ public class ConfigurationImporter {
         }
     }
 
-    private PluginPlatform getPluginPlatform(String name) {
+    static PluginPlatform getPluginPlatform(String name) {
         if (name == null) return PluginPlatform.NONE;
-        switch (name.toLowerCase(Locale.ROOT)) {
+        // pack.meta is plain text written by the DLC pipeline and sometimes by
+        // hand, so it routinely carries a trailing newline, CRLF, or a BOM from
+        // a Windows editor. None of that changes which plugin the package
+        // declares. Matching the raw content meant a package whose pack.meta
+        // simply ended with a newline resolved to NONE and was rejected as
+        // "does not declare a supported plugin platform", then retained and
+        // retried forever without ever importing.
+        String declaredPlatform = name
+                .replace("﻿", "")
+                .trim();
+        switch (declaredPlatform.toLowerCase(Locale.ROOT)) {
             case "elitemobs":
                 return PluginPlatform.ELITEMOBS;
             case "extractioncraft":
@@ -204,14 +408,30 @@ public class ConfigurationImporter {
     }
 
     private void processImportsFolder() {
-        for (File zippedFile : importsFolder.listFiles()) {
+        File[] importEntries;
+        try {
+            importEntries = sortedChildren(importsFolder);
+        } catch (IOException exception) {
+            Logger.warn("Failed to inspect import directory " + importsFolder.getPath() + "!");
+            exception.printStackTrace();
+            return;
+        }
+        for (File zippedFile : importEntries) {
             if (zippedFile.getName().endsWith(".zip")) {
                 unzipImportFile(zippedFile);
             } else if (pluginPlatform == PluginPlatform.FREEMINECRAFTMODELS && zippedFile.getName().endsWith(".bbmodel")) {
                 processBbmodel(zippedFile);
             } else if (zippedFile.isDirectory()) {
                 boolean incorrectlyUnzippedFolder = false;
-                for (File iteratedFile : zippedFile.listFiles()) {
+                File[] children;
+                try {
+                    children = sortedChildren(zippedFile);
+                } catch (IOException exception) {
+                    Logger.warn("Failed to inspect import directory " + zippedFile.getPath() + "!");
+                    exception.printStackTrace();
+                    continue;
+                }
+                for (File iteratedFile : children) {
                     if (iteratedFile.getName().equalsIgnoreCase("pack.meta")) {
                         incorrectlyUnzippedFolder = true;
                         break;
@@ -229,56 +449,453 @@ public class ConfigurationImporter {
     }
 
     private void unzipImportFile(File zippedFile) {
+        Path stagingDirectory = null;
         try {
-            File unzippedFolder = ZipFile.unzip(zippedFile, new File(zippedFile.getAbsolutePath().replace(".zip", "")));
-            processUnzippedFile(unzippedFolder);
-            deleteDirectory(zippedFile);
+            String archiveName = zippedFile.getName();
+            String baseName = archiveName.substring(
+                    0, archiveName.length() - ".zip".length())
+                    .replaceAll("[^A-Za-z0-9._-]", "_");
+            stagingDirectory = Files.createTempDirectory(
+                    importsFolder.toPath(),
+                    "." + baseName + ".extract-");
+            File unzippedFolder = ZipFile.unzip(
+                    zippedFile,
+                    stagingDirectory.toFile());
+            if (processUnzippedFile(unzippedFolder)) {
+                deleteDirectory(zippedFile);
+            } else {
+                Logger.warn("Import failed for " + zippedFile.getPath()
+                        + "; retaining the archive for a safe retry.");
+            }
         } catch (Exception ex) {
             Logger.warn("Failed to unzip " + zippedFile.getPath() + " ! This probably means the file is corrupted.");
             Logger.warn("To fix this, delete this file from the imports folder and download a clean copy!");
             ex.printStackTrace();
+        } finally {
+            if (stagingDirectory != null &&
+                    Files.exists(stagingDirectory)) {
+                deleteDirectory(stagingDirectory.toFile());
+            }
         }
     }
 
-    private void processUnzippedFile(File unzippedFolder) {
+    private boolean processUnzippedFile(File unzippedFolder) {
         PluginPlatform platform = pluginPlatform;
+        File[] unzippedFiles;
+        try {
+            unzippedFiles = sortedChildren(unzippedFolder);
+        } catch (IOException exception) {
+            Logger.warn("Failed to inspect extracted import " + unzippedFolder.getPath() + "!");
+            exception.printStackTrace();
+            return false;
+        }
         //Check for pack.meta
-        for (File unzippedFile : unzippedFolder.listFiles()) {
+        for (File unzippedFile : unzippedFiles) {
             if (unzippedFile.getName().equalsIgnoreCase("pack.meta")) {
                 platform = getPluginPlatform(readPackMeta(unzippedFile));
             }
         }
 
-        for (File unzippedFile : unzippedFolder.listFiles()) {
-            moveUnzippedFiles(unzippedFile, platform);
+        if (platform == PluginPlatform.NONE) {
+            Logger.warn("Import " + unzippedFolder.getPath()
+                    + " does not declare a supported plugin platform; "
+                    + "the archive will be retained.");
+            return false;
+        }
+
+        List<ImportCandidate> candidates = new ArrayList<>();
+        boolean rejected = false;
+        for (File unzippedFile : unzippedFiles) {
+            if (ConfigurationImportRegistry.isSkippedFolder(
+                    unzippedFile.getName())) {
+                continue;
+            }
+            Path targetPath =
+                    getTargetPath(unzippedFile.getName(), platform);
+            if (targetPath == null) {
+                if (!ConfigurationImportRegistry.hasResolver(
+                        unzippedFile.getName(), platform)) {
+                    rejected = true;
+                    Logger.warn("Rejecting import because top-level entry '"
+                            + unzippedFile.getName()
+                            + "' is not recognized for " + platform + ".");
+                }
+                continue;
+            }
+            candidates.add(new ImportCandidate(unzippedFile, targetPath));
+        }
+        if (rejected || candidates.isEmpty()) {
+            if (candidates.isEmpty()) {
+                Logger.warn("Import " + unzippedFolder.getPath()
+                        + " contains no installable content.");
+            }
+            return false;
+        }
+
+        ImportTransaction transaction;
+        try {
+            transaction = ImportTransaction.create(importsFolder.toPath());
+        } catch (IOException exception) {
+            Logger.warn("Failed to create a transaction for import "
+                    + unzippedFolder.getPath() + "; the archive will be retained.");
+            exception.printStackTrace();
+            return false;
+        }
+        try {
+            for (ImportCandidate candidate : candidates) {
+                moveUnzippedFiles(
+                        candidate.source(),
+                        candidate.targetPath(),
+                        transaction);
+            }
+            transaction.commit();
+            for (ImportCandidate candidate : candidates) {
+                recordSuccessfulImport(candidate);
+            }
+        } catch (IOException | RuntimeException exception) {
+            Logger.warn("Failed to import " + unzippedFolder.getPath()
+                    + "; rolling back every destination changed by this archive "
+                    + "and retaining it for retry.");
+            try {
+                transaction.rollback(exception);
+            } catch (IOException rollbackFailure) {
+                Logger.warn("Import rollback was incomplete for "
+                        + unzippedFolder.getPath()
+                        + "; inspect the logged destinations before retrying.");
+                rollbackFailure.printStackTrace();
+            }
+            exception.printStackTrace();
+            return false;
         }
         deleteDirectory(unzippedFolder);
+        return true;
     }
 
-    private void moveUnzippedFiles(File unzippedFile, PluginPlatform platform) {
-        Path targetPath = getTargetPath(unzippedFile.getName(), platform);
-        if (targetPath == null) {
-            return;
-        }
+    private void moveUnzippedFiles(
+            File unzippedFile,
+            Path targetPath,
+            ImportTransaction transaction) throws IOException {
         // Create target directory and all parent directories if they don't exist
         // This ensures directories like plugins/EliteMobs/custombosses are created
         // even when EliteMobs isn't installed, so files are ready when it is
-        if (!targetPath.toFile().exists()) {
-            targetPath.toFile().mkdirs();
-        }
+        transaction.prepareDirectory(targetPath);
 
         if (unzippedFile.isDirectory()) {
             if (unzippedFile.getName().equalsIgnoreCase("worldcontainer"))
-                moveWorlds(unzippedFile);
+                moveWorlds(unzippedFile, transaction);
             else
-                moveDirectory(unzippedFile, targetPath);
+                moveDirectory(unzippedFile, targetPath, transaction);
         } else {
-            moveFile(unzippedFile, targetPath);
+            moveFile(unzippedFile, targetPath, transaction);
+        }
+    }
+
+    private void recordSuccessfulImport(ImportCandidate candidate) {
+        String sourceName = candidate.source().getName();
+        if (sourceName.equalsIgnoreCase("models") ||
+                sourceName.equalsIgnoreCase("modelengine")) {
+            modelsInstalled = true;
+        }
+        // EliteMobs only reads its config folders on boot/reload, so when another plugin's
+        // pack drops files into plugins/EliteMobs (e.g. BetterStructures elite shrines),
+        // the owner plugin must know to trigger an EliteMobs reload afterwards.
+        if (!ownerPlugin.getName().equalsIgnoreCase("EliteMobs")
+                && candidate.targetPath().normalize().toAbsolutePath()
+                .startsWith(eliteMobsPath.normalize().toAbsolutePath())) {
+            eliteMobsContentImported = true;
         }
     }
 
     private Path getTargetPath(String folder, PluginPlatform platform) {
         return ConfigurationImportProfiles.resolve(this, folder, platform);
+    }
+
+    static void mergeImportEntriesAtomically(
+            List<ImportTransfer> transfers,
+            Path transactionWorkspace) throws IOException {
+        ImportTransaction transaction =
+                ImportTransaction.create(transactionWorkspace);
+        try {
+            for (ImportTransfer transfer : transfers) {
+                mergeImportEntry(
+                        transfer.source(),
+                        transfer.destination(),
+                        transaction);
+            }
+            transaction.commit();
+        } catch (IOException | RuntimeException failure) {
+            transaction.rollback(failure);
+            throw failure;
+        }
+    }
+
+    record ImportTransfer(Path source, Path destination) {
+        ImportTransfer {
+            Objects.requireNonNull(source, "source");
+            Objects.requireNonNull(destination, "destination");
+        }
+    }
+
+    /**
+     * Per-archive mutation journal. Existing files are copied into a private
+     * backup area before replacement, newly-created paths are recorded, and
+     * whole world directories are displaced by rename. A later failure can
+     * therefore restore the exact pre-import state across every top-level
+     * candidate instead of retaining a retryable archive beside partially
+     * installed content.
+     */
+    private static final class ImportTransaction {
+        private final Path backupRoot;
+        private final Map<Path, Path> fileBackups = new LinkedHashMap<>();
+        private final Map<Path, Path> displacedDirectories =
+                new LinkedHashMap<>();
+        private final Set<Path> createdFiles = new LinkedHashSet<>();
+        private final Set<Path> createdDirectories = new LinkedHashSet<>();
+        private int nextBackupId;
+        private boolean closed;
+
+        private ImportTransaction(Path backupRoot) {
+            this.backupRoot = backupRoot;
+        }
+
+        static ImportTransaction create(Path workspace) throws IOException {
+            Path normalizedWorkspace =
+                    workspace.normalize().toAbsolutePath();
+            Files.createDirectories(normalizedWorkspace);
+            return new ImportTransaction(Files.createTempDirectory(
+                    normalizedWorkspace,
+                    ".import-transaction-"));
+        }
+
+        void prepareDirectory(Path directory) throws IOException {
+            ensureOpen();
+            Path normalized = directory.normalize().toAbsolutePath();
+            if (Files.exists(normalized,
+                    java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                if (Files.isSymbolicLink(normalized) ||
+                        !Files.isDirectory(normalized,
+                                java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                    throw new IOException(
+                            "Import directory target is not a safe directory: "
+                                    + normalized);
+                }
+                return;
+            }
+
+            List<Path> missing = new ArrayList<>();
+            Path cursor = normalized;
+            while (cursor != null &&
+                    !Files.exists(cursor,
+                            java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                missing.add(cursor);
+                cursor = cursor.getParent();
+            }
+            if (cursor != null && (Files.isSymbolicLink(cursor) ||
+                    !Files.isDirectory(cursor,
+                            java.nio.file.LinkOption.NOFOLLOW_LINKS))) {
+                throw new IOException(
+                        "Import directory parent is not a safe directory: "
+                                + cursor);
+            }
+            Files.createDirectories(normalized);
+            createdDirectories.addAll(missing);
+        }
+
+        void prepareFile(Path destination) throws IOException {
+            ensureOpen();
+            Path normalized = destination.normalize().toAbsolutePath();
+            Path parent = normalized.getParent();
+            if (parent == null) {
+                throw new IOException(
+                        "Import file target has no parent: " + normalized);
+            }
+            prepareDirectory(parent);
+            if (fileBackups.containsKey(normalized) ||
+                    createdFiles.contains(normalized)) {
+                return;
+            }
+            if (Files.exists(normalized,
+                    java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                if (Files.isSymbolicLink(normalized) ||
+                        !Files.isRegularFile(normalized,
+                                java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                    throw new IOException(
+                            "Import file target is not a safe regular file: "
+                                    + normalized);
+                }
+                Path backup = nextBackupPath("files");
+                Files.copy(
+                        normalized,
+                        backup,
+                        StandardCopyOption.COPY_ATTRIBUTES);
+                fileBackups.put(normalized, backup);
+            } else {
+                createdFiles.add(normalized);
+            }
+        }
+
+        void displaceDirectory(Path directory) throws IOException {
+            ensureOpen();
+            Path normalized = directory.normalize().toAbsolutePath();
+            if (displacedDirectories.containsKey(normalized) ||
+                    !Files.exists(normalized,
+                            java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                return;
+            }
+            if (Files.isSymbolicLink(normalized) ||
+                    !Files.isDirectory(normalized,
+                            java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                throw new IOException(
+                        "World import target is not a safe directory: "
+                                + normalized);
+            }
+            Path backup = nextBackupPath("directories");
+            moveWithAtomicFallback(normalized, backup);
+            displacedDirectories.put(normalized, backup);
+        }
+
+        void commit() {
+            ensureOpen();
+            closed = true;
+            try {
+                deleteRecursively(backupRoot);
+            } catch (IOException cleanupFailure) {
+                Logger.warn("Imported content successfully, but failed to "
+                        + "remove transaction backup " + backupRoot + ": "
+                        + cleanupFailure.getMessage());
+            }
+        }
+
+        void rollback(Throwable originalFailure) throws IOException {
+            ensureOpen();
+            closed = true;
+            IOException rollbackFailure = null;
+
+            for (Path created : reverseByDepth(createdFiles)) {
+                rollbackFailure = collectFailure(
+                        rollbackFailure,
+                        () -> Files.deleteIfExists(created));
+            }
+            for (Map.Entry<Path, Path> backup :
+                    fileBackups.entrySet()) {
+                rollbackFailure = collectFailure(
+                        rollbackFailure,
+                        () -> copyFileAtomicallyWithRetry(
+                                backup.getValue(),
+                                backup.getKey()));
+            }
+            for (Path created : reverseByDepth(createdDirectories)) {
+                rollbackFailure = collectFailure(
+                        rollbackFailure,
+                        () -> Files.deleteIfExists(created));
+            }
+            List<Map.Entry<Path, Path>> displaced =
+                    new ArrayList<>(displacedDirectories.entrySet());
+            Collections.reverse(displaced);
+            for (Map.Entry<Path, Path> backup : displaced) {
+                rollbackFailure = collectFailure(
+                        rollbackFailure,
+                        () -> {
+                            if (Files.exists(
+                                    backup.getKey(),
+                                    java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                                deleteRecursively(backup.getKey());
+                            }
+                            Path parent = backup.getKey().getParent();
+                            if (parent != null) Files.createDirectories(parent);
+                            moveWithAtomicFallback(
+                                    backup.getValue(),
+                                    backup.getKey());
+                        });
+            }
+            rollbackFailure = collectFailure(
+                    rollbackFailure,
+                    () -> deleteRecursively(backupRoot));
+            if (rollbackFailure != null) {
+                rollbackFailure.addSuppressed(originalFailure);
+                throw rollbackFailure;
+            }
+        }
+
+        private Path nextBackupPath(String kind) throws IOException {
+            Path directory = backupRoot.resolve(kind);
+            Files.createDirectories(directory);
+            return directory.resolve(
+                    String.format(Locale.ROOT, "%08d", nextBackupId++));
+        }
+
+        private void ensureOpen() {
+            if (closed) {
+                throw new IllegalStateException(
+                        "Import transaction is already closed.");
+            }
+        }
+
+        private static List<Path> reverseByDepth(
+                Collection<Path> paths) {
+            return paths.stream()
+                    .sorted(Comparator
+                            .comparingInt(Path::getNameCount)
+                            .reversed())
+                    .toList();
+        }
+
+        private static IOException collectFailure(
+                IOException existing,
+                IoOperation operation) {
+            try {
+                operation.run();
+                return existing;
+            } catch (IOException failure) {
+                if (existing == null) return failure;
+                existing.addSuppressed(failure);
+                return existing;
+            }
+        }
+
+        private static void moveWithAtomicFallback(
+                Path source,
+                Path destination) throws IOException {
+            try {
+                Files.move(
+                        source,
+                        destination,
+                        StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException exception) {
+                Files.move(source, destination);
+            }
+        }
+
+        private static void deleteRecursively(Path root)
+                throws IOException {
+            if (!Files.exists(
+                    root,
+                    java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                return;
+            }
+            if (Files.isSymbolicLink(root) ||
+                    !Files.isDirectory(
+                            root,
+                            java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                Files.deleteIfExists(root);
+                return;
+            }
+            try (Stream<Path> paths = Files.walk(root)) {
+                for (Path path : paths
+                        .sorted(Comparator.reverseOrder())
+                        .toList()) {
+                    Files.deleteIfExists(path);
+                }
+            }
+        }
+
+        @FunctionalInterface
+        private interface IoOperation {
+            void run() throws IOException;
+        }
+    }
+
+    private record ImportCandidate(File source, Path targetPath) {
     }
 
     Path getEliteMobsPath() {
@@ -319,6 +936,24 @@ public class ConfigurationImporter {
 
     void markModelsInstalled() {
         modelsInstalled = true;
+    }
+
+    /**
+     * Public because consumers need to know whether FreeMinecraftModels' model registry was
+     * invalidated during this startup. When this importer installs models it fires
+     * {@link ModelInstallationEvent}, which makes FreeMinecraftModels rebuild its registry
+     * asynchronously; a plugin that spawns modelled entities right after importing would find
+     * no models and silently drop them. Consumers check this flag to re-wait for
+     * FreeMinecraftModels only on the boots where an install actually happened.
+     *
+     * @return true if this importer moved models into FreeMinecraftModels during this run
+     */
+    public boolean isModelsInstalled() {
+        return modelsInstalled;
+    }
+
+    public boolean isEliteMobsContentImported() {
+        return eliteMobsContentImported;
     }
 
     private String readPackMeta(File packMetaFile) {

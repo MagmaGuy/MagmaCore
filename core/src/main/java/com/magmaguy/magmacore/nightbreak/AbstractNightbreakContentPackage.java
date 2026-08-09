@@ -87,8 +87,11 @@ public abstract class AbstractNightbreakContentPackage extends ContentPackage im
         }
 
         JavaPlugin plugin = getOwnerPlugin();
+        NightbreakContentManager.OperationGate lifecycleGate =
+                NightbreakBulkDownloader.captureOperationGate(plugin);
         Logger.sendSimpleMessage(player, "&aChecking Nightbreak access for &2" + getDisplayName() + "&a...");
-        NightbreakContentManager.checkAccessAsync(plugin, slug, accessInfo -> {
+        NightbreakContentManager.checkAccessAsync(plugin, slug, lifecycleGate, accessInfo -> {
+            if (!lifecycleGate.isCurrent()) return;
             setCachedAccessInfo(accessInfo);
             if (!player.isOnline()) return;
             if (accessInfo == null) {
@@ -106,17 +109,24 @@ public abstract class AbstractNightbreakContentPackage extends ContentPackage im
 
             File importsFolder = new File(plugin.getDataFolder(), "imports");
             if (!importsFolder.exists()) importsFolder.mkdirs();
-            NightbreakContentManager.downloadAsync(plugin, slug, importsFolder, player, success -> {
-                if (!player.isOnline() || !success) return;
-                enableAfterDownload().whenComplete((ignored, throwable) ->
+            NightbreakContentManager.downloadAsync(plugin, slug, importsFolder, player, lifecycleGate, success -> {
+                if (!lifecycleGate.isCurrent() || !player.isOnline() || !success) return;
+                enableAfterDownload().whenComplete((ignored, throwable) -> {
+                    if (!lifecycleGate.isCurrent()) return;
+                    try {
                         Bukkit.getScheduler().runTask(plugin, () -> {
+                            if (!lifecycleGate.isCurrent()) return;
                             if (throwable != null) {
                                 throwable.printStackTrace();
                                 Logger.sendSimpleMessage(player, "&cFailed to update " + getPluginDisplayName() + " package state. Check the console.");
                                 return;
                             }
                             onDownloadStateSaved(player);
-                        }));
+                        });
+                    } catch (RuntimeException ignoredException) {
+                        // The lifecycle may have shut down between the gate check and scheduler handoff.
+                    }
+                });
             });
         });
     }

@@ -1,5 +1,9 @@
 package com.magmaguy.magmacore.nightbreak;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.magmaguy.magmacore.util.Logger;
 import lombok.Getter;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -11,12 +15,22 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
+import java.net.URI;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.HashMap;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Scanner;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Manages the Nightbreak account token and provides access to the Nightbreak DLC API.
@@ -30,6 +44,10 @@ import java.util.Scanner;
  */
 public class NightbreakAccount {
     private static final String BASE_URL = "https://nightbreak.io";
+    private static final Object TEST_BASE_URL_LOCK = new Object();
+    private static volatile String scopedTestBaseUrl;
+    private static final AtomicInteger PRODUCTION_ORIGIN_SELECTIONS =
+            new AtomicInteger();
     private static final String CONFIG_FOLDER_NAME = "MagmaCore";
     private static final String CONFIG_FILE_NAME = "nightbreak.yml";
 
@@ -71,19 +89,31 @@ public class NightbreakAccount {
      * @param plugin The plugin instance to get the data folder reference
      * @return The NightbreakAccount instance if token exists, null otherwise
      */
-    public static NightbreakAccount initialize(JavaPlugin plugin) {
+    public static synchronized NightbreakAccount initialize(
+            JavaPlugin plugin) {
         File configFile = getConfigFile(plugin);
+        String previousToken = currentToken();
         // Remember the path even when the file doesn't exist yet — ensureFresh()
         // needs it so a /nightbreaklogin issued LATER from another plugin's
         // shaded copy can be picked up by THIS plugin's next access.
         configFilePath = configFile;
         if (!configFile.exists()) {
+            instance = null;
+            lastFileMtime = -1L;
+            if (previousToken != null) {
+                resetAuthFailureSuppression();
+                fireTokenChanged();
+            }
             Logger.info("No account token found. Use /nightbreaklogin <token> to register your token.");
             return null;
         }
 
         loadTokenFromFile(configFile);
         lastFileMtime = configFile.lastModified();
+        if (!Objects.equals(previousToken, currentToken())) {
+            resetAuthFailureSuppression();
+            fireTokenChanged();
+        }
         if (instance != null) {
             Logger.info("Account token loaded successfully!");
         } else {
@@ -102,26 +132,22 @@ public class NightbreakAccount {
     private static synchronized void ensureFresh() {
         File f = configFilePath;
         if (f == null) return; // initialize() hasn't run in this classloader yet
+        String previousToken = currentToken();
         if (!f.exists()) {
             if (instance != null) {
                 instance = null;
                 lastFileMtime = -1L;
+                resetAuthFailureSuppression();
+                fireTokenChanged();
             }
             return;
         }
         long mtime = f.lastModified();
         if (mtime != lastFileMtime) {
-            boolean hadInstanceBefore = instance != null;
             loadTokenFromFile(f);
             lastFileMtime = mtime;
-            // If this reload transitioned us from "no token" → "have token",
-            // notify subscribers so they can refresh whatever state they gated
-            // on having a token. This is the cross-classloader notification path:
-            // EliteMobs (which owns /nightbreaklogin) sees the transition via
-            // registerToken() in its own classloader; every other plugin shading
-            // MagmaCore sees it here, the next time anything in their classloader
-            // calls hasToken() / getInstance().
-            if (!hadInstanceBefore && instance != null) {
+            if (!Objects.equals(previousToken, currentToken())) {
+                resetAuthFailureSuppression();
                 fireTokenChanged();
             }
         }
@@ -136,9 +162,6 @@ public class NightbreakAccount {
             return;
         }
         instance = new NightbreakAccount(token);
-        // A new token from disk means the old auth-failure suppression no longer
-        // applies — give the new value a fresh chance to log if it's also bad.
-        resetAuthFailureSuppression();
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -149,29 +172,69 @@ public class NightbreakAccount {
     // hasToken() during their onEnable would never re-fetch after a later
     // login — the user had to restart the server (or /em reload) for content to
     // appear. Now plugins register a Runnable here in their onEnable; it fires
-    // exactly when this classloader's view transitions to "have token" (either
-    // because registerToken() ran in this classloader, or because ensureFresh()
-    // picked up a token a different classloader's command wrote to disk).
+    // whenever this classloader's credential actually changes (login,
+    // replacement, or logout), whether written here or observed on disk after
+    // a different shaded classloader updates the shared configuration.
     // ─────────────────────────────────────────────────────────────────────
-    private static final java.util.List<Runnable> tokenChangeListeners =
-            new java.util.concurrent.CopyOnWriteArrayList<>();
+    private static final java.util.List<TokenChangeListenerRegistrationImpl>
+            tokenChangeListeners = new CopyOnWriteArrayList<>();
+
+    public interface TokenChangeListenerRegistration extends AutoCloseable {
+        @Override
+        void close();
+    }
 
     /**
-     * Subscribes a callback that fires when this classloader's NightbreakAccount
-     * transitions from "no token" to "have token". Fires at most once per such
-     * transition; idempotent re-loads of the same token do NOT fire.
+     * Legacy non-removable listener registration. New lifecycle-aware callers
+     * should use {@link #registerTokenChangeListener(Runnable)} and close the
+     * returned handle when their plugin disables.
      */
     public static void addTokenChangeListener(Runnable listener) {
-        if (listener != null) tokenChangeListeners.add(listener);
+        registerTokenChangeListener(listener);
+    }
+
+    /**
+     * Registers a removable listener for every actual credential change:
+     * login, token replacement, or logout.
+     */
+    public static TokenChangeListenerRegistration registerTokenChangeListener(
+            Runnable listener) {
+        Objects.requireNonNull(listener, "listener");
+        TokenChangeListenerRegistrationImpl registration =
+                new TokenChangeListenerRegistrationImpl(listener);
+        tokenChangeListeners.add(registration);
+        return registration;
     }
 
     private static void fireTokenChanged() {
-        for (Runnable listener : tokenChangeListeners) {
+        for (TokenChangeListenerRegistrationImpl registration
+                : tokenChangeListeners) {
+            if (registration.closed.get()) continue;
             try {
-                listener.run();
+                registration.listener.run();
             } catch (Throwable t) {
                 Logger.warn("Account token-change listener threw: " + t.getMessage());
             }
+        }
+    }
+
+    private static String currentToken() {
+        return instance == null ? null : instance.token;
+    }
+
+    private static final class TokenChangeListenerRegistrationImpl
+            implements TokenChangeListenerRegistration {
+        private final Runnable listener;
+        private final AtomicBoolean closed = new AtomicBoolean();
+
+        private TokenChangeListenerRegistrationImpl(Runnable listener) {
+            this.listener = listener;
+        }
+
+        @Override
+        public void close() {
+            if (!closed.compareAndSet(false, true)) return;
+            tokenChangeListeners.remove(this);
         }
     }
 
@@ -182,9 +245,22 @@ public class NightbreakAccount {
      * @param token  The token to register
      * @return The new NightbreakAccount instance
      */
-    public static NightbreakAccount registerToken(JavaPlugin plugin, String token) {
+    public static synchronized NightbreakAccount registerToken(
+            JavaPlugin plugin,
+            String token) {
+        String normalizedToken = token == null ? "" : token.trim();
+        if (normalizedToken.isEmpty() ||
+                normalizedToken.equals("YOUR_TOKEN_HERE")) {
+            if (plugin != null) {
+                plugin.getLogger().warning(
+                        "Cannot register an empty or placeholder account token.");
+            }
+            return null;
+        }
         File configFile = getConfigFile(plugin);
         configFilePath = configFile;  // ensure ensureFresh() in this classloader knows where to look
+        long previousDiskMtime =
+                configFile.exists() ? configFile.lastModified() : -1L;
 
         // Ensure parent directory exists
         if (!configFile.getParentFile().exists()) {
@@ -214,33 +290,89 @@ public class NightbreakAccount {
                 "Get your token at: https://nightbreak.io/account"
         ));
 
-        config.set("token", token);
+        config.set("token", normalizedToken);
 
+        File temporaryConfig = null;
         try {
-            config.save(configFile);
+            temporaryConfig = File.createTempFile(
+                    ".nightbreak-",
+                    ".yml.tmp",
+                    configFile.getParentFile());
+            config.save(temporaryConfig);
+            try {
+                Files.move(
+                        temporaryConfig.toPath(),
+                        configFile.toPath(),
+                        StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException exception) {
+                Files.move(
+                        temporaryConfig.toPath(),
+                        configFile.toPath(),
+                        StandardCopyOption.REPLACE_EXISTING);
+            }
         } catch (IOException e) {
             Logger.warn("Failed to save account token: " + e.getMessage());
             return null;
+        } finally {
+            if (temporaryConfig != null && temporaryConfig.exists()) {
+                temporaryConfig.delete();
+            }
         }
 
-        boolean hadInstanceBefore = instance != null;
-        instance = new NightbreakAccount(token);
+        String previousToken = currentToken();
+        instance = new NightbreakAccount(normalizedToken);
         // Pin the mtime to the value we just wrote so ensureFresh() in THIS
         // classloader doesn't see a spurious "changed" on the very next access
         // and reload what we already have in memory. Other plugins' shaded
         // copies will see their own lastFileMtime as stale on their next access
         // and reload from disk — that's the whole point of this design.
+        long monotonicMtime = Math.max(
+                System.currentTimeMillis(),
+                Math.max(previousDiskMtime, lastFileMtime) + 1L);
+        if (!configFile.setLastModified(monotonicMtime)) {
+            Logger.warn("Could not advance the account-token file timestamp; "
+                    + "other loaded plugins may observe this credential change late.");
+        }
         lastFileMtime = configFile.lastModified();
         // Token changed — give the new token a fresh chance to log auth failures.
         resetAuthFailureSuppression();
-        // Notify in-classloader subscribers if this was a "no token → have token"
-        // transition (the typical /nightbreaklogin flow). Other classloaders'
-        // shaded copies will fire their own listeners from ensureFresh() the
-        // next time anything in those classloaders touches NightbreakAccount.
-        if (!hadInstanceBefore) {
+        // Other classloaders' shaded copies fire their own listeners from
+        // ensureFresh() the next time they touch NightbreakAccount.
+        if (!Objects.equals(previousToken, currentToken())) {
             fireTokenChanged();
         }
         return instance;
+    }
+
+    /**
+     * Removes the shared Nightbreak token from disk and this shaded
+     * classloader.
+     *
+     * <p>The configuration file itself is deleted so a token cannot remain in
+     * comments, backups, or an empty placeholder value. Other shaded copies
+     * observe the missing file from {@link #ensureFresh()} on their next
+     * access, which makes logout propagate without a server restart.</p>
+     *
+     * @param plugin plugin whose data-folder parent identifies the shared
+     *               MagmaCore configuration directory
+     * @return {@code true} when no token remains, otherwise {@code false}
+     */
+    public static synchronized boolean clearToken(JavaPlugin plugin) {
+        File configFile = getConfigFile(plugin);
+        configFilePath = configFile;
+        if (configFile.exists() && !configFile.delete()) {
+            Logger.warn("Failed to remove the shared account token configuration.");
+            return false;
+        }
+        boolean tokenChanged = instance != null;
+        instance = null;
+        lastFileMtime = -1L;
+        resetAuthFailureSuppression();
+        if (tokenChanged) {
+            fireTokenChanged();
+        }
+        return true;
     }
 
     /**
@@ -279,7 +411,7 @@ public class NightbreakAccount {
      */
     public VersionInfo getVersion(String slug) {
         try {
-            String url = BASE_URL + "/server/dlc/" + slug + "/version";
+            String url = baseUrl() + "/server/dlc/" + slug + "/version";
             String response = httpGet(url, false);
 
             if (response == null) return null;
@@ -301,7 +433,7 @@ public class NightbreakAccount {
      */
     public Map<String, VersionInfo> getAllVersions() {
         try {
-            String url = BASE_URL + "/api/dlc/versions";
+            String url = baseUrl() + "/api/dlc/versions";
             String response = httpGet(url, false);
             if (response == null) return new HashMap<>();
             return parseAllVersionsResponse(response);
@@ -325,7 +457,7 @@ public class NightbreakAccount {
         }
 
         try {
-            String url = BASE_URL + "/server/dlc/" + slug + "/access";
+            String url = baseUrl() + "/server/dlc/" + slug + "/access";
             String response = httpGet(url, true);
 
             if (response == null) return null;
@@ -365,7 +497,7 @@ public class NightbreakAccount {
         }
 
         try {
-            String url = BASE_URL + "/server/dlc/" + slug + "/download";
+            String url = baseUrl() + "/server/dlc/" + slug + "/download";
             if (version != null) {
                 url += "?version=" + version;
             }
@@ -393,7 +525,7 @@ public class NightbreakAccount {
             return false;
         }
         try {
-            String url = BASE_URL + "/server/dlc/" + slug + "/download";
+            String url = baseUrl() + "/server/dlc/" + slug + "/download";
             if (version != null) {
                 url += "?version=" + version;
             }
@@ -414,7 +546,7 @@ public class NightbreakAccount {
 
     public static VersionInfo getPublicPluginVersion(String slug, boolean logFailures) {
         try {
-            String url = BASE_URL + "/server/plugins/" + encodePathSegment(slug) + "/version";
+            String url = baseUrl() + "/server/plugins/" + encodePathSegment(slug) + "/version";
             String response = httpGetPublic(url, logFailures);
             if (response == null) return null;
             return parseVersionInfo(response);
@@ -426,6 +558,74 @@ public class NightbreakAccount {
         }
     }
 
+    public static VersionInfo getPublicDlcVersion(String slug, boolean logFailures) {
+        try {
+            String url = baseUrl() + "/server/dlc/" + encodePathSegment(slug) + "/version";
+            String response = httpGetPublic(url, logFailures);
+            return response == null ? null : parseVersionInfo(response);
+        } catch (Exception exception) {
+            if (logFailures)
+                Logger.warn("Error getting DLC version for '" + slug + "': " + exception.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Fetches the public release history uploaded by the Nightbreak release pipeline.
+     * Results are returned oldest first so callers can render a chronological digest.
+     */
+    public static List<PluginChangelog> getPublicPluginChangelogs(String slug, boolean logFailures) {
+        return getPublicChangelogs("/server/plugins/", slug, logFailures);
+    }
+
+    /** Public DLC release history; this endpoint intentionally requires no account token. */
+    public static List<PluginChangelog> getPublicDlcChangelogs(String slug, boolean logFailures) {
+        return getPublicChangelogs("/server/dlc/", slug, logFailures);
+    }
+
+    private static List<PluginChangelog> getPublicChangelogs(String prefix, String slug, boolean logFailures) {
+        try {
+            String url = baseUrl() + prefix + encodePathSegment(slug) + "/changelogs?limit=100";
+            String response = httpGetPublic(url, logFailures);
+            if (response == null) return List.of();
+            JsonElement root = JsonParser.parseString(response);
+            JsonArray releases;
+            if (root.isJsonArray()) releases = root.getAsJsonArray();
+            else if (root.isJsonObject() && root.getAsJsonObject().has("releases"))
+                releases = root.getAsJsonObject().getAsJsonArray("releases");
+            else if (root.isJsonObject() && root.getAsJsonObject().has("changelogs"))
+                releases = root.getAsJsonObject().getAsJsonArray("changelogs");
+            else return List.of();
+
+            List<PluginChangelog> result = new ArrayList<>();
+            for (JsonElement element : releases) {
+                if (!element.isJsonObject() || result.size() >= 100) continue;
+                JsonObject object = element.getAsJsonObject();
+                String version = jsonString(object, "version");
+                String changelog = jsonString(object, "changelog");
+                if (changelog == null) changelog = jsonString(object, "body");
+                if (version == null || version.isBlank()) continue;
+                String boundedChangelog = changelog == null ? "" : changelog.trim();
+                if (boundedChangelog.length() > 12_000)
+                    boundedChangelog = boundedChangelog.substring(0, 12_000);
+                result.add(new PluginChangelog(version.trim(), boundedChangelog, jsonString(object, "releasedAt")));
+            }
+            // The public history contract is newest-first so the bounded response always
+            // contains the current release. Consumers render chronological digests.
+            java.util.Collections.reverse(result);
+            return List.copyOf(result);
+        } catch (Exception exception) {
+            if (logFailures)
+                Logger.warn("Error getting changelogs for '" + slug + "': " + exception.getMessage());
+            return List.of();
+        }
+    }
+
+    private static String jsonString(JsonObject object, String key) {
+        JsonElement value = object.get(key);
+        return value == null || value.isJsonNull() || !value.isJsonPrimitive() ? null : value.getAsString();
+    }
+
     public AccessInfo checkPluginAccess(String slug) {
         if (!hasToken()) {
             Logger.warn("Cannot check plugin update access: No account token registered. Use /nightbreaklogin <token> first.");
@@ -433,7 +633,7 @@ public class NightbreakAccount {
         }
 
         try {
-            String url = BASE_URL + "/server/plugins/" + encodePathSegment(slug) + "/access";
+            String url = baseUrl() + "/server/plugins/" + encodePathSegment(slug) + "/access";
             String response = httpGet(url, true);
             if (response == null) return null;
             return parseAccessInfo(response);
@@ -455,7 +655,7 @@ public class NightbreakAccount {
         }
 
         try {
-            String url = BASE_URL + "/server/plugins/" + encodePathSegment(slug) + "/download";
+            String url = baseUrl() + "/server/plugins/" + encodePathSegment(slug) + "/download";
             return httpDownloadWithProgressResult(url, destinationFile, progressCallback);
         } catch (Exception e) {
             Logger.warn("Error downloading plugin update '" + slug + "': " + e.getMessage());
@@ -468,6 +668,121 @@ public class NightbreakAccount {
 
     private static final int CONNECT_TIMEOUT_MS = 10000;
     private static final int READ_TIMEOUT_MS = 10000;
+    private static final int MAX_PUBLIC_JSON_BYTES = 768 * 1024;
+    private static final long MAX_PLUGIN_DOWNLOAD_BYTES =
+            256L * 1024L * 1024L;
+
+    /**
+     * Temporarily redirects Nightbreak API calls to a loopback HTTP fixture.
+     *
+     * <p>This is deliberately package-private so production consumers cannot
+     * configure or persist an alternate update origin. Tests in this package
+     * must close the returned scope before another override can be installed.</p>
+     */
+    static ScopedTestBaseUrl useLoopbackBaseUrlForTests(URI baseUri) {
+        if (baseUri == null) {
+            throw new IllegalArgumentException("Test base URI cannot be null.");
+        }
+        String scheme = baseUri.getScheme();
+        if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
+            throw new IllegalArgumentException("Test base URI must use HTTP or HTTPS.");
+        }
+        String host = baseUri.getHost();
+        if (host == null || host.isBlank()) {
+            throw new IllegalArgumentException("Test base URI must have a loopback host.");
+        }
+        String normalizedHost = host.startsWith("[") && host.endsWith("]")
+                ? host.substring(1, host.length() - 1)
+                : host;
+        if (!isLoopbackTestHost(normalizedHost)) {
+            throw new IllegalArgumentException("Test base URI must be loopback-only.");
+        }
+        if (baseUri.getRawUserInfo() != null || baseUri.getRawQuery() != null || baseUri.getRawFragment() != null) {
+            throw new IllegalArgumentException("Test base URI cannot contain user info, a query, or a fragment.");
+        }
+        String path = baseUri.getRawPath();
+        if (path != null && !path.isBlank() && !"/".equals(path)) {
+            throw new IllegalArgumentException("Test base URI cannot contain an API path.");
+        }
+
+        String normalized = baseUri.toString();
+        while (normalized.endsWith("/")) {
+            normalized = normalized.substring(0, normalized.length() - 1);
+        }
+        synchronized (TEST_BASE_URL_LOCK) {
+            if (scopedTestBaseUrl != null) {
+                throw new IllegalStateException("A Nightbreak test base URI is already active.");
+            }
+            scopedTestBaseUrl = normalized;
+        }
+        return new ScopedTestBaseUrl(normalized);
+    }
+
+    private static String baseUrl() {
+        String testBaseUrl = scopedTestBaseUrl;
+        if (testBaseUrl != null) return testBaseUrl;
+        PRODUCTION_ORIGIN_SELECTIONS.incrementAndGet();
+        return BASE_URL;
+    }
+
+    static int productionOriginSelectionsForTests() {
+        return PRODUCTION_ORIGIN_SELECTIONS.get();
+    }
+
+    static void resetForTests() {
+        synchronized (TEST_BASE_URL_LOCK) {
+            if (scopedTestBaseUrl != null) {
+                throw new IllegalStateException("Close the Nightbreak test base URI scope before resetting state.");
+            }
+        }
+        instance = null;
+        configFilePath = null;
+        lastFileMtime = -1L;
+        tokenChangeListeners.clear();
+        PRODUCTION_ORIGIN_SELECTIONS.set(0);
+        resetAuthFailureSuppression();
+    }
+
+    private static boolean isLoopbackTestHost(String host) {
+        if ("localhost".equalsIgnoreCase(host)
+                || "::1".equals(host)
+                || "0:0:0:0:0:0:0:1".equals(host)) {
+            return true;
+        }
+        String[] octets = host.split("\\.", -1);
+        if (octets.length != 4 || !"127".equals(octets[0])) return false;
+        for (String octet : octets) {
+            if (octet.isBlank()) return false;
+            try {
+                int value = Integer.parseInt(octet);
+                if (value < 0 || value > 255) return false;
+            } catch (NumberFormatException exception) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static final class ScopedTestBaseUrl implements AutoCloseable {
+        private final String expectedBaseUrl;
+        private boolean closed;
+
+        private ScopedTestBaseUrl(String expectedBaseUrl) {
+            this.expectedBaseUrl = expectedBaseUrl;
+        }
+
+        @Override
+        public void close() {
+            synchronized (TEST_BASE_URL_LOCK) {
+                if (closed) return;
+                if (!expectedBaseUrl.equals(scopedTestBaseUrl)) {
+                    throw new IllegalStateException("Nightbreak test base URI scope changed unexpectedly.");
+                }
+                scopedTestBaseUrl = null;
+                closed = true;
+            }
+        }
+    }
 
     private static String encodePathSegment(String value) {
         return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
@@ -481,6 +796,7 @@ public class NightbreakAccount {
         try {
             URL url = new URL(urlString);
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            configureScopedTestRedirectPolicy(connection);
             connection.setRequestMethod("GET");
             connection.setRequestProperty("Accept", "application/json");
             connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
@@ -488,25 +804,13 @@ public class NightbreakAccount {
 
             int responseCode = connection.getResponseCode();
             if (responseCode == 200) {
-                Scanner scanner = new Scanner(connection.getInputStream(), StandardCharsets.UTF_8);
-                StringBuilder response = new StringBuilder();
-                while (scanner.hasNext()) {
-                    response.append(scanner.nextLine());
-                }
-                scanner.close();
-                return response.toString();
+                return readUtf8Bounded(connection.getInputStream(), MAX_PUBLIC_JSON_BYTES);
             }
 
             String errorResponse = null;
             InputStream errorStream = connection.getErrorStream();
             if (errorStream != null) {
-                Scanner scanner = new Scanner(errorStream, StandardCharsets.UTF_8);
-                StringBuilder sb = new StringBuilder();
-                while (scanner.hasNext()) {
-                    sb.append(scanner.nextLine());
-                }
-                scanner.close();
-                errorResponse = sb.toString();
+                errorResponse = readUtf8Bounded(errorStream, 64 * 1024);
             }
             if (logFailures) {
                 logHttpError(urlString, responseCode, errorResponse);
@@ -517,6 +821,15 @@ public class NightbreakAccount {
                 logNetworkFailure(urlString, e.getMessage());
             }
             return null;
+        }
+    }
+
+    private static String readUtf8Bounded(InputStream inputStream, int maximumBytes) throws IOException {
+        try (InputStream stream = inputStream) {
+            byte[] bytes = stream.readNBytes(maximumBytes + 1);
+            if (bytes.length > maximumBytes)
+                throw new IOException("Nightbreak response exceeded " + maximumBytes + " bytes");
+            return new String(bytes, StandardCharsets.UTF_8);
         }
     }
 
@@ -540,6 +853,7 @@ public class NightbreakAccount {
         try {
             URL url = new URL(urlString);
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            configureScopedTestRedirectPolicy(connection);
             connection.setRequestMethod("GET");
             connection.setRequestProperty("Accept", "application/json");
             connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
@@ -655,6 +969,7 @@ public class NightbreakAccount {
         try {
             URL url = new URL(urlString);
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            configureScopedTestRedirectPolicy(connection);
             connection.setRequestMethod("GET");
             connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
             connection.setReadTimeout(READ_TIMEOUT_MS);
@@ -712,6 +1027,7 @@ public class NightbreakAccount {
         try {
             URL url = new URL(urlString);
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            configureScopedTestRedirectPolicy(connection);
             connection.setRequestMethod("GET");
             connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
             connection.setReadTimeout(READ_TIMEOUT_MS);
@@ -774,6 +1090,7 @@ public class NightbreakAccount {
         try {
             URL url = new URL(urlString);
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            configureScopedTestRedirectPolicy(connection);
             connection.setRequestMethod("GET");
             connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
             connection.setReadTimeout(READ_TIMEOUT_MS);
@@ -787,13 +1104,29 @@ public class NightbreakAccount {
                     destinationFile.getParentFile().mkdirs();
                 }
                 long totalBytes = connection.getContentLengthLong();
+                if (totalBytes > MAX_PLUGIN_DOWNLOAD_BYTES) {
+                    if (destinationFile.exists()) destinationFile.delete();
+                    return new PluginDownloadResult(
+                            false,
+                            responseCode,
+                            "DOWNLOAD_TOO_LARGE",
+                            "Plugin update exceeds the maximum download size.",
+                            null,
+                            null);
+                }
                 long bytesDownloaded = 0;
                 long lastProgressUpdate = 0;
+                boolean exceededLimit = false;
                 try (InputStream in = connection.getInputStream();
                      FileOutputStream out = new FileOutputStream(destinationFile)) {
                     byte[] buffer = new byte[8192];
                     int bytesRead;
                     while ((bytesRead = in.read(buffer)) != -1) {
+                        if (bytesDownloaded + bytesRead >
+                                MAX_PLUGIN_DOWNLOAD_BYTES) {
+                            exceededLimit = true;
+                            break;
+                        }
                         out.write(buffer, 0, bytesRead);
                         bytesDownloaded += bytesRead;
                         if (callback != null && bytesDownloaded - lastProgressUpdate >= 102400) {
@@ -801,12 +1134,22 @@ public class NightbreakAccount {
                             lastProgressUpdate = bytesDownloaded;
                         }
                     }
-                    if (callback != null) {
+                    if (!exceededLimit && callback != null) {
                         callback.onProgress(bytesDownloaded, totalBytes);
                     }
                 } catch (IOException e) {
                     if (destinationFile.exists()) destinationFile.delete();
                     throw e;
+                }
+                if (exceededLimit) {
+                    if (destinationFile.exists()) destinationFile.delete();
+                    return new PluginDownloadResult(
+                            false,
+                            responseCode,
+                            "DOWNLOAD_TOO_LARGE",
+                            "Plugin update exceeds the maximum download size.",
+                            null,
+                            null);
                 }
                 return new PluginDownloadResult(true, responseCode, null, null, null, null);
             }
@@ -836,6 +1179,13 @@ public class NightbreakAccount {
         }
         scanner.close();
         return errorResponse.toString();
+    }
+
+    private static void configureScopedTestRedirectPolicy(
+            HttpURLConnection connection) {
+        if (scopedTestBaseUrl != null) {
+            connection.setInstanceFollowRedirects(false);
+        }
     }
 
     // ==================== JSON PARSING ====================
@@ -999,6 +1349,9 @@ public class NightbreakAccount {
             return "VersionInfo{slug='" + slug + "', version='" + version + "', versionInt=" + versionInt +
                     ", fileSize=" + fileSize + ", fileName='" + fileName + "', checksum='" + checksum + "'}";
         }
+    }
+
+    public record PluginChangelog(String version, String changelog, String releasedAt) {
     }
 
     /**

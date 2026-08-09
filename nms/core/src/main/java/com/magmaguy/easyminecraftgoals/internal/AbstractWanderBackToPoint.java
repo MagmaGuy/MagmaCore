@@ -59,6 +59,18 @@ public interface AbstractWanderBackToPoint {
      */
     AbstractWanderBackToPoint setHardObjective(boolean hardObjective);
 
+    default boolean isReturnDuringCombat() {
+        return false;
+    }
+
+    /**
+     * Allows this return to take control of movement while the mob is targeting a player.
+     * This does not change the soft/hard identity exposed by the lifecycle events.
+     */
+    default AbstractWanderBackToPoint setReturnDuringCombat(boolean returnDuringCombat) {
+        return this;
+    }
+
     boolean isTeleportOnFail();
 
     /**
