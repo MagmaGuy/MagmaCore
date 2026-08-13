@@ -12,8 +12,6 @@ import net.minecraft.network.protocol.game.ServerboundInteractPacket;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.ServerCommonPacketListenerImpl;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
-import net.minecraft.world.InteractionHand;
-import net.minecraft.world.phys.Vec3;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -24,6 +22,8 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.Plugin;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -47,6 +47,9 @@ public class PacketInteractionListener implements Listener {
 
     // Reflection fields for accessing packet data
     private static Field entityIdField;
+    private static Field interactionActionField;
+    private static Object attackAction;
+    private static Method isAttackMethod;
     private static Field connectionField;
     private static Field channelField;
 
@@ -60,17 +63,74 @@ public class PacketInteractionListener implements Listener {
     private static Field countField;
 
     static {
+        // Resolve the packet fields structurally. The Spigot-mapped 1.21.11
+        // runtime calls these fields b/c/e while Paper and Purpur expose the
+        // Mojang names entityId/action/ATTACK_ACTION. Looking them up by shape
+        // avoids hard links to ServerboundInteractPacket.Handler, whose nested
+        // runtime name also differs between mapping namespaces.
         try {
-            // Get entityId field from ServerboundInteractPacket
-            entityIdField = ServerboundInteractPacket.class.getDeclaredField("entityId");
-            entityIdField.setAccessible(true);
-        } catch (NoSuchFieldException e) {
-            try {
-                entityIdField = ServerboundInteractPacket.class.getDeclaredField("a");
-                entityIdField.setAccessible(true);
-            } catch (NoSuchFieldException ex) {
-                ex.printStackTrace();
+            java.util.List<Field> entityIdCandidates = new java.util.ArrayList<>();
+            java.util.List<Field> actionCandidates = new java.util.ArrayList<>();
+
+            for (Field field : ServerboundInteractPacket.class.getDeclaredFields()) {
+                if (Modifier.isStatic(field.getModifiers())) continue;
+
+                if (field.getType() == int.class) {
+                    entityIdCandidates.add(field);
+                } else if (!field.getType().isPrimitive()) {
+                    actionCandidates.add(field);
+                }
             }
+
+            for (Field field : entityIdCandidates) {
+                if (field.getName().equals("entityId")) {
+                    entityIdField = field;
+                    break;
+                }
+            }
+            if (entityIdField == null && entityIdCandidates.size() == 1) {
+                entityIdField = entityIdCandidates.get(0);
+            }
+            if (entityIdField != null) entityIdField.setAccessible(true);
+
+            for (Field field : actionCandidates) {
+                if (field.getName().equals("action")) {
+                    interactionActionField = field;
+                    break;
+                }
+            }
+            if (interactionActionField == null && actionCandidates.size() == 1) {
+                interactionActionField = actionCandidates.get(0);
+            }
+            if (interactionActionField != null) {
+                interactionActionField.setAccessible(true);
+                for (Field field : ServerboundInteractPacket.class.getDeclaredFields()) {
+                    if (Modifier.isStatic(field.getModifiers())
+                            && field.getType() == interactionActionField.getType()) {
+                        field.setAccessible(true);
+                        attackAction = field.get(null);
+                        break;
+                    }
+                }
+            }
+
+            // Paper-derived servers expose this helper. Keep it as a fallback
+            // if a future packet layout makes structural field discovery
+            // ambiguous, without requiring it on Spigot.
+            try {
+                Method method = ServerboundInteractPacket.class.getMethod("isAttack");
+                if (method.getReturnType() == boolean.class) isAttackMethod = method;
+            } catch (NoSuchMethodException ignored) {
+            }
+
+            if (entityIdField == null || (interactionActionField == null && isAttackMethod == null)) {
+                Bukkit.getLogger().warning("[MagmaCore] Packet interaction decoding is incomplete for "
+                        + ServerboundInteractPacket.class.getName()
+                        + "; packet-only entity interactions may not work on this server version.");
+            }
+        } catch (ReflectiveOperationException | SecurityException exception) {
+            Bukkit.getLogger().warning("[MagmaCore] Failed to initialize packet interaction decoding for "
+                    + ServerboundInteractPacket.class.getName() + ": " + exception);
         }
 
         // Find Connection field by type to handle obfuscated names
@@ -320,21 +380,16 @@ public class PacketInteractionListener implements Listener {
     }
 
     private static boolean isAttackAction(ServerboundInteractPacket packet) {
-        boolean[] isAttack = {false};
-        packet.dispatch(new ServerboundInteractPacket.Handler() {
-            @Override
-            public void onAttack() {
-                isAttack[0] = true;
+        try {
+            if (interactionActionField != null && attackAction != null) {
+                return interactionActionField.get(packet) == attackAction;
             }
-
-            @Override
-            public void onInteraction(InteractionHand hand) {
+            if (isAttackMethod != null) {
+                return (boolean) isAttackMethod.invoke(packet);
             }
-
-            @Override
-            public void onInteraction(InteractionHand hand, Vec3 interactionLocation) {
-            }
-        });
-        return isAttack[0];
+        } catch (ReflectiveOperationException exception) {
+            exception.printStackTrace();
+        }
+        return false;
     }
 }

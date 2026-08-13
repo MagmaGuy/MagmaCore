@@ -69,6 +69,8 @@ public final class NightbreakPluginUpdater {
     private static final Map<JavaPlugin, Long> PLUGIN_GENERATIONS = new IdentityHashMap<>();
     private static final Map<JavaPlugin, CopyOnWriteArrayList<PluginUpdateListenerRegistration>> PLUGIN_UPDATE_LISTENERS =
             new IdentityHashMap<>();
+    private static final NightbreakPluginAsyncWorkTracker ASYNC_WORK =
+            new NightbreakPluginAsyncWorkTracker();
 
     private NightbreakPluginUpdater() {
     }
@@ -154,6 +156,8 @@ public final class NightbreakPluginUpdater {
         if (plugin == null) return;
         NightbreakChangelogManager.shutdown(plugin);
 
+        String pluginName = plugin.getName();
+        List<NightbreakPluginAsyncWorkTracker.Work> activeWork;
         synchronized (PLUGIN_LIFECYCLE_LOCK) {
             PLUGIN_GENERATIONS.put(plugin, currentGenerationLocked(plugin) + 1L);
             CopyOnWriteArrayList<PluginUpdateListenerRegistration> registrations =
@@ -161,15 +165,18 @@ public final class NightbreakPluginUpdater {
             if (registrations != null) {
                 registrations.forEach(PluginUpdateListenerRegistration::markClosedFromShutdown);
             }
+            activeWork = ASYNC_WORK.snapshot(plugin);
         }
 
-        String keyPrefix = plugin.getName().toLowerCase(Locale.ROOT) + ":";
+        String keyPrefix = pluginName.toLowerCase(Locale.ROOT) + ":";
         cancelTasksForPlugin(UPDATE_CHECK_TASKS, keyPrefix);
         cancelTasksForPlugin(AUTO_PLUGIN_UPDATE_TASKS, keyPrefix);
         cancelTasksForPlugin(AUTO_CONTENT_UPDATE_TASKS, keyPrefix);
         RUNNING_AUTO_CONTENT_UPDATES.removeIf(key -> key.startsWith(keyPrefix));
         CACHED_UPDATE_CHECKS.keySet().removeIf(key -> key.startsWith(keyPrefix));
         CACHED_UPDATE_CHECK_TIMES.keySet().removeIf(key -> key.startsWith(keyPrefix));
+        activeWork.forEach(NightbreakPluginAsyncWorkTracker.Work::requestShutdown);
+        ASYNC_WORK.awaitQuiescence(pluginName, activeWork);
     }
 
     public static boolean setAutoDownloadConfigDefault(FileConfiguration fileConfiguration) {
@@ -249,22 +256,40 @@ public final class NightbreakPluginUpdater {
         String spigotResourceId = NightbreakPluginCatalog.forSpec(spec)
                 .map(NightbreakPluginCatalog.Entry::spigotResourceId)
                 .orElse("");
-        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
-            try {
-                PluginUpdateCheck check = checkForUpdate(plugin, spec, spigotResourceId);
-                if (!isCurrentGeneration(plugin, generation)) return;
-                cacheUpdateCheck(plugin, spec, check);
-                if (callback != null) {
-                    Bukkit.getScheduler().runTask(plugin, () -> {
-                        if (isCurrentGeneration(plugin, generation)) {
-                            callback.accept(check);
-                        }
-                    });
+        NightbreakPluginAsyncWorkTracker.Work work = registerAsyncWork(plugin, generation);
+        if (work == null) {
+            RUNNING_UPDATE_CHECKS.remove(key);
+            return;
+        }
+        try {
+            var task = Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+                if (!work.start()) {
+                    RUNNING_UPDATE_CHECKS.remove(key);
+                    return;
                 }
-            } finally {
-                RUNNING_UPDATE_CHECKS.remove(key);
-            }
-        });
+                try {
+                    if (!isCurrentGeneration(plugin, generation)) return;
+                    PluginUpdateCheck check = checkForUpdate(plugin, spec, spigotResourceId);
+                    if (!isCurrentGeneration(plugin, generation)) return;
+                    cacheUpdateCheck(plugin, spec, check);
+                    if (callback != null) {
+                        Bukkit.getScheduler().runTask(plugin, () -> {
+                            if (isCurrentGeneration(plugin, generation)) {
+                                callback.accept(check);
+                            }
+                        });
+                    }
+                } finally {
+                    RUNNING_UPDATE_CHECKS.remove(key);
+                    work.close();
+                }
+            });
+            work.attach(task);
+        } catch (RuntimeException exception) {
+            RUNNING_UPDATE_CHECKS.remove(key);
+            work.dispatchFailed();
+            throw exception;
+        }
     }
 
     public static <T extends NightbreakManagedContent> void autoDownloadContentUpdatesIfEnabled(JavaPlugin plugin,
@@ -320,15 +345,29 @@ public final class NightbreakPluginUpdater {
                                            String spigotResourceId,
                                            Consumer<PluginUpdateCheck> callback) {
         long generation = currentGeneration(plugin);
-        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
-            PluginUpdateCheck check = checkForUpdate(plugin, spec, spigotResourceId);
-            if (!isCurrentGeneration(plugin, generation)) return;
-            Bukkit.getScheduler().runTask(plugin, () -> {
-                if (isCurrentGeneration(plugin, generation)) {
-                    callback.accept(check);
+        NightbreakPluginAsyncWorkTracker.Work work = registerAsyncWork(plugin, generation);
+        if (work == null) return;
+        try {
+            var task = Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+                if (!work.start()) return;
+                try {
+                    if (!isCurrentGeneration(plugin, generation)) return;
+                    PluginUpdateCheck check = checkForUpdate(plugin, spec, spigotResourceId);
+                    if (!isCurrentGeneration(plugin, generation)) return;
+                    Bukkit.getScheduler().runTask(plugin, () -> {
+                        if (isCurrentGeneration(plugin, generation)) {
+                            callback.accept(check);
+                        }
+                    });
+                } finally {
+                    work.close();
                 }
             });
-        });
+            work.attach(task);
+        } catch (RuntimeException exception) {
+            work.dispatchFailed();
+            throw exception;
+        }
     }
 
     public static PluginUpdateCheck checkForUpdate(JavaPlugin plugin,
@@ -360,18 +399,32 @@ public final class NightbreakPluginUpdater {
                                                  CommandSender sender,
                                                  Consumer<PluginUpdateDownload> callback) {
         long generation = currentGeneration(plugin);
-        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
-            PluginUpdateDownload result = downloadPluginUpdate(plugin, spec, sender, generation);
-            if (!isCurrentGeneration(plugin, generation)) return;
-            Bukkit.getScheduler().runTask(plugin, () -> {
-                if (!isCurrentGeneration(plugin, generation)) return;
-                sendDownloadResult(sender, spec, result);
-                if (result.downloaded()) {
-                    NightbreakPluginUpdateMessages.broadcastRestartRequired(plugin, spec, result, sender);
+        NightbreakPluginAsyncWorkTracker.Work work = registerAsyncWork(plugin, generation);
+        if (work == null) return;
+        try {
+            var task = Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+                if (!work.start()) return;
+                try {
+                    if (!isCurrentGeneration(plugin, generation)) return;
+                    PluginUpdateDownload result = downloadPluginUpdate(plugin, spec, sender, generation);
+                    if (!isCurrentGeneration(plugin, generation)) return;
+                    Bukkit.getScheduler().runTask(plugin, () -> {
+                        if (!isCurrentGeneration(plugin, generation)) return;
+                        sendDownloadResult(sender, spec, result);
+                        if (result.downloaded()) {
+                            NightbreakPluginUpdateMessages.broadcastRestartRequired(plugin, spec, result, sender);
+                        }
+                        if (callback != null) callback.accept(result);
+                    });
+                } finally {
+                    work.close();
                 }
-                if (callback != null) callback.accept(result);
             });
-        });
+            work.attach(task);
+        } catch (RuntimeException exception) {
+            work.dispatchFailed();
+            throw exception;
+        }
     }
 
     static PluginUpdateDownload downloadPluginUpdate(JavaPlugin plugin,
@@ -907,6 +960,15 @@ public final class NightbreakPluginUpdater {
             }
             publication.publish();
             return true;
+        }
+    }
+
+    static NightbreakPluginAsyncWorkTracker.Work registerAsyncWork(
+            JavaPlugin plugin,
+            long generation) {
+        synchronized (PLUGIN_LIFECYCLE_LOCK) {
+            if (currentGenerationLocked(plugin) != generation) return null;
+            return ASYNC_WORK.register(plugin);
         }
     }
 

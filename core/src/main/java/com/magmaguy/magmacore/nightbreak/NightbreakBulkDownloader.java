@@ -19,6 +19,7 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
@@ -28,6 +29,12 @@ public final class NightbreakBulkDownloader {
     private static final Map<JavaPlugin, Long> PLUGIN_GENERATIONS = new IdentityHashMap<>();
 
     private NightbreakBulkDownloader() {
+    }
+
+    private enum DownloadMode {
+        INSTALL,
+        UPDATE,
+        FORCE_REINSTALL
     }
 
     /**
@@ -60,6 +67,42 @@ public final class NightbreakBulkDownloader {
                                                                     AtomicBoolean guard,
                                                                     Consumer<CommandSender> reloadAction,
                                                                     boolean reloadAfterDownloads) {
+        execute(plugin,
+                pluginDisplayName,
+                sender,
+                allPackages,
+                updatesOnly ? DownloadMode.UPDATE : DownloadMode.INSTALL,
+                guard,
+                reloadAction,
+                reloadAfterDownloads);
+    }
+
+    public static <T extends NightbreakManagedContent> void executeForceReinstall(
+            JavaPlugin plugin,
+            String pluginDisplayName,
+            CommandSender sender,
+            List<T> packages,
+            AtomicBoolean guard,
+            Consumer<CommandSender> reloadAction) {
+        execute(plugin,
+                pluginDisplayName,
+                sender,
+                packages,
+                DownloadMode.FORCE_REINSTALL,
+                guard,
+                reloadAction,
+                true);
+    }
+
+    private static <T extends NightbreakManagedContent> void execute(
+            JavaPlugin plugin,
+            String pluginDisplayName,
+            CommandSender sender,
+            List<T> allPackages,
+            DownloadMode mode,
+            AtomicBoolean guard,
+            Consumer<CommandSender> reloadAction,
+            boolean reloadAfterDownloads) {
         if (!NightbreakAccount.hasToken()) {
             sender.sendMessage(ChatColorConverter.convert("&c[" + pluginDisplayName + "] No account token registered. Use /nightbreaklogin <token> first."));
             return;
@@ -75,7 +118,7 @@ public final class NightbreakBulkDownloader {
         }
         LifecycleLease lease = captureLease(plugin, guard);
 
-        if (updatesOnly) {
+        if (mode == DownloadMode.UPDATE) {
             try {
                 NightbreakContentRefresher.refreshAsync(
                         plugin,
@@ -87,7 +130,7 @@ public final class NightbreakBulkDownloader {
                                 pluginDisplayName,
                                 sender,
                                 allPackages,
-                                true,
+                                DownloadMode.UPDATE,
                                 lease,
                                 reloadAction,
                                 reloadAfterDownloads),
@@ -108,7 +151,7 @@ public final class NightbreakBulkDownloader {
                 pluginDisplayName,
                 sender,
                 allPackages,
-                false,
+                mode,
                 lease,
                 reloadAction,
                 reloadAfterDownloads);
@@ -119,7 +162,7 @@ public final class NightbreakBulkDownloader {
             String pluginDisplayName,
             CommandSender sender,
             List<T> allPackages,
-            boolean updatesOnly,
+            DownloadMode mode,
             LifecycleLease lease,
             Consumer<CommandSender> reloadAction,
             boolean reloadAfterDownloads) {
@@ -133,13 +176,15 @@ public final class NightbreakBulkDownloader {
             return;
         }
 
-        List<T> downloadable = collectPackages(allPackages, updatesOnly);
-        logSelection(pluginDisplayName, allPackages, downloadable, updatesOnly);
+        List<T> downloadable = collectPackages(allPackages, mode);
+        logSelection(pluginDisplayName, allPackages, downloadable, mode);
 
         if (downloadable.isEmpty()) {
             lease.release();
-            if (updatesOnly) {
+            if (mode == DownloadMode.UPDATE) {
                 sender.sendMessage(ChatColorConverter.convert("&a[" + pluginDisplayName + "] No content updates are currently pending."));
+            } else if (mode == DownloadMode.FORCE_REINSTALL) {
+                sender.sendMessage(ChatColorConverter.convert("&c[" + pluginDisplayName + "] No Nightbreak-managed content matched the reinstall request."));
             } else if (hasAnySlug(allPackages)) {
                 sender.sendMessage(ChatColorConverter.convert("&a[" + pluginDisplayName + "] No new content to download! All available packages are already downloaded."));
             } else {
@@ -148,7 +193,12 @@ public final class NightbreakBulkDownloader {
             return;
         }
 
-        sender.sendMessage(ChatColorConverter.convert("&e[" + pluginDisplayName + "] Found " + downloadable.size() + " packages to " + (updatesOnly ? "update" : "download") + ". Starting..."));
+        String action = switch (mode) {
+            case INSTALL -> "download";
+            case UPDATE -> "update";
+            case FORCE_REINSTALL -> "force reinstall";
+        };
+        sender.sendMessage(ChatColorConverter.convert("&e[" + pluginDisplayName + "] Found " + downloadable.size() + " packages to " + action + ". Starting..."));
 
         Player player = sender instanceof Player playerSender ? playerSender : null;
         File importsFolder = new File(plugin.getDataFolder(), "imports");
@@ -157,14 +207,14 @@ public final class NightbreakBulkDownloader {
         }
 
         downloadNext(plugin, pluginDisplayName, downloadable, 0, importsFolder, sender, player,
-                new AtomicInteger(), new AtomicInteger(), new ArrayList<>(), lease, reloadAction, updatesOnly, reloadAfterDownloads);
+                new AtomicInteger(), new AtomicInteger(), new ArrayList<>(), lease, reloadAction, mode, reloadAfterDownloads);
     }
 
     private static <T extends NightbreakManagedContent> void logSelection(
             String pluginDisplayName,
             List<T> packages,
             List<T> selected,
-            boolean updatesOnly) {
+            DownloadMode mode) {
         int withSlug = 0;
         int downloaded = 0;
         int installed = 0;
@@ -190,7 +240,7 @@ public final class NightbreakBulkDownloader {
         }
         Logger.info(
                 "[" + pluginDisplayName + "] Nightbreak bulk selection: mode=" +
-                        (updatesOnly ? "updates" : "install") +
+                        mode.name().toLowerCase(java.util.Locale.ROOT) +
                         ", total=" + packages.size() +
                         ", withSlug=" + withSlug +
                         ", downloaded=" + downloaded +
@@ -203,13 +253,20 @@ public final class NightbreakBulkDownloader {
     }
 
     static <T extends NightbreakManagedContent> List<T> collectPackages(List<T> packages, boolean updatesOnly) {
+        return collectPackages(packages, updatesOnly ? DownloadMode.UPDATE : DownloadMode.INSTALL);
+    }
+
+    private static <T extends NightbreakManagedContent> List<T> collectPackages(List<T> packages,
+                                                                                DownloadMode mode) {
         List<T> downloadable = new ArrayList<>();
         Set<String> seenSlugs = new HashSet<>();
         for (T pkg : packages) {
             String slug = pkg.getNightbreakSlug();
             if (slug == null || slug.isEmpty()) continue;
             if (!seenSlugs.add(slug)) continue;
-            if (updatesOnly) {
+            if (mode == DownloadMode.FORCE_REINSTALL) {
+                downloadable.add(pkg);
+            } else if (mode == DownloadMode.UPDATE) {
                 if (!pkg.isOutOfDate()) continue;
                 if (pkg.getCachedAccessInfo() != null && !pkg.getCachedAccessInfo().hasAccess) continue;
                 downloadable.add(pkg);
@@ -243,7 +300,7 @@ public final class NightbreakBulkDownloader {
                                                                           List<String> failedNames,
                                                                           LifecycleLease lease,
                                                                           Consumer<CommandSender> reloadAction,
-                                                                          boolean updatesOnly,
+                                                                          DownloadMode mode,
                                                                           boolean reloadAfterDownloads) {
         if (!lease.isCurrent()) {
             lease.release();
@@ -254,7 +311,7 @@ public final class NightbreakBulkDownloader {
         CommandSender activeSender = playerUnavailable ? Bukkit.getConsoleSender() : sender;
         if (index >= packages.size()) {
             finishDownloads(plugin, pluginDisplayName, activeSender, completed, failed,
-                    failedNames, lease, reloadAction, updatesOnly, reloadAfterDownloads);
+                    failedNames, lease, reloadAction, mode, reloadAfterDownloads);
             return;
         }
 
@@ -282,7 +339,7 @@ public final class NightbreakBulkDownloader {
                             sender.sendMessage(ChatColorConverter.convert("&c[" + pluginDisplayName + "] Failed to download: " + pkg.getDisplayName()));
                         }
                         downloadNext(plugin, pluginDisplayName, packages, index + 1, importsFolder, sender, player,
-                                completed, failed, failedNames, lease, reloadAction, updatesOnly, reloadAfterDownloads);
+                                completed, failed, failedNames, lease, reloadAction, mode, reloadAfterDownloads);
                         return;
                     }
 
@@ -290,7 +347,10 @@ public final class NightbreakBulkDownloader {
                         lease.release();
                         return;
                     }
-                    pkg.enableAfterDownload().whenComplete((ignored, throwable) -> {
+                    CompletableFuture<Void> preparation = mode == DownloadMode.FORCE_REINSTALL
+                            ? CompletableFuture.completedFuture(null)
+                            : pkg.enableAfterDownload();
+                    preparation.whenComplete((ignored, throwable) -> {
                         if (!lease.isCurrent()) {
                             lease.release();
                             return;
@@ -303,7 +363,8 @@ public final class NightbreakBulkDownloader {
                                     String suffix = remaining > 0
                                             ? "! &7Please hold on, " + remaining + " more to go..."
                                             : "!";
-                                    sender.sendMessage(ChatColorConverter.convert("&a[" + pluginDisplayName + "] Downloaded " + pkg.getDisplayName() + suffix));
+                                    String verb = mode == DownloadMode.FORCE_REINSTALL ? "Reinstalled " : "Downloaded ";
+                                    sender.sendMessage(ChatColorConverter.convert("&a[" + pluginDisplayName + "] " + verb + pkg.getDisplayName() + suffix));
                                 }
                             } else {
                                 throwable.printStackTrace();
@@ -314,7 +375,7 @@ public final class NightbreakBulkDownloader {
                                 }
                             }
                             downloadNext(plugin, pluginDisplayName, packages, index + 1, importsFolder, sender, player,
-                                    completed, failed, failedNames, lease, reloadAction, updatesOnly, reloadAfterDownloads);
+                                    completed, failed, failedNames, lease, reloadAction, mode, reloadAfterDownloads);
                         });
                     });
                 });
@@ -328,16 +389,21 @@ public final class NightbreakBulkDownloader {
                                         List<String> failedNames,
                                         LifecycleLease lease,
                                         Consumer<CommandSender> reloadAction,
-                                        boolean updatesOnly,
+                                        DownloadMode mode,
                                         boolean reloadAfterDownloads) {
         if (!lease.isCurrent()) {
             lease.release();
             return;
         }
 
-        String operation = updatesOnly ? "Updates finished" : "Bulk download finished";
+        String operation = switch (mode) {
+            case INSTALL -> "Bulk download finished";
+            case UPDATE -> "Updates finished";
+            case FORCE_REINSTALL -> "Force reinstall finished";
+        };
+        String completedLabel = mode == DownloadMode.FORCE_REINSTALL ? "Reinstalled" : "Downloaded/updated";
         sender.sendMessage(ChatColorConverter.convert("&a[" + pluginDisplayName + "] " + operation +
-                "! Downloaded/updated: " + completed.get() + ", Failed: " + failed.get()));
+                "! " + completedLabel + ": " + completed.get() + ", Failed: " + failed.get()));
         if (!failedNames.isEmpty()) {
             sender.sendMessage(ChatColorConverter.convert("&c[" + pluginDisplayName + "] Failed packages: " + String.join(", ", failedNames)));
         }

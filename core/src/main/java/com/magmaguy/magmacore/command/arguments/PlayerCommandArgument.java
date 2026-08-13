@@ -5,7 +5,6 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 public class PlayerCommandArgument implements ICommandArgument {
 
@@ -34,11 +33,11 @@ public class PlayerCommandArgument implements ICommandArgument {
 
     @Override
     public List<String> getSuggestions(CommandSender sender, String partialInput) {
-        // Filter online players that start with partialInput
         return Bukkit.getOnlinePlayers().stream()
+                .filter(target -> !(sender instanceof Player viewer) || viewer.canSee(target))
                 .map(Player::getName)
-                .filter(name -> name.toLowerCase().startsWith(partialInput.toLowerCase()))
-                .collect(Collectors.toList());
+                .filter(name -> name.regionMatches(true, 0, partialInput, 0, partialInput.length()))
+                .toList();
     }
 
     @Override

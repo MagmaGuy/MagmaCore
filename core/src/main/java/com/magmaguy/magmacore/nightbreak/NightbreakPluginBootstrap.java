@@ -78,6 +78,7 @@ public final class NightbreakPluginBootstrap {
         if (pluginSpec.hasContentPackages()) {
             commandManager.registerCommand(new NightbreakDownloadContentCommand<>(plugin, pluginSpec, packagesSupplier, guard, reloadAction, false));
             commandManager.registerCommand(new NightbreakDownloadContentCommand<>(plugin, pluginSpec, packagesSupplier, guard, reloadAction, true));
+            commandManager.registerCommand(new NightbreakForceReinstallContentCommand<>(plugin, pluginSpec, packagesSupplier, guard, reloadAction));
         }
     }
 

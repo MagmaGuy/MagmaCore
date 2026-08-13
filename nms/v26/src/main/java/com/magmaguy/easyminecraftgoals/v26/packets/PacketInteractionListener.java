@@ -34,8 +34,8 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class PacketInteractionListener implements Listener {
 
-    private static final String HANDLER_NAME = "emg_packet_interaction";
     private final Plugin plugin;
+    private final String handlerName;
     private final Map<UUID, Channel> playerChannels = new ConcurrentHashMap<>();
 
     private static Field connectionField;
@@ -43,10 +43,8 @@ public class PacketInteractionListener implements Listener {
 
     // Reflection for outbound ClientboundLevelParticlesPacket clamping.
     // ClientboundLevelParticlesPacket is a regular (non-record) class with one
-    // private final int field — `count` — so we mutate it in place rather than
-    // rebuild the packet. Vanilla broadcasts share one packet instance across
-    // every viewer's pipeline, so a single mutation suffices for all of them
-    // (and concurrent re-mutations to the same cap value are idempotent).
+    // private final int field — `count` — so we discover it reflectively and
+    // rebuild over-cap packets with the configured count.
     private static Field particleField;
     private static Field countField;
 
@@ -114,6 +112,7 @@ public class PacketInteractionListener implements Listener {
 
     public PacketInteractionListener(Plugin plugin) {
         this.plugin = plugin;
+        this.handlerName = "emg_packet_interaction_" + plugin.getName();
     }
 
     public void initialize() {
@@ -153,11 +152,11 @@ public class PacketInteractionListener implements Listener {
             Channel channel = getChannel(packetListener);
             if (channel == null) return;
 
-            if (channel.pipeline().get(HANDLER_NAME) != null) {
-                channel.pipeline().remove(HANDLER_NAME);
+            if (channel.pipeline().get(handlerName) != null) {
+                channel.pipeline().remove(handlerName);
             }
 
-            channel.pipeline().addBefore("packet_handler", HANDLER_NAME, new PacketHandler(player));
+            channel.pipeline().addBefore("packet_handler", handlerName, new PacketHandler(player));
             playerChannels.put(player.getUniqueId(), channel);
 
         } catch (Exception e) {
@@ -179,9 +178,9 @@ public class PacketInteractionListener implements Listener {
 
     private void uninjectPlayer(Player player) {
         Channel channel = playerChannels.remove(player.getUniqueId());
-        if (channel != null && channel.pipeline().get(HANDLER_NAME) != null) {
+        if (channel != null && channel.pipeline().get(handlerName) != null) {
             try {
-                channel.pipeline().remove(HANDLER_NAME);
+                channel.pipeline().remove(handlerName);
             } catch (Exception ignored) {
             }
         }
