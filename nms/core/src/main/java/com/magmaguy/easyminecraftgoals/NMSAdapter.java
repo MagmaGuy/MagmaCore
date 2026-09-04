@@ -1,5 +1,8 @@
 package com.magmaguy.easyminecraftgoals;
 
+import com.magmaguy.magmacore.ai.MindActionSink;
+import com.magmaguy.magmacore.ai.MindFailureListener;
+import com.magmaguy.magmacore.ai.MindHost;
 import com.magmaguy.easyminecraftgoals.constants.OverridableWanderPriority;
 import com.magmaguy.easyminecraftgoals.customentity.BukkitCustomEntity;
 import com.magmaguy.easyminecraftgoals.customentity.BukkitCustomEntityImpl;
@@ -21,7 +24,9 @@ import com.magmaguy.easyminecraftgoals.internal.PacketEntityInteractionManager;
 import com.magmaguy.easyminecraftgoals.internal.PacketInteractionEntity;
 import com.magmaguy.easyminecraftgoals.internal.PacketModelEntity;
 import com.magmaguy.easyminecraftgoals.internal.PacketTextEntity;
+import com.magmaguy.easyminecraftgoals.internal.pathfinding.LongRangePathfindingHandle;
 import org.bukkit.Location;
+import org.bukkit.NamespacedKey;
 import org.bukkit.entity.EntityType;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.World;
@@ -32,7 +37,58 @@ import org.bukkit.inventory.ItemStack;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
+import java.util.Objects;
+import java.util.Optional;
+
 public abstract class NMSAdapter {
+    /**
+     * Creates the version-specific native mind host. Adapters before 26.2 do not support native
+     * MagmaCore bodies and fail explicitly instead of falling back to a Java scheduler.
+     */
+    public MindHost createMindHost(MindFailureListener failureListener) {
+        if (NMSManager.pluginProvider == null) {
+            throw new IllegalStateException("NMSManager must be initialized before creating a Mind host");
+        }
+        return createMindHost(
+                new NamespacedKey(NMSManager.pluginProvider, "native_mind"),
+                failureListener);
+    }
+
+    /**
+     * Creates a native Mind host with a stable owner identity persisted on every carrier. Separate
+     * shaded MagmaCore hosts must use different identities.
+     */
+    public MindHost createMindHost(NamespacedKey hostIdentity, MindFailureListener failureListener) {
+        return createMindHost(hostIdentity, failureListener, MindActionSink.rejecting());
+    }
+
+    /**
+     * Creates a native Mind host with a synchronous semantic action sink. The sink runs on the
+     * server thread inside the requesting Mind callback's execution budget.
+     */
+    public MindHost createMindHost(
+            NamespacedKey hostIdentity,
+            MindFailureListener failureListener,
+            MindActionSink actionSink) {
+        Objects.requireNonNull(hostIdentity, "hostIdentity");
+        Objects.requireNonNull(failureListener, "failureListener");
+        Objects.requireNonNull(actionSink, "actionSink");
+        throw new UnsupportedOperationException("Native mind bodies require Minecraft 26.2 or newer");
+    }
+
+    /**
+     * Returns whether an entity is any MagmaCore native mind carrier. This read-only discriminator
+     * is safe during the synchronous spawn event. Rehydration and marker mutation still require
+     * the exact host identity supplied when the Mind host was created.
+     */
+    public boolean isMindBody(Entity entity) {
+        return false;
+    }
+
+    /** Stops all native mind sessions while retaining their rehydration markers. */
+    public void shutdownMindHost() {
+    }
+
     /**
      * Simply makes an entity move to a point.
      *
@@ -42,6 +98,55 @@ public abstract class NMSAdapter {
      * @return Whether the objective is reachable.
      */
     public abstract boolean move(LivingEntity livingEntity, double speedModifier, Location targetLocation);
+
+    /**
+     * Temporarily makes a pathfinding entity flee from a threat while leaving its permanent goals,
+     * combat target, and AI flags untouched. Unsupported adapters and entity types fail closed.
+     */
+    public Optional<TransientMovementOverride> beginFlee(
+            LivingEntity livingEntity,
+            Location threatLocation,
+            double speedModifier) {
+        Objects.requireNonNull(livingEntity, "livingEntity");
+        Objects.requireNonNull(threatLocation, "threatLocation");
+        return Optional.empty();
+    }
+
+    /**
+     * Creates one reusable, interruptible navigation handle for an existing mob. Long destinations
+     * are resolved into bounded native legs without loading chunks. Unsupported entity types fail closed.
+     */
+    public final Optional<PathfindingHandle> createPathfindingHandle(LivingEntity livingEntity) {
+        Objects.requireNonNull(livingEntity, "livingEntity");
+        final OverridableWanderPriority priority;
+        try {
+            priority = OverridableWanderPriority.valueOf(livingEntity.getType().name());
+        } catch (IllegalArgumentException exception) {
+            return Optional.empty();
+        }
+        return createPathfindingHandle(livingEntity, priority.priority)
+                .map(nativeHandle -> new LongRangePathfindingHandle(livingEntity, nativeHandle));
+    }
+
+    /** Implemented by adapters that can install native goals on the supplied entity. */
+    protected Optional<PathfindingHandle> createPathfindingHandle(LivingEntity livingEntity, int priority) {
+        return Optional.empty();
+    }
+
+    /**
+     * Removes vanilla goals and brain behaviors from a mob without disabling its pathfinding AI.
+     * This is primarily used for plugin-owned NPC bodies before installing a replacement goal.
+     */
+    public boolean removeFreeWill(LivingEntity livingEntity) {
+        Objects.requireNonNull(livingEntity, "livingEntity");
+        return false;
+    }
+
+    /** Checks the entity-ticking chunk level without loading the destination chunk. */
+    public boolean isPositionEntityTicking(Location location) {
+        Objects.requireNonNull(location, "location");
+        return false;
+    }
 
     public abstract boolean forcedMove(LivingEntity livingEntity, double speedModifier, Location location);
 
@@ -376,6 +481,12 @@ public abstract class NMSAdapter {
         @Override
         public FakeText.Builder translation(float x, float y, float z) {
             settings.setTranslation(x, y, z);
+            return this;
+        }
+
+        @Override
+        public FakeText.Builder viewerFilter(java.util.function.Predicate<org.bukkit.entity.Player> viewerFilter) {
+            settings.setViewerFilter(viewerFilter);
             return this;
         }
 

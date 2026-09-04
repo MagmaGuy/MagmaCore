@@ -111,6 +111,27 @@ public interface PacketEntityInterface {
     }
 
     /**
+     * Sets a right-click callback that receives the decoded action and hand.
+     *
+     * <p>The distinct method name keeps existing lambda and {@code null} call sites
+     * source-compatible with {@link #setRightClickCallback(BiConsumer)}.</p>
+     *
+     * @param callback The contextual callback, or null to remove
+     */
+    default void setContextualRightClickCallback(PacketInteractionCallback callback) {
+        // Default no-op for backwards compatibility
+    }
+
+    /**
+     * Sets a left-click callback that receives the decoded interaction context.
+     *
+     * @param callback The contextual callback, or null to remove
+     */
+    default void setContextualLeftClickCallback(PacketInteractionCallback callback) {
+        // Default no-op for backwards compatibility
+    }
+
+    /**
      * Called internally when a player interacts with this packet entity.
      * Should not be called directly - use setRightClickCallback instead.
      *
@@ -119,6 +140,19 @@ public interface PacketEntityInterface {
      */
     default void handleInteraction(Player player, boolean isAttack) {
         // Default no-op for backwards compatibility
+    }
+
+    /**
+     * Called internally with the exact decoded packet action and hand.
+     *
+     * <p>The default adapts to the legacy boolean contract so packet entity
+     * implementations compiled against older MagmaCore releases remain usable.</p>
+     *
+     * @param player The player who interacted
+     * @param context The exact decoded interaction context
+     */
+    default void handleInteraction(Player player, PacketInteractionContext context) {
+        handleInteraction(player, context.isAttack());
     }
 
 }

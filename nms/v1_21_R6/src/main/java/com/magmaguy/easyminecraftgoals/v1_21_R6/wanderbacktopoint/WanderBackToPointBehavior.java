@@ -22,7 +22,7 @@ import java.util.Map;
 
 public class WanderBackToPointBehavior extends Behavior<LivingEntity> implements AbstractWanderBackToPoint {
 
-    private final Location returnLocation;
+    private Location returnLocation;
     private final double maximumDistanceFromPoint;
     private final org.bukkit.entity.LivingEntity livingEntity;
     private final Mob mob;
@@ -171,6 +171,12 @@ public class WanderBackToPointBehavior extends Behavior<LivingEntity> implements
     @Override
     public Location getReturnLocation() {
         return returnLocation;
+    }
+
+    @Override
+    public AbstractWanderBackToPoint setReturnLocation(Location location) {
+        this.returnLocation = location.clone();
+        return this;
     }
 
     @Override

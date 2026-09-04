@@ -1,6 +1,8 @@
 package com.magmaguy.easyminecraftgoals;
 
 import com.magmaguy.easyminecraftgoals.internal.PacketEntityTracker;
+import com.magmaguy.easyminecraftgoals.visuals.terrain.PacketTerrainImpactRenderer;
+import com.magmaguy.magmacore.visuals.terrain.TerrainImpactService;
 import lombok.Getter;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.Plugin;
@@ -55,6 +57,16 @@ public class NMSManager {
 
             // Initialize the packet interaction listener for handling clicks on packet entities
             adapter.initializePacketInteractionListener(plugin);
+
+            // Install the shared packet-only terrain visual. This is deliberately best-effort:
+            // an unavailable visual must not disable unrelated NMS features.
+            try {
+                TerrainImpactService.install(new PacketTerrainImpactRenderer(plugin, adapter));
+            } catch (RuntimeException terrainImpactFailure) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Packet terrain impacts are unavailable: {0}",
+                        terrainImpactFailure.getMessage());
+            }
         } catch (ClassNotFoundException e) {
             plugin.getLogger().log(Level.SEVERE, "Class not found: {0}", e.getMessage());
         } catch (ReflectiveOperationException e) {
@@ -87,7 +99,10 @@ public class NMSManager {
      * Shuts down NMS components. Should be called when the plugin using EasyMinecraftGoals is disabled.
      */
     public static void shutdown() {
+        // Terrain displays must be removed while the adapter is still available to send packets.
+        TerrainImpactService.shutdown();
         if (adapter != null) {
+            adapter.shutdownMindHost();
             adapter.shutdownPacketInteractionListener();
         }
         PacketEntityTracker.getInstance().shutdown();

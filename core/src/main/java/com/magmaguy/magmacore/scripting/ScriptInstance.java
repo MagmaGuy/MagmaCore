@@ -28,7 +28,7 @@ import java.util.*;
  * Represents a running instance of a Lua script bound to a {@link ScriptableEntity}.
  * <p>
  * Manages the Lua VM lifecycle, per-entity state, task ownership, and hook dispatch.
- * The Lua table is lazily instantiated on first {@link #handleEvent} call.
+ * The Lua table is lazily instantiated on the first event or query hook call.
  */
 public class ScriptInstance {
 
@@ -45,6 +45,7 @@ public class ScriptInstance {
     private LuaTable scriptTable;
     private Integer tickTaskId = null;
     private boolean closed = false;
+    private boolean paused = false;
     private Event currentEvent = null;
     private LivingEntity currentEventActor = null;
     private LivingEntity currentDirectTarget = null;
@@ -56,6 +57,20 @@ public class ScriptInstance {
 
     public boolean isClosed() {
         return closed;
+    }
+
+    /**
+     * Freezes hook and owned-callback execution without discarding the Lua VM or script state.
+     * Repeating callbacks remain scheduled and skip paused ticks; due one-shot callbacks wait
+     * until the instance resumes.
+     */
+    public void setPaused(boolean paused) {
+        if (closed) return;
+        this.paused = paused;
+    }
+
+    public boolean isPaused() {
+        return paused;
     }
 
     /**
@@ -95,10 +110,12 @@ public class ScriptInstance {
     public int ownLater(int ticks, Runnable runnable) {
         JavaPlugin plugin = MagmaCore.getInstance().getRequestingPlugin();
         int[] holder = new int[1];
-        BukkitTask task = Bukkit.getScheduler().runTaskLater(plugin, () -> {
+        BukkitTask task = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            if (paused) return;
+            Bukkit.getScheduler().cancelTask(holder[0]);
             ownedTasks.remove(holder[0]);
             runnable.run();
-        }, ticks);
+        }, ticks, 1L);
         holder[0] = task.getTaskId();
         ownedTasks.put(holder[0], () -> Bukkit.getScheduler().cancelTask(holder[0]));
         return holder[0];
@@ -107,7 +124,13 @@ public class ScriptInstance {
     /** Schedule a repeating owned Java task; auto-cancelled on shutdown. Returns its id. */
     public int ownRepeating(int delayTicks, int intervalTicks, Runnable runnable) {
         JavaPlugin plugin = MagmaCore.getInstance().getRequestingPlugin();
-        BukkitTask task = Bukkit.getScheduler().runTaskTimer(plugin, runnable, delayTicks, intervalTicks);
+        BukkitTask task = Bukkit.getScheduler().runTaskTimer(
+                plugin,
+                () -> {
+                    if (!paused) runnable.run();
+                },
+                delayTicks,
+                intervalTicks);
         int id = task.getTaskId();
         ownedTasks.put(id, () -> Bukkit.getScheduler().cancelTask(id));
         return id;
@@ -130,7 +153,7 @@ public class ScriptInstance {
 
     /** Invoke a Lua callback with explicit args under the CPU-time/instruction watchdog. */
     public void invokeOwnedCallback(String failureContext, LuaFunction callback, LuaValue... args) {
-        if (closed) return;
+        if (closed || paused) return;
         try {
             LuaExecutionBudget.run(() -> callback.invoke(LuaValue.varargsOf(args)));
         } catch (Exception exception) {
@@ -148,36 +171,82 @@ public class ScriptInstance {
      */
     public void handleEvent(ScriptHook hook, Event event,
                             LivingEntity directTarget, LivingEntity eventActor) {
-        if (closed || hook == null) return;
+        invokeHook(hook, event, directTarget, eventActor);
+    }
 
-        ensureScriptTable();
-
-        LuaValue function = scriptTable.get(hook.getKey());
-        if (!definition.getHooks().contains(hook) || !function.isfunction()) return;
-
-        currentEvent = event;
-        currentEventActor = eventActor;
-        currentDirectTarget = directTarget;
+    /**
+     * Invokes a Lua hook synchronously and returns its immutable scalar result.
+     *
+     * <p>The hook runs in the same VM, context, ownership lifecycle, and execution watchdog as
+     * ordinary events. Returning a table, function, userdata, or thread is a contract failure:
+     * the script is logged, shut down, and {@link ScriptQueryResult.Kind#FAILED} is returned.</p>
+     */
+    public ScriptQueryResult handleQuery(
+            ScriptHook hook,
+            Event event,
+            LivingEntity directTarget,
+            LivingEntity eventActor) {
+        HookInvocation invocation = invokeHook(hook, event, directTarget, eventActor);
+        if (invocation.kind() == HookInvocationKind.UNHANDLED) {
+            return ScriptQueryResult.unhandled();
+        }
+        if (invocation.kind() == HookInvocationKind.FAILED) {
+            return ScriptQueryResult.failed();
+        }
+        LuaValue value = invocation.value();
         try {
-            LuaExecutionBudget.run(() ->
+            if (value.isnil()) return ScriptQueryResult.nil();
+            if (value.isstring()) return ScriptQueryResult.string(value.checkjstring());
+            if (value.isboolean()) return ScriptQueryResult.bool(value.checkboolean());
+            if (value.isnumber()) return ScriptQueryResult.number(value.checkdouble());
+            throw new IllegalArgumentException(
+                    "Lua query hooks may return only nil, string, number, or boolean");
+        } catch (Exception exception) {
+            logLuaError(hook.getKey() + " result", exception);
+            shutdown();
+            return ScriptQueryResult.failed();
+        }
+    }
+
+    private HookInvocation invokeHook(
+            ScriptHook hook,
+            Event event,
+            LivingEntity directTarget,
+            LivingEntity eventActor) {
+        if (closed || paused || hook == null || !definition.supportsHook(hook)) {
+            return HookInvocation.unhandled();
+        }
+
+        Event previousEvent = currentEvent;
+        LivingEntity previousEventActor = currentEventActor;
+        LivingEntity previousDirectTarget = currentDirectTarget;
+        try {
+            ensureScriptTable();
+            LuaValue function = scriptTable.get(hook.getKey());
+            if (!function.isfunction()) return HookInvocation.unhandled();
+
+            currentEvent = event;
+            currentEventActor = eventActor;
+            currentDirectTarget = directTarget;
+            LuaValue result = LuaExecutionBudget.run(() ->
                     function.checkfunction().call(buildContext(event, directTarget, eventActor)));
+            return HookInvocation.handled(result);
         } catch (Exception exception) {
             logLuaError(hook.getKey(), exception);
             shutdown();
-            return;
+            return HookInvocation.failed();
         } finally {
-            currentEvent = null;
-            currentEventActor = null;
-            currentDirectTarget = null;
+            currentEvent = previousEvent;
+            currentEventActor = previousEventActor;
+            currentDirectTarget = previousDirectTarget;
         }
-
     }
 
     /**
      * Called each server tick when ON_TICK is supported.
      */
     public void onTick() {
-        if (closed) return;
+        if (closed || paused) return;
         if (!entity.isScriptOwnerActive()) {
             shutdown();
             return;
@@ -458,10 +527,12 @@ public class ScriptInstance {
     private int ownLaterTask(int ticks, LuaFunction callback) {
         JavaPlugin plugin = MagmaCore.getInstance().getRequestingPlugin();
         int[] taskIdHolder = new int[1];
-        BukkitTask task = Bukkit.getScheduler().runTaskLater(plugin, () -> {
+        BukkitTask task = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            if (paused) return;
+            Bukkit.getScheduler().cancelTask(taskIdHolder[0]);
             ownedTasks.remove(taskIdHolder[0]);
             runCallback(callback);
-        }, ticks);
+        }, ticks, 1L);
         taskIdHolder[0] = task.getTaskId();
         ownedTasks.put(taskIdHolder[0], () -> Bukkit.getScheduler().cancelTask(taskIdHolder[0]));
         return taskIdHolder[0];
@@ -469,7 +540,13 @@ public class ScriptInstance {
 
     private int ownRepeatingTask(int delay, int interval, LuaFunction callback) {
         JavaPlugin plugin = MagmaCore.getInstance().getRequestingPlugin();
-        BukkitTask task = Bukkit.getScheduler().runTaskTimer(plugin, () -> runCallback(callback), delay, interval);
+        BukkitTask task = Bukkit.getScheduler().runTaskTimer(
+                plugin,
+                () -> {
+                    if (!paused) runCallback(callback);
+                },
+                delay,
+                interval);
         int taskId = task.getTaskId();
         ownedTasks.put(taskId, () -> Bukkit.getScheduler().cancelTask(taskId));
         return taskId;
@@ -483,7 +560,7 @@ public class ScriptInstance {
     }
 
     private void runCallback(LuaFunction callback) {
-        if (closed) return;
+        if (closed || paused) return;
         try {
             LuaExecutionBudget.run(() -> callback.call(buildContext(null, null, null)));
         } catch (Exception exception) {
@@ -677,6 +754,33 @@ public class ScriptInstance {
     }
 
     // ── Inner types ──────────────────────────────────────────────────────
+
+    private enum HookInvocationKind {
+        UNHANDLED,
+        HANDLED,
+        FAILED
+    }
+
+    private record HookInvocation(HookInvocationKind kind, LuaValue value) {
+        private HookInvocation {
+            Objects.requireNonNull(kind, "kind");
+            if ((kind == HookInvocationKind.HANDLED) != (value != null)) {
+                throw new IllegalArgumentException("Hook invocation result does not match " + kind);
+            }
+        }
+
+        private static HookInvocation unhandled() {
+            return new HookInvocation(HookInvocationKind.UNHANDLED, null);
+        }
+
+        private static HookInvocation handled(LuaValue value) {
+            return new HookInvocation(HookInvocationKind.HANDLED, Objects.requireNonNull(value, "value"));
+        }
+
+        private static HookInvocation failed() {
+            return new HookInvocation(HookInvocationKind.FAILED, null);
+        }
+    }
 
     @FunctionalInterface
     private interface OwnedTask {

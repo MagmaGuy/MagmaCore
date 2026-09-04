@@ -209,7 +209,7 @@ public class PacketEntityTracker {
         if (player.getWorld().equals(entityWorld)) {
             // Distance check using squared distance for performance
             double distanceSquared = player.getLocation().distanceSquared(entityLocation);
-            shouldBeVisible = distanceSquared <= trackingRangeSquared;
+            shouldBeVisible = distanceSquared <= trackingRangeSquared && entity.canBeSeenBy(player);
         }
 
         boolean isCurrentlyVisible = entity.isVisibleTo(player);
@@ -333,10 +333,7 @@ public class PacketEntityTracker {
                     if (entityWorld.equals(newWorld)) {
                         Location entityLocation = entity.getTrackingLocation();
                         if (entityLocation != null) {
-                            double distanceSquared = player.getLocation().distanceSquared(entityLocation);
-                            if (distanceSquared <= trackingRangeSquared && !entity.isVisibleTo(player)) {
-                                entity.showToPlayer(player);
-                            }
+                            updateVisibilityForPlayer(entity, entityLocation, entityWorld, player);
                         }
                     }
                 }
@@ -350,10 +347,7 @@ public class PacketEntityTracker {
                             if (!entity.isVisibleTo(otherPlayer)) {
                                 Location entityLocation = entity.getTrackingLocation();
                                 if (entityLocation != null) {
-                                    double distanceSquared = otherPlayer.getLocation().distanceSquared(entityLocation);
-                                    if (distanceSquared <= trackingRangeSquared) {
-                                        entity.showToPlayer(otherPlayer);
-                                    }
+                                    updateVisibilityForPlayer(entity, entityLocation, newWorld, otherPlayer);
                                 }
                             }
                         }

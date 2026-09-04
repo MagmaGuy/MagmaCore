@@ -44,12 +44,35 @@ final class LuaExecutionBudget {
     }
 
     static <T> T run(BudgetedCall<T> call, ExecutionClock clock) {
+        return run(call, clock, MAX_INSTRUCTIONS);
+    }
+
+    static <T> T run(
+            BudgetedCall<T> call,
+            long maxCpuNanos,
+            long maxInstructions) {
+        if (maxCpuNanos <= 0L || maxInstructions <= 0L) {
+            throw new IllegalArgumentException("Lua execution limits must be positive");
+        }
+        long fallbackNanos = maxCpuNanos > Long.MAX_VALUE / 5L
+                ? Long.MAX_VALUE
+                : maxCpuNanos * 5L;
+        return run(call, new LimitedExecutionClock(
+                SYSTEM_CLOCK,
+                maxCpuNanos,
+                fallbackNanos), maxInstructions);
+    }
+
+    private static <T> T run(
+            BudgetedCall<T> call,
+            ExecutionClock clock,
+            long maxInstructions) {
         Budget existing = ACTIVE_BUDGET.get();
         if (existing != null) {
             return call.call();
         }
 
-        Budget budget = new Budget(clock);
+        Budget budget = new Budget(clock, maxInstructions);
         ACTIVE_BUDGET.set(budget);
         try {
             T result = call.call();
@@ -69,9 +92,9 @@ final class LuaExecutionBudget {
         if (budget == null) return;
 
         long instructions = ++budget.instructions;
-        if (instructions > MAX_INSTRUCTIONS) {
-            throw new LuaError("Lua instruction budget exceeded ("
-                    + MAX_INSTRUCTIONS + " instruction limit)");
+        if (instructions > budget.instructionLimit) {
+            throw new RunawayLimitExceeded("Lua instruction budget exceeded ("
+                    + budget.instructionLimit + " instruction limit)");
         }
         if ((instructions & CLOCK_CHECK_MASK) == 0L) {
             checkTimeBudget(budget);
@@ -90,12 +113,21 @@ final class LuaExecutionBudget {
         }
 
         if (budget.clock.kind() == ClockKind.THREAD_CPU_TIME) {
-            throw new LuaError("Lua CPU-time budget exceeded ("
-                    + MAX_CPU_MILLIS + "ms current-thread CPU limit)");
+            throw new RunawayLimitExceeded("Lua CPU-time budget exceeded ("
+                    + formatMillis(budget.clock.limitNanos())
+                    + "ms current-thread CPU limit)");
         }
-        throw new LuaError("Lua elapsed-time fallback budget exceeded ("
-                + MAX_FALLBACK_ELAPSED_MILLIS
+        throw new RunawayLimitExceeded("Lua elapsed-time fallback budget exceeded ("
+                + formatMillis(budget.clock.limitNanos())
                 + "ms fallback; current-thread CPU time unavailable)");
+    }
+
+    private static String formatMillis(long nanos) {
+        long wholeMillis = TimeUnit.NANOSECONDS.toMillis(nanos);
+        if (TimeUnit.MILLISECONDS.toNanos(wholeMillis) == nanos) {
+            return Long.toString(wholeMillis);
+        }
+        return Double.toString(nanos / 1_000_000.0D);
     }
 
     private static ExecutionClock createSystemClock() {
@@ -134,15 +166,27 @@ final class LuaExecutionBudget {
         ClockKind kind();
     }
 
+    static final class RunawayLimitExceeded extends LuaError {
+        private RunawayLimitExceeded(String message) {
+            super(message);
+        }
+    }
+
     private static final class Budget {
         private ExecutionClock clock;
+        private final ExecutionClock fallbackClock;
         private long clockStartNanos;
         private final long elapsedStartNanos;
+        private final long instructionLimit;
         private long instructions;
 
-        private Budget(ExecutionClock requestedClock) {
+        private Budget(ExecutionClock requestedClock, long instructionLimit) {
             elapsedStartNanos = System.nanoTime();
             clock = requestedClock;
+            fallbackClock = requestedClock instanceof LimitedExecutionClock limited
+                    ? new FixedElapsedExecutionClock(limited.elapsedLimitNanos)
+                    : ELAPSED_FALLBACK_CLOCK;
+            this.instructionLimit = instructionLimit;
             clockStartNanos = clock.nanoTime();
             if (clockStartNanos < 0L) {
                 useElapsedFallback();
@@ -150,7 +194,7 @@ final class LuaExecutionBudget {
         }
 
         private void useElapsedFallback() {
-            clock = ELAPSED_FALLBACK_CLOCK;
+            clock = fallbackClock;
             clockStartNanos = elapsedStartNanos;
         }
     }
@@ -187,6 +231,61 @@ final class LuaExecutionBudget {
         @Override
         public long limitNanos() {
             return TimeUnit.MILLISECONDS.toNanos(MAX_FALLBACK_ELAPSED_MILLIS);
+        }
+
+        @Override
+        public ClockKind kind() {
+            return ClockKind.ELAPSED_TIME_FALLBACK;
+        }
+    }
+
+    private static final class LimitedExecutionClock implements ExecutionClock {
+        private final ExecutionClock delegate;
+        private final long cpuLimitNanos;
+        private final long elapsedLimitNanos;
+
+        private LimitedExecutionClock(
+                ExecutionClock delegate,
+                long cpuLimitNanos,
+                long elapsedLimitNanos) {
+            this.delegate = delegate;
+            this.cpuLimitNanos = cpuLimitNanos;
+            this.elapsedLimitNanos = elapsedLimitNanos;
+        }
+
+        @Override
+        public long nanoTime() {
+            return delegate.nanoTime();
+        }
+
+        @Override
+        public long limitNanos() {
+            return kind() == ClockKind.THREAD_CPU_TIME
+                    ? cpuLimitNanos
+                    : elapsedLimitNanos;
+        }
+
+        @Override
+        public ClockKind kind() {
+            return delegate.kind();
+        }
+    }
+
+    private static final class FixedElapsedExecutionClock implements ExecutionClock {
+        private final long limitNanos;
+
+        private FixedElapsedExecutionClock(long limitNanos) {
+            this.limitNanos = limitNanos;
+        }
+
+        @Override
+        public long nanoTime() {
+            return System.nanoTime();
+        }
+
+        @Override
+        public long limitNanos() {
+            return limitNanos;
         }
 
         @Override

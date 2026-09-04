@@ -48,6 +48,8 @@ public class MatchInstanceWorld extends MatchInstance implements MatchInstanceIn
         for (World world : worlds) {
             TemporaryWorldManager.permanentlyDeleteWorld(world);
         }
+        //Drop the World references so the unloaded ServerLevels can be garbage collected.
+        worlds.clear();
     }
 
     @Override
@@ -69,8 +71,12 @@ public class MatchInstanceWorld extends MatchInstance implements MatchInstanceIn
             }
 
             for (MatchInstance instance : instances) {
-                if (((MatchInstanceWorld) instance).worlds == null) continue;
-                if (((MatchInstanceWorld) instance).worlds.equals(event.getFrom()) || ((MatchInstanceWorld) instance).worlds.equals(event.getTo())) {
+                //instances holds every MatchInstance subclass; a blind cast here threw
+                //ClassCastException on all teleports once a non-world instance existed.
+                if (!(instance instanceof MatchInstanceWorld matchInstanceWorld)) continue;
+                if (matchInstanceWorld.worlds == null) continue;
+                if (matchInstanceWorld.worlds.contains(event.getFrom().getWorld())
+                        || matchInstanceWorld.worlds.contains(event.getTo().getWorld())) {
                     event.setCancelled(true);
                     return;
                 }

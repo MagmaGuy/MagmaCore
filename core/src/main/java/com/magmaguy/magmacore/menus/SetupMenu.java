@@ -1,6 +1,7 @@
 package com.magmaguy.magmacore.menus;
 
 import com.magmaguy.magmacore.MagmaCore;
+import com.magmaguy.magmacore.util.ItemStackGenerator;
 import lombok.Getter;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
@@ -106,15 +107,41 @@ public class SetupMenu {
         populateNavigationElement();
         populateFilterElements();
         populateContentPackage();
-        player.openInventory(inventory);
+        // Only open the container when it isn't already on screen. Reopening an
+        // already-open inventory is invisible on Java, but through Geyser it forces
+        // a Bedrock container close/reopen handshake that leaves the client bound
+        // to a stale window — every tap after that is silently dropped. Slot
+        // updates alone reach both platforms fine.
+        if (!inventory.equals(player.getOpenInventory().getTopInventory()))
+            player.openInventory(inventory);
         setupMenus.put(inventory, this);
+    }
+
+    /**
+     * Re-renders the setup menu the player currently has open, in place: every
+     * button re-derives its state (content packages re-render installed/updatable
+     * icons) without the container being reopened. Callers that used to rebuild
+     * and reopen a fresh menu after an async refresh broke Bedrock clients — see
+     * {@link #redrawMenu}. Returns false when the player is not currently viewing
+     * a setup menu, in which case the caller may build a fresh one.
+     */
+    public static boolean refreshInPlaceFor(Player player) {
+        SetupMenu setupMenu = setupMenus.get(player.getOpenInventory().getTopInventory());
+        if (setupMenu == null || !setupMenu.player.equals(player)) return false;
+        setupMenu.redrawMenu(setupMenu.currentPage, setupMenu.inventory);
+        return true;
     }
 
     private void populateNavigationElement() {
         inventory.setItem(infoIcon, infoButton.getItemStack());
         inventoryMap.put(infoIcon, infoButton);
+        // The page arrows need real ItemStacks: the old no-arg MenuButton left the
+        // slot empty, which Java clients could still click but Bedrock clients
+        // cannot — tapping an empty slot with an empty cursor sends nothing, so
+        // multi-page menus were unpageable (and the arrows invisible) on Bedrock.
         if (currentPage > 1) {
-            MenuButton previousButton = new MenuButton() {
+            MenuButton previousButton = new MenuButton(
+                    ItemStackGenerator.generateItemStack(Material.ARROW, "&fPrevious page", new ArrayList<>())) {
                 @Override
                 public void onClick(Player player) {
                     redrawMenu(getCurrentPage() - 1, inventory);
@@ -124,7 +151,8 @@ public class SetupMenu {
             inventory.setItem(previousIcon, previousButton.getItemStack());
         }
         if (currentPage < displayedContentPackages.size() / (double) validSlots.size()) {
-            MenuButton nextButton = new MenuButton() {
+            MenuButton nextButton = new MenuButton(
+                    ItemStackGenerator.generateItemStack(Material.ARROW, "&fNext page", new ArrayList<>())) {
                 @Override
                 public void onClick(Player player) {
                     redrawMenu(getCurrentPage() + 1, inventory);

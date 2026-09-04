@@ -13,6 +13,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -68,10 +69,18 @@ public final class NightbreakPluginBootstrap {
                                                                                      Consumer<Player> initializeAction,
                                                                                      Supplier<List<T>> packagesSupplier,
                                                                                      Consumer<CommandSender> reloadAction) {
-        AtomicBoolean guard = NightbreakPluginStateRegistry.getBulkOperationGuard(plugin);
+        Objects.requireNonNull(initializeAction, "initializeAction");
         commandManager.registerCommand(new SetupCommand(pluginSpec, setupAction));
-        if (pluginSpec.hasPresetModes())
-            commandManager.registerCommand(new InitializeCommand(pluginSpec, initializeAction));
+        commandManager.registerCommand(new InitializeCommand(pluginSpec, initializeAction));
+        registerContentCommands(plugin, commandManager, pluginSpec, packagesSupplier, reloadAction);
+    }
+
+    private static <T extends NightbreakManagedContent> void registerContentCommands(JavaPlugin plugin,
+                                                                                      CommandManager commandManager,
+                                                                                      NightbreakPluginSpec pluginSpec,
+                                                                                      Supplier<List<T>> packagesSupplier,
+                                                                                      Consumer<CommandSender> reloadAction) {
+        AtomicBoolean guard = NightbreakPluginStateRegistry.getBulkOperationGuard(plugin);
         commandManager.registerCommand(new NightbreakRecommendedPluginsCommand(plugin, pluginSpec));
         commandManager.registerCommand(new NightbreakDownloadPluginUpdateCommand(plugin, pluginSpec));
         commandManager.registerCommand(new NightbreakDownloadEverythingCommand<>(plugin, pluginSpec, packagesSupplier, guard, reloadAction));
@@ -90,8 +99,8 @@ public final class NightbreakPluginBootstrap {
                                                 NightbreakPluginSpec pluginSpec,
                                                 Consumer<Player> setupAction,
                                                 Consumer<CommandSender> reloadAction) {
-        registerStandardCommands(plugin, commandManager, pluginSpec,
-                setupAction, player -> {}, List::of, reloadAction);
+        commandManager.registerCommand(new SetupCommand(pluginSpec, setupAction));
+        registerContentCommands(plugin, commandManager, pluginSpec, List::of, reloadAction);
     }
 
     private static final class SetupCommand extends AdvancedCommand {

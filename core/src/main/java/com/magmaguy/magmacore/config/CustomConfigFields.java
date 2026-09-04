@@ -25,8 +25,8 @@ public abstract class CustomConfigFields {
     @Setter
     protected boolean isEnabled;
     @Getter
-    @Setter
     protected FileConfiguration fileConfiguration;
+    private FileConfiguration writableFileConfiguration;
     @Getter
     @Setter
     protected File file;
@@ -42,12 +42,33 @@ public abstract class CustomConfigFields {
         this.isEnabled = isEnabled;
     }
 
+    public void setFileConfiguration(FileConfiguration fileConfiguration) {
+        this.fileConfiguration = fileConfiguration;
+        this.writableFileConfiguration = fileConfiguration;
+    }
+
+    void beginInheritedRead(FileConfiguration readConfiguration, FileConfiguration writableConfiguration) {
+        this.fileConfiguration = readConfiguration;
+        this.writableFileConfiguration = writableConfiguration;
+    }
+
+    void finishInheritedRead() {
+        // Keep the merged view available to runtime readers. Mutations must use
+        // getWritableFileConfiguration(), which always points at the sparse leaf.
+    }
+
+    /** Returns the leaf's disk model without exposing inherited values to write-back paths. */
+    public FileConfiguration getWritableFileConfiguration() {
+        return writableFileConfiguration == null ? fileConfiguration : writableFileConfiguration;
+    }
+
     public CompletableFuture<Void> setEnabledAndSave(boolean enabled) {
         this.isEnabled = enabled;
-        this.fileConfiguration.set("isEnabled", enabled);
+        FileConfiguration writable = getWritableFileConfiguration();
+        writable.set("isEnabled", enabled);
         return CompletableFuture.runAsync(() -> {
             try {
-                this.fileConfiguration.save(this.file);
+                writable.save(this.file);
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }

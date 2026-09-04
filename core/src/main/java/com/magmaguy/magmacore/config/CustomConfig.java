@@ -20,27 +20,38 @@ public class CustomConfig {
     //This stores configurations long term, ? is the specific extended custom config field
     private final HashMap<String, CustomConfigFields> customConfigFieldsHashMap = new HashMap<>();
     //This is only used for loading configurations in to check if the machine has all of the default files
-    private final List customConfigFieldsArrayList = new ArrayList<>();
+    private final List<CustomConfigFields> customConfigFieldsArrayList = new ArrayList<>();
     private final String folderName;
     private final Class<? extends CustomConfigFields> customConfigFields;
+    private final CustomConfigInheritancePolicy inheritancePolicy;
 
     public CustomConfig(String folderName, Class<? extends CustomConfigFields> customConfigFields, CustomConfigFields schematicConfigField) {
         this.folderName = folderName;
         this.customConfigFields = customConfigFields;
+        this.inheritancePolicy = null;
         initialize(schematicConfigField);
     }
 
     public CustomConfig(String folderName, Class<? extends CustomConfigFields> customConfigFields) {
         this.folderName = folderName;
         this.customConfigFields = customConfigFields;
+        this.inheritancePolicy = null;
     }
 
     /**
      * Initializes all configurations and stores them in a list for later access
      */
     public CustomConfig(String folderName, String packageName, Class<? extends CustomConfigFields> customConfigFields) {
+        this(folderName, packageName, customConfigFields, null);
+    }
+
+    public CustomConfig(String folderName,
+                        String packageName,
+                        Class<? extends CustomConfigFields> customConfigFields,
+                        CustomConfigInheritancePolicy inheritancePolicy) {
         this.folderName = folderName;
         this.customConfigFields = customConfigFields;
+        this.inheritancePolicy = inheritancePolicy;
 
         String directory = MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getAbsolutePath() + File.separatorChar + folderName;
         File file = Path.of(directory).toFile();
@@ -56,7 +67,7 @@ public class CustomConfig {
             Set<Class> classSet = new HashSet<>(reflections.getSubTypesOf(customConfigFields));
             classSet.forEach(aClass -> {
                 try {
-                    customConfigFieldsArrayList.add(aClass.newInstance());
+                    customConfigFieldsArrayList.add((CustomConfigFields) aClass.getDeclaredConstructor().newInstance());
                 } catch (Exception ex) {
                     Logger.warn("Failed to generate plugin default classes for " + folderName + " ! This is very bad, warn the developer!");
                     ex.printStackTrace();
@@ -80,7 +91,12 @@ public class CustomConfig {
 
         //Runs if the directory exists
         //Check if all the defaults exist
-        directoryCrawler(MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getPath() + File.separatorChar + folderName);
+        if (inheritancePolicy == null)
+            directoryCrawler(MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getPath() + File.separatorChar + folderName);
+        else {
+            initializeInheritanceAware(file);
+            return;
+        }
 
         try {
             //Generate missing default config files, might've been deleted or might have been added in newer version
@@ -91,6 +107,205 @@ public class CustomConfig {
             ex.printStackTrace();
         }
 
+    }
+
+    /** Adds or replaces one file at runtime, using the same inheritance resolver as startup. */
+    public synchronized CustomConfigFields registerFile(File file) {
+        Objects.requireNonNull(file, "file");
+        if (!file.getName().toLowerCase(Locale.ROOT).endsWith(".yml"))
+            throw new IllegalArgumentException("Custom configuration files must end in .yml");
+        Path root = configurationDirectory().toPath().toAbsolutePath().normalize();
+        Path candidate = file.toPath().toAbsolutePath().normalize();
+        if (!candidate.startsWith(root))
+            throw new IllegalArgumentException("Configuration file is outside " + root);
+
+        if (inheritancePolicy == null) {
+            initialize(file);
+            return customConfigFieldsHashMap.get(file.getName());
+        }
+
+        InheritanceResolver resolver = new InheritanceResolver(collectYamlFiles(configurationDirectory()));
+        initializeResolved(file, null, resolver);
+        return customConfigFieldsHashMap.get(file.getName());
+    }
+
+    private void initializeInheritanceAware(File directory) {
+        List<File> existingFiles = collectYamlFiles(directory);
+        Set<String> existingNames = new HashSet<>();
+        for (File existingFile : existingFiles)
+            existingNames.add(normalizeFilename(existingFile.getName()));
+
+        Map<String, CustomConfigFields> premades = new HashMap<>();
+        for (CustomConfigFields premade : customConfigFieldsArrayList)
+            premades.put(normalizeFilename(premade.getFilename()), premade);
+
+        Set<String> alreadyInitialized = new HashSet<>();
+        for (Map.Entry<String, CustomConfigFields> entry : premades.entrySet()) {
+            if (existingNames.contains(entry.getKey())) continue;
+            initialize(entry.getValue());
+            alreadyInitialized.add(entry.getKey());
+        }
+
+        List<File> files = collectYamlFiles(directory);
+        InheritanceResolver resolver = new InheritanceResolver(files);
+        for (File file : files) {
+            String key = normalizeFilename(file.getName());
+            if (alreadyInitialized.contains(key)) continue;
+            if (resolver.fileFor(key) != file) continue;
+            initializeResolved(file, premades.get(key), resolver);
+        }
+        customConfigFieldsArrayList.clear();
+    }
+
+    private void initializeResolved(File file,
+                                    CustomConfigFields premade,
+                                    InheritanceResolver resolver) {
+        CustomConfigFields fields = premade;
+        try {
+            if (fields == null) {
+                Constructor<?> constructor = customConfigFields.getConstructor(String.class, boolean.class);
+                fields = (CustomConfigFields) constructor.newInstance(file.getName(), true);
+            }
+
+            InheritanceResolver.ResolvedConfiguration resolved = resolver.resolve(file);
+            fields.setFile(file);
+            if (resolved.inherited())
+                fields.beginInheritedRead(resolved.readConfiguration(), resolved.rawConfiguration());
+            else
+                fields.setFileConfiguration(resolved.rawConfiguration());
+            try {
+                fields.processConfigFields();
+            } finally {
+                if (resolved.inherited()) fields.finishInheritedRead();
+            }
+
+            // Sparse leaves remain sparse: inherited values and parser defaults never leak into them.
+            if (!resolved.inherited())
+                ConfigurationEngine.fileSaverCustomValues(resolved.rawConfiguration(), file);
+            addCustomConfigFields(file.getName(), fields);
+        } catch (Exception exception) {
+            Logger.warn("Disabled inherited configuration " + file.getName() + ": " + rootMessage(exception));
+            try {
+                if (fields == null) {
+                    Constructor<?> constructor = customConfigFields.getConstructor(String.class, boolean.class);
+                    fields = (CustomConfigFields) constructor.newInstance(file.getName(), false);
+                }
+                fields.setFile(file);
+                fields.setFileConfiguration(YamlConfiguration.loadConfiguration(file));
+                fields.setEnabled(false);
+                addCustomConfigFields(file.getName(), fields);
+            } catch (Exception constructionFailure) {
+                Logger.warn("Could not retain disabled configuration " + file.getName() + ": "
+                        + rootMessage(constructionFailure));
+            }
+        }
+    }
+
+    private File configurationDirectory() {
+        return Path.of(MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getPath(), folderName).toFile();
+    }
+
+    private static List<File> collectYamlFiles(File directory) {
+        if (directory == null || !directory.isDirectory()) return List.of();
+        try (var paths = Files.walk(directory.toPath())) {
+            return paths.filter(Files::isRegularFile)
+                    .map(Path::toFile)
+                    .filter(file -> file.getName().toLowerCase(Locale.ROOT).endsWith(".yml"))
+                    .sorted(Comparator.comparing(File::getAbsolutePath, String.CASE_INSENSITIVE_ORDER))
+                    .toList();
+        } catch (Exception exception) {
+            Logger.warn("Failed to enumerate inherited configurations in " + directory + ": "
+                    + rootMessage(exception));
+            return List.of();
+        }
+    }
+
+    private static String normalizeFilename(String filename) {
+        String normalized = filename.trim().toLowerCase(Locale.ROOT);
+        return normalized.endsWith(".yml") ? normalized : normalized + ".yml";
+    }
+
+    private static String rootMessage(Throwable throwable) {
+        Throwable current = throwable;
+        while (current.getCause() != null) current = current.getCause();
+        return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
+    }
+
+    private final class InheritanceResolver {
+        private final Map<String, File> files = new HashMap<>();
+        private final Map<String, ResolvedConfiguration> resolved = new HashMap<>();
+        private final LinkedHashSet<String> resolving = new LinkedHashSet<>();
+
+        private InheritanceResolver(List<File> sourceFiles) {
+            for (File sourceFile : sourceFiles) {
+                String key = normalizeFilename(sourceFile.getName());
+                File previous = files.putIfAbsent(key, sourceFile);
+                if (previous != null)
+                    Logger.warn("Duplicate custom configuration filename " + sourceFile.getName()
+                            + " in " + folderName + "; using " + previous.getAbsolutePath());
+            }
+        }
+
+        private File fileFor(String normalizedFilename) {
+            return files.get(normalizedFilename);
+        }
+
+        private ResolvedConfiguration resolve(File file) {
+            String key = normalizeFilename(file.getName());
+            ResolvedConfiguration cached = resolved.get(key);
+            if (cached != null) return cached;
+            if (!resolving.add(key)) {
+                List<String> cycle = new ArrayList<>(resolving);
+                cycle.add(key);
+                throw new IllegalArgumentException("extends cycle: " + String.join(" -> ", cycle));
+            }
+
+            try {
+                YamlConfiguration raw = YamlConfiguration.loadConfiguration(file);
+                String parent = raw.getString(inheritancePolicy.parentKey());
+                if (parent == null || parent.isBlank()) {
+                    ResolvedConfiguration result = new ResolvedConfiguration(raw, raw, false);
+                    resolved.put(key, result);
+                    return result;
+                }
+                if (parent.contains("/") || parent.contains("\\"))
+                    throw new IllegalArgumentException("extends must name a file in the same configuration catalog");
+                String parentKey = normalizeFilename(parent);
+                File parentFile = files.get(parentKey);
+                if (parentFile == null)
+                    throw new IllegalArgumentException("missing extends base " + parentKey);
+
+                ResolvedConfiguration base = resolve(parentFile);
+                YamlConfiguration merged = new YamlConfiguration();
+                copyLeaves(base.readConfiguration(), merged, true);
+                copyLeaves(raw, merged, false);
+                ResolvedConfiguration result = new ResolvedConfiguration(merged, raw, true);
+                resolved.put(key, result);
+                return result;
+            } finally {
+                resolving.remove(key);
+            }
+        }
+
+        private void copyLeaves(FileConfiguration source, YamlConfiguration target, boolean inheritedValues) {
+            for (Map.Entry<String, Object> entry : source.getValues(true).entrySet()) {
+                String path = entry.getKey();
+                Object value = entry.getValue();
+                if (value instanceof org.bukkit.configuration.ConfigurationSection) continue;
+                if (path.equalsIgnoreCase(inheritancePolicy.parentKey())) {
+                    if (!inheritedValues) target.set(path, value);
+                    continue;
+                }
+                if (inheritedValues && !inheritancePolicy.mayInherit(path)) continue;
+                target.set(path, value);
+            }
+        }
+
+        private record ResolvedConfiguration(
+                FileConfiguration readConfiguration,
+                FileConfiguration rawConfiguration,
+                boolean inherited) {
+        }
     }
 
     private void directoryCrawler(String path) {

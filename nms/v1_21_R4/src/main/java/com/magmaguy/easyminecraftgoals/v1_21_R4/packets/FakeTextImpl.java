@@ -129,6 +129,7 @@ public class FakeTextImpl implements FakeText, TrackedPacketEntity {
     @Override public void showToPlayer(Player player) { displayTo(player); }
     @Override public void hideFromPlayer(Player player) { hideFrom(player); }
     @Override public boolean isVisibleTo(Player player) { return player != null && playerEntities.containsKey(player.getUniqueId()); }
+    @Override public boolean canBeSeenBy(Player player) { return settings.canBeSeenBy(player); }
     @Override public Set<UUID> getCurrentViewers() { return new HashSet<>(playerEntities.keySet()); }
     @Override public boolean isValid() { return valid && (vehicleEntity == null || vehicleEntity.isValid()); }
     @Override public UUID getUniqueId() { return uniqueId; }

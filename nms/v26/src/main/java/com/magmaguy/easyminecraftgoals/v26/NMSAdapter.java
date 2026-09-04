@@ -1,6 +1,8 @@
 package com.magmaguy.easyminecraftgoals.v26;
 
+import com.magmaguy.easyminecraftgoals.PathfindingHandle;
 import com.magmaguy.easyminecraftgoals.constants.OverridableWanderPriority;
+import com.magmaguy.easyminecraftgoals.TransientMovementOverride;
 import com.magmaguy.easyminecraftgoals.internal.AbstractPacketBundle;
 import com.magmaguy.easyminecraftgoals.internal.AbstractWanderBackToPoint;
 import com.magmaguy.easyminecraftgoals.internal.FakeItem;
@@ -12,9 +14,11 @@ import com.magmaguy.easyminecraftgoals.internal.PacketInteractionEntity;
 import com.magmaguy.easyminecraftgoals.internal.PacketModelEntity;
 import com.magmaguy.easyminecraftgoals.internal.PacketTextEntity;
 import com.magmaguy.easyminecraftgoals.v26.entitydata.BodyRotation;
+import com.magmaguy.easyminecraftgoals.v26.flee.TransientFleeGoal;
 import com.magmaguy.easyminecraftgoals.v26.hitbox.Hitbox;
 import com.magmaguy.easyminecraftgoals.v26.passenger.PassengerOffset;
 import com.magmaguy.easyminecraftgoals.v26.massblockedit.MassEditBlocks;
+import com.magmaguy.easyminecraftgoals.v26.mind.NativeMindHost;
 import com.magmaguy.easyminecraftgoals.v26.move.Move;
 import com.magmaguy.easyminecraftgoals.v26.packets.FakeItemImpl;
 import com.magmaguy.easyminecraftgoals.v26.packets.FakeTextImpl;
@@ -23,7 +27,9 @@ import com.magmaguy.easyminecraftgoals.v26.packets.PacketBundle;
 import com.magmaguy.easyminecraftgoals.v26.packets.PacketDisplayEntity;
 import com.magmaguy.easyminecraftgoals.v26.packets.PacketGenericEntity;
 import com.magmaguy.easyminecraftgoals.v26.packets.PacketInteractionListener;
+import com.magmaguy.easyminecraftgoals.v26.pathfinding.NativePathfindingGoal;
 import com.magmaguy.easyminecraftgoals.v26.wanderbacktopoint.WanderBackToPointBehavior;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.numbers.BlankFormat;
 import org.bukkit.plugin.Plugin;
 import com.magmaguy.easyminecraftgoals.v26.wanderbacktopoint.WanderBackToPointGoal;
@@ -31,12 +37,19 @@ import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.PathfinderMob;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.NamespacedKey;
 import org.bukkit.World;
 import org.bukkit.block.data.BlockData;
 import org.bukkit.craftbukkit.scoreboard.CraftScoreboard;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.LivingEntity;
+import com.magmaguy.magmacore.ai.MindActionSink;
+import com.magmaguy.magmacore.ai.MindFailureListener;
+import com.magmaguy.magmacore.ai.MindHost;
+
+import java.util.Objects;
+import java.util.Optional;
 
 public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter {
 
@@ -49,6 +62,31 @@ public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter {
     }
 
     private PacketInteractionListener packetInteractionListener;
+    private NativeMindHost mindHost;
+
+    @Override
+    public MindHost createMindHost(
+            NamespacedKey hostIdentity,
+            MindFailureListener failureListener,
+            MindActionSink actionSink) {
+        if (mindHost != null) {
+            throw new IllegalStateException("This adapter already has a native mind host");
+        }
+        mindHost = new NativeMindHost(hostIdentity, failureListener, actionSink);
+        return mindHost;
+    }
+
+    @Override
+    public boolean isMindBody(Entity entity) {
+        return NativeMindHost.isMindCarrier(entity);
+    }
+
+    @Override
+    public void shutdownMindHost() {
+        if (mindHost == null) return;
+        mindHost.shutdown();
+        mindHost = null;
+    }
 
     private PathfinderMob getPathfinderMob(Entity entity) {
         net.minecraft.world.entity.Entity nmsEntity = CraftBukkitBridge.getNMSEntity(entity);
@@ -112,6 +150,59 @@ public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter {
             return false;
         }
         return Move.simpleMove(pathfinderMob, speedModifier, location);
+    }
+
+    @Override
+    protected Optional<PathfindingHandle> createPathfindingHandle(LivingEntity livingEntity, int priority) {
+        PathfinderMob pathfinderMob = getPathfinderMob(livingEntity);
+        if (pathfinderMob == null) return Optional.empty();
+        NativePathfindingGoal goal = new NativePathfindingGoal(pathfinderMob, livingEntity, priority);
+        goal.register();
+        return Optional.of(goal);
+    }
+
+    @Override
+    public boolean removeFreeWill(LivingEntity livingEntity) {
+        PathfinderMob pathfinderMob = getPathfinderMob(livingEntity);
+        if (pathfinderMob == null) return false;
+        pathfinderMob.removeFreeWill();
+        return true;
+    }
+
+    @Override
+    public boolean isPositionEntityTicking(Location location) {
+        if (location.getWorld() == null) return false;
+        return CraftBukkitBridge.getServerLevel(location).isPositionEntityTicking(
+                BlockPos.containing(location.getX(), location.getY(), location.getZ()));
+    }
+
+    @Override
+    public Optional<TransientMovementOverride> beginFlee(
+            LivingEntity livingEntity,
+            Location threatLocation,
+            double speedModifier) {
+        Objects.requireNonNull(livingEntity, "livingEntity");
+        Objects.requireNonNull(threatLocation, "threatLocation");
+        if (!Double.isFinite(speedModifier) || speedModifier <= 0D) return Optional.empty();
+        if (threatLocation.getWorld() == null
+                || threatLocation.getWorld() != livingEntity.getWorld()) return Optional.empty();
+
+        if (NativeMindHost.isMindCarrier(livingEntity)) {
+            return mindHost == null
+                    ? Optional.empty()
+                    : mindHost.beginFlee(livingEntity, threatLocation, speedModifier);
+        }
+
+        PathfinderMob pathfinderMob = getPathfinderMob(livingEntity);
+        if (pathfinderMob == null || pathfinderMob.isNoAi()) return Optional.empty();
+        TransientFleeGoal goal = new TransientFleeGoal(
+                pathfinderMob, livingEntity.getWorld(), threatLocation, speedModifier);
+        if (!goal.canUse()) {
+            goal.close();
+            return Optional.empty();
+        }
+        goal.register();
+        return Optional.of(goal);
     }
 
     @Override

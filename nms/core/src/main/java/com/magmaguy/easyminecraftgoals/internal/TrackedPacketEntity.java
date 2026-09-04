@@ -55,6 +55,17 @@ public interface TrackedPacketEntity {
     boolean isVisibleTo(Player player);
 
     /**
+     * Checks whether a player is allowed to see this entity, independent of range and world.
+     * Implementations may override this for viewer-specific visibility rules.
+     *
+     * @param player the prospective viewer
+     * @return true when the viewer is allowed to see the entity
+     */
+    default boolean canBeSeenBy(Player player) {
+        return true;
+    }
+
+    /**
      * Gets all players who can currently see this entity.
      *
      * @return Set of viewer UUIDs

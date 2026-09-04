@@ -417,6 +417,8 @@ public class ConfigurationImporter {
             return;
         }
         for (File zippedFile : importEntries) {
+            // OS metadata files (.DS_Store, ._* AppleDouble, Thumbs.db, desktop.ini) are not importable content
+            if (!zippedFile.isDirectory() && isOsMetadataFile(zippedFile.getName())) continue;
             if (zippedFile.getName().endsWith(".zip")) {
                 unzipImportFile(zippedFile);
             } else if (pluginPlatform == PluginPlatform.FREEMINECRAFTMODELS && zippedFile.getName().endsWith(".bbmodel")) {
@@ -446,6 +448,12 @@ public class ConfigurationImporter {
                 Logger.warn("File " + zippedFile.getPath() + " can't be imported! It will be skipped.");
             }
         }
+    }
+
+    private static boolean isOsMetadataFile(String fileName) {
+        return fileName.startsWith(".")
+                || fileName.equalsIgnoreCase("Thumbs.db")
+                || fileName.equalsIgnoreCase("desktop.ini");
     }
 
     private void unzipImportFile(File zippedFile) {

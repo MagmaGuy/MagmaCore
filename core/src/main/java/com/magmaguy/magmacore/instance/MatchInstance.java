@@ -318,6 +318,9 @@ public abstract class MatchInstance implements MatchInstanceInterface {
         spectators.clear();
         if (tick != null && !tick.isCancelled())
             tick.cancel();
+        //Without this, every destroyed match stays in the static set forever, and
+        //world-holding subclasses pin their unloaded worlds (ServerLevels) in memory.
+        instances.remove(this);
         Bukkit.getPluginManager().callEvent(new MatchDestroyEvent(this));
     }
 

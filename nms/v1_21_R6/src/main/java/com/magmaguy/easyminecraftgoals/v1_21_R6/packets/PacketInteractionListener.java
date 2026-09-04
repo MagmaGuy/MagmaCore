@@ -2,6 +2,7 @@ package com.magmaguy.easyminecraftgoals.v1_21_R6.packets;
 
 import com.magmaguy.easyminecraftgoals.internal.DamageIndicatorClamp;
 import com.magmaguy.easyminecraftgoals.internal.PacketEntityInteractionManager;
+import com.magmaguy.easyminecraftgoals.internal.PacketInteractionContext;
 import io.netty.channel.*;
 import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;
@@ -16,6 +17,7 @@ import net.minecraft.server.network.ServerGamePacketListenerImpl;
 import org.bukkit.Bukkit;
 import org.bukkit.craftbukkit.v1_21_R6.entity.CraftPlayer;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -34,8 +36,8 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class PacketInteractionListener implements Listener {
 
-    private static final String HANDLER_NAME = "emg_packet_interaction";
     private final Plugin plugin;
+    private final String handlerName;
     private final Map<UUID, Channel> playerChannels = new ConcurrentHashMap<>();
 
     // Reflection fields for accessing packet data
@@ -145,6 +147,7 @@ public class PacketInteractionListener implements Listener {
 
     public PacketInteractionListener(Plugin plugin) {
         this.plugin = plugin;
+        this.handlerName = "emg_packet_interaction_" + plugin.getName();
     }
 
     /**
@@ -198,12 +201,12 @@ public class PacketInteractionListener implements Listener {
             }
 
             // Remove existing handler if present
-            if (channel.pipeline().get(HANDLER_NAME) != null) {
-                channel.pipeline().remove(HANDLER_NAME);
+            if (channel.pipeline().get(handlerName) != null) {
+                channel.pipeline().remove(handlerName);
             }
 
             // Add our handler before the packet_handler
-            channel.pipeline().addBefore("packet_handler", HANDLER_NAME, new PacketHandler(player));
+            channel.pipeline().addBefore("packet_handler", handlerName, new PacketHandler(player));
             playerChannels.put(player.getUniqueId(), channel);
 
         } catch (Exception e) {
@@ -225,9 +228,9 @@ public class PacketInteractionListener implements Listener {
 
     private void uninjectPlayer(Player player) {
         Channel channel = playerChannels.remove(player.getUniqueId());
-        if (channel != null && channel.pipeline().get(HANDLER_NAME) != null) {
+        if (channel != null && channel.pipeline().get(handlerName) != null) {
             try {
-                channel.pipeline().remove(HANDLER_NAME);
+                channel.pipeline().remove(handlerName);
             } catch (Exception ignored) {
                 // Channel might already be closed
             }
@@ -249,15 +252,25 @@ public class PacketInteractionListener implements Listener {
             if (msg instanceof ServerboundInteractPacket packet) {
                 try {
                     int entityId = getEntityId(packet);
-                    boolean isAttack = isAttackAction(packet);
+                    PacketInteractionContext interactionContext = getInteractionContext(packet);
 
-                    // Check if this entity ID belongs to a packet entity
-                    if (PacketEntityInteractionManager.getInstance().getByEntityId(entityId) != null) {
-                        // This is a packet entity - handle on main thread and don't pass to server
-                        Bukkit.getScheduler().runTask(plugin, () -> {
-                            PacketEntityInteractionManager.getInstance().handleInteraction(player, entityId, isAttack);
-                        });
-                        return; // Don't pass the packet to the server
+                    PacketEntityInteractionManager interactionManager = PacketEntityInteractionManager.getInstance();
+                    PacketEntityInteractionManager.Dispatch dispatch = interactionManager.captureDispatch(entityId);
+                    if (dispatch != null) {
+                        PacketEntityInteractionManager.PreparedInteraction prepared =
+                                dispatch.prepare(interactionContext);
+                        switch (prepared.decision()) {
+                            case ROUTE -> {
+                                Bukkit.getScheduler().runTask(plugin, () -> prepared.route(player));
+                                return;
+                            }
+                            case CONSUME -> {
+                                return;
+                            }
+                            case PASS -> {
+                                // Forward to the native server handler.
+                            }
+                        }
                     }
                 } catch (Exception e) {
                     // If anything goes wrong, let the packet through normally
@@ -319,22 +332,31 @@ public class PacketInteractionListener implements Listener {
         return -1;
     }
 
-    private static boolean isAttackAction(ServerboundInteractPacket packet) {
-        boolean[] isAttack = {false};
+    private static PacketInteractionContext getInteractionContext(ServerboundInteractPacket packet) {
+        PacketInteractionContext[] context = {null};
         packet.dispatch(new ServerboundInteractPacket.Handler() {
             @Override
             public void onAttack() {
-                isAttack[0] = true;
+                context[0] = PacketInteractionContext.attack();
             }
 
             @Override
             public void onInteraction(InteractionHand hand) {
+                context[0] = PacketInteractionContext.interact(toEquipmentSlot(hand));
             }
 
             @Override
             public void onInteraction(InteractionHand hand, Vec3 interactionLocation) {
+                context[0] = PacketInteractionContext.interactAt(toEquipmentSlot(hand));
             }
         });
-        return isAttack[0];
+        if (context[0] == null) {
+            throw new IllegalStateException("Interaction packet did not dispatch an action");
+        }
+        return context[0];
+    }
+
+    private static EquipmentSlot toEquipmentSlot(InteractionHand hand) {
+        return hand == InteractionHand.MAIN_HAND ? EquipmentSlot.HAND : EquipmentSlot.OFF_HAND;
     }
 }

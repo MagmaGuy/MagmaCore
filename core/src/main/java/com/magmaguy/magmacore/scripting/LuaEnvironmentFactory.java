@@ -112,6 +112,7 @@ public final class LuaEnvironmentFactory {
         em.set("location", location);
 
         globals.set("em", em);
+        LuaMindLibrary.install(globals);
         return globals;
     }
 

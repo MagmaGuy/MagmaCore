@@ -356,6 +356,11 @@ public class FakeTextImpl implements FakeText, TrackedPacketEntity {
     }
 
     @Override
+    public boolean canBeSeenBy(Player player) {
+        return settings.canBeSeenBy(player);
+    }
+
+    @Override
     public Set<UUID> getCurrentViewers() {
         return new HashSet<>(playerEntities.keySet());
     }

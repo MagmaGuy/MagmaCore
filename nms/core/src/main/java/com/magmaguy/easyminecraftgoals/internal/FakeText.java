@@ -6,6 +6,7 @@ import org.bukkit.entity.Display;
 import org.bukkit.entity.Player;
 
 import java.util.UUID;
+import java.util.function.Predicate;
 
 /**
  * A fake text entity that displays text to players using packet-based entities.
@@ -294,6 +295,15 @@ public interface FakeText {
          * Default is (0, 0, 0).
          */
         Builder translation(float x, float y, float z);
+
+        /**
+         * Restricts which players may see this text while it is automatically tracked.
+         * The predicate is re-evaluated by the packet entity tracker, allowing viewer-specific
+         * visibility rules to change without recreating the text entity.
+         *
+         * @param viewerFilter predicate that returns true when a viewer may see the text
+         */
+        Builder viewerFilter(Predicate<Player> viewerFilter);
 
         /**
          * Builds the FakeText at the specified location.

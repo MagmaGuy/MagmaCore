@@ -26,6 +26,9 @@ public interface AbstractWanderBackToPoint {
 
     Location getReturnLocation();
 
+    /** Updates the anchor used by an already-registered leash goal. */
+    AbstractWanderBackToPoint setReturnLocation(Location location);
+
     int getStopReturnDistance();
 
     /**

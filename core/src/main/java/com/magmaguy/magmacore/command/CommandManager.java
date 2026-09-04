@@ -53,6 +53,18 @@ public class CommandManager implements CommandExecutor, TabCompleter {
         if (args.length == 0) {
             for (AdvancedCommand command : commands) {
                 if (command.getAliases().isEmpty()) {
+                    // Same sender-type and permission gates as the subcommand path
+                    // below. The no-args command used to run ungated, so a console
+                    // `/em` reached a raw Player cast and died in an unhandled
+                    // ClassCastException — and skipped the permission check.
+                    if (command.getSenderType() == SenderType.PLAYER && !(sender instanceof Player)) {
+                        Logger.sendMessage(sender, "This command must be run as a player!");
+                        return false;
+                    }
+                    if (!permissionCheck(sender, command)) {
+                        Logger.sendMessage(sender, "You do not have permission to run this command!");
+                        return false;
+                    }
                     command.execute(new CommandData(sender, args, command));
                     return true;
                 }

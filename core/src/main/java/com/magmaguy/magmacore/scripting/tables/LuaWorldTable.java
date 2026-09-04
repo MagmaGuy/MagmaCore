@@ -2,6 +2,9 @@ package com.magmaguy.magmacore.scripting.tables;
 
 import com.magmaguy.magmacore.MagmaCore;
 import com.magmaguy.magmacore.util.TemporaryBlockManager;
+import com.magmaguy.magmacore.visuals.terrain.TerrainImpactHandle;
+import com.magmaguy.magmacore.visuals.terrain.TerrainImpactRequest;
+import com.magmaguy.magmacore.visuals.terrain.TerrainImpacts;
 import org.bukkit.Bukkit;
 import org.bukkit.Color;
 import org.bukkit.FireworkEffect;
@@ -448,6 +451,24 @@ public final class LuaWorldTable {
                     ? LuaValue.NIL : LuaValue.valueOf(loc.getWorld().getHighestBlockYAt(loc));
         }));
 
+        // terrain_impact_at_location(location [, options]) -> opaque removable handle
+        table.set("terrain_impact_at_location", method(table, args -> {
+            Location location = locArg(args, world);
+            return terrainImpact(location, args.arg(2));
+        }));
+
+        // terrain_impact(x, y, z [, options]) -> opaque removable handle
+        table.set("terrain_impact", method(table, args -> {
+            if (args.narg() < 3) return LuaValue.NIL;
+            try {
+                Location location = new Location(
+                        world, args.checkdouble(1), args.checkdouble(2), args.checkdouble(3));
+                return terrainImpact(location, args.arg(4));
+            } catch (RuntimeException ignored) {
+                return LuaValue.NIL;
+            }
+        }));
+
         // ── Tier-2 plugin enrichers (e.g. EliteMobs domain world methods) ────
         for (BiConsumer<LuaTable, World> enricher : enrichers) {
             try {
@@ -473,6 +494,55 @@ public final class LuaWorldTable {
             return LuaTableSupport.tableToLocation(args.arg(1).checktable(), world);
         } catch (Exception e) {
             return null;
+        }
+    }
+
+    private static LuaValue terrainImpact(Location location, LuaValue optionsValue) {
+        if (location == null || location.getWorld() == null) return LuaValue.NIL;
+        try {
+            TerrainImpactHandle handle;
+            if (optionsValue == null || optionsValue.isnil()) {
+                handle = TerrainImpacts.crack(location);
+            } else {
+                if (!optionsValue.istable()) return LuaValue.NIL;
+                TerrainImpactRequest defaults = new TerrainImpactRequest(location);
+                LuaTable options = optionsValue.checktable();
+                handle = TerrainImpacts.show(new TerrainImpactRequest(
+                        location,
+                        options.get("radius").optdouble(defaults.radius()),
+                        options.get("intensity").optdouble(defaults.intensity()),
+                        options.get("duration_ticks").optint(defaults.durationTicks()),
+                        options.get("view_range").optdouble(defaults.viewRange()),
+                        options.get("seed").optlong(defaults.seed())));
+            }
+            return active(handle) ? terrainImpactHandle(handle) : LuaValue.NIL;
+        } catch (RuntimeException ignored) {
+            return LuaValue.NIL;
+        }
+    }
+
+    private static LuaTable terrainImpactHandle(TerrainImpactHandle handle) {
+        LuaTable table = new LuaTable();
+        table.set("id", handle.id().toString());
+        table.set("is_active", method(table, args -> LuaValue.valueOf(active(handle))));
+        table.set("remove", method(table, args -> {
+            if (!active(handle)) return LuaValue.FALSE;
+            try {
+                handle.close();
+                return LuaValue.TRUE;
+            } catch (RuntimeException ignored) {
+                return LuaValue.FALSE;
+            }
+        }));
+        return table;
+    }
+
+    private static boolean active(TerrainImpactHandle handle) {
+        if (handle == null) return false;
+        try {
+            return handle.active();
+        } catch (RuntimeException ignored) {
+            return false;
         }
     }
 

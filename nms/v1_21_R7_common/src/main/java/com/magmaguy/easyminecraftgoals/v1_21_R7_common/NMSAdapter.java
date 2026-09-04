@@ -1,5 +1,6 @@
 package com.magmaguy.easyminecraftgoals.v1_21_R7_common;
 
+import com.magmaguy.easyminecraftgoals.PathfindingHandle;
 import com.magmaguy.easyminecraftgoals.constants.OverridableWanderPriority;
 import com.magmaguy.easyminecraftgoals.internal.AbstractPacketBundle;
 import com.magmaguy.easyminecraftgoals.internal.AbstractWanderBackToPoint;
@@ -23,7 +24,9 @@ import com.magmaguy.easyminecraftgoals.v1_21_R7_common.packets.PacketBundle;
 import com.magmaguy.easyminecraftgoals.v1_21_R7_common.packets.PacketDisplayEntity;
 import com.magmaguy.easyminecraftgoals.v1_21_R7_common.packets.PacketGenericEntity;
 import com.magmaguy.easyminecraftgoals.v1_21_R7_common.packets.PacketInteractionListener;
+import com.magmaguy.easyminecraftgoals.v1_21_R7_common.pathfinding.NativePathfindingGoal;
 import com.magmaguy.easyminecraftgoals.v1_21_R7_common.wanderbacktopoint.WanderBackToPointBehavior;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.numbers.BlankFormat;
 import org.bukkit.plugin.Plugin;
 import com.magmaguy.easyminecraftgoals.v1_21_R7_common.wanderbacktopoint.WanderBackToPointGoal;
@@ -38,6 +41,7 @@ import org.bukkit.entity.EntityType;
 import org.bukkit.entity.LivingEntity;
 
 import java.lang.reflect.Method;
+import java.util.Optional;
 
 public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter {
 
@@ -49,6 +53,30 @@ public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter {
             return pathfinderMob;
         else
             return null;
+    }
+
+    @Override
+    protected Optional<PathfindingHandle> createPathfindingHandle(LivingEntity livingEntity, int priority) {
+        PathfinderMob pathfinderMob = getPathfinderMob(livingEntity);
+        if (pathfinderMob == null) return Optional.empty();
+        NativePathfindingGoal goal = new NativePathfindingGoal(pathfinderMob, livingEntity, priority);
+        goal.register();
+        return Optional.of(goal);
+    }
+
+    @Override
+    public boolean removeFreeWill(LivingEntity livingEntity) {
+        PathfinderMob pathfinderMob = getPathfinderMob(livingEntity);
+        if (pathfinderMob == null) return false;
+        pathfinderMob.removeFreeWill();
+        return true;
+    }
+
+    @Override
+    public boolean isPositionEntityTicking(Location location) {
+        if (location.getWorld() == null) return false;
+        return CraftBukkitBridge.getServerLevel(location).isPositionEntityTicking(
+                BlockPos.containing(location.getX(), location.getY(), location.getZ()));
     }
 
     @Override

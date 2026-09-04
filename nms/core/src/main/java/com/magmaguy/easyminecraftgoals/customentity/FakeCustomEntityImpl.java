@@ -270,7 +270,7 @@ public final class FakeCustomEntityImpl implements FakeCustomEntity, TrackedPack
     private void schedulePostSpawnSync(Player player) {
         Plugin plugin = NMSManager.pluginProvider;
         if (plugin == null || !plugin.isEnabled()) {
-            sendBedrockState(player);
+            synchronizeBedrockPresentation(player);
             return;
         }
         schedulePostSpawnSync(player.getUniqueId(), 4L);
@@ -282,12 +282,17 @@ public final class FakeCustomEntityImpl implements FakeCustomEntity, TrackedPack
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             Player player = Bukkit.getPlayer(uuid);
             if (player != null && player.isOnline() && viewers.contains(uuid)) {
-                sendBedrockState(player);
+                synchronizeBedrockPresentation(player);
             }
         }, delayTicks);
     }
 
-    private void sendBedrockState(Player player) {
+    private void synchronizeBedrockPresentation(Player player) {
+        // Geyser can observe the carrier spawn before its entity cache is ready
+        // to replace that carrier with the registered custom definition. Reassert
+        // the idempotent binding at each bounded post-spawn sync before sending
+        // metadata and properties so a missed early replacement can recover.
+        prepareBedrockSpawn(player);
         sendEntityData(player);
         sendProperties(player);
     }

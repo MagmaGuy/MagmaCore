@@ -2,9 +2,12 @@ package com.magmaguy.easyminecraftgoals.v1_21_R7_common.packets;
 
 import com.magmaguy.easyminecraftgoals.internal.PacketEntityInteractionManager;
 import com.magmaguy.easyminecraftgoals.internal.PacketEntityInterface;
+import com.magmaguy.easyminecraftgoals.internal.PacketInteractionCallback;
+import com.magmaguy.easyminecraftgoals.internal.PacketInteractionContext;
 import net.minecraft.world.entity.Interaction;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.EquipmentSlot;
 
 import java.util.function.BiConsumer;
 
@@ -16,8 +19,8 @@ import java.util.function.BiConsumer;
 public class PacketInteractionEntity extends AbstractPacketEntity<Interaction>
         implements com.magmaguy.easyminecraftgoals.internal.PacketInteractionEntity {
 
-    private BiConsumer<Player, PacketEntityInterface> rightClickCallback;
-    private BiConsumer<Player, PacketEntityInterface> leftClickCallback;
+    private PacketInteractionCallback rightClickCallback;
+    private PacketInteractionCallback leftClickCallback;
     private float width = 1.0f;
     private float height = 1.0f;
 
@@ -86,24 +89,43 @@ public class PacketInteractionEntity extends AbstractPacketEntity<Interaction>
 
     @Override
     public void setRightClickCallback(BiConsumer<Player, PacketEntityInterface> callback) {
-        this.rightClickCallback = callback;
+        this.rightClickCallback = callback == null
+                ? null
+                : (player, entity, context) -> callback.accept(player, entity);
     }
 
     @Override
     public void setLeftClickCallback(BiConsumer<Player, PacketEntityInterface> callback) {
+        this.leftClickCallback = callback == null
+                ? null
+                : (player, entity, context) -> callback.accept(player, entity);
+    }
+
+    @Override
+    public void setContextualRightClickCallback(PacketInteractionCallback callback) {
+        this.rightClickCallback = callback;
+    }
+
+    @Override
+    public void setContextualLeftClickCallback(PacketInteractionCallback callback) {
         this.leftClickCallback = callback;
     }
 
     @Override
     public void handleInteraction(Player player, boolean isAttack) {
-        if (isAttack) {
-            if (leftClickCallback != null) {
-                leftClickCallback.accept(player, this);
-            }
-        } else {
-            if (rightClickCallback != null) {
-                rightClickCallback.accept(player, this);
-            }
+        handleInteraction(
+                player,
+                isAttack
+                        ? PacketInteractionContext.attack()
+                        : PacketInteractionContext.interact(EquipmentSlot.HAND));
+    }
+
+    @Override
+    public void handleInteraction(Player player, PacketInteractionContext context) {
+        PacketInteractionCallback callback =
+                context.isAttack() ? leftClickCallback : rightClickCallback;
+        if (callback != null) {
+            callback.accept(player, this, context);
         }
     }
 }

@@ -2,6 +2,7 @@ package com.magmaguy.easyminecraftgoals.v1_21_R7_common.packets;
 
 import com.magmaguy.easyminecraftgoals.internal.DamageIndicatorClamp;
 import com.magmaguy.easyminecraftgoals.internal.PacketEntityInteractionManager;
+import com.magmaguy.easyminecraftgoals.internal.PacketInteractionContext;
 import com.magmaguy.easyminecraftgoals.v1_21_R7_common.CraftBukkitBridge;
 import io.netty.channel.*;
 import net.minecraft.core.particles.ParticleOptions;
@@ -12,6 +13,8 @@ import net.minecraft.network.protocol.game.ServerboundInteractPacket;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.ServerCommonPacketListenerImpl;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.phys.Vec3;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -20,6 +23,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.Plugin;
+import org.bukkit.inventory.EquipmentSlot;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -50,6 +54,7 @@ public class PacketInteractionListener implements Listener {
     private static Field interactionActionField;
     private static Object attackAction;
     private static Method isAttackMethod;
+    private static final Map<Class<?>, InteractionActionDecoder> actionDecoders = new ConcurrentHashMap<>();
     private static Field connectionField;
     private static Field channelField;
 
@@ -303,15 +308,25 @@ public class PacketInteractionListener implements Listener {
             if (msg instanceof ServerboundInteractPacket packet) {
                 try {
                     int entityId = getEntityId(packet);
-                    boolean isAttack = isAttackAction(packet);
+                    PacketInteractionContext interactionContext = getInteractionContext(packet);
 
-                    // Check if this entity ID belongs to a packet entity
-                    if (PacketEntityInteractionManager.getInstance().getByEntityId(entityId) != null) {
-                        // This is a packet entity - handle on main thread and don't pass to server
-                        Bukkit.getScheduler().runTask(plugin, () -> {
-                            PacketEntityInteractionManager.getInstance().handleInteraction(player, entityId, isAttack);
-                        });
-                        return; // Don't pass the packet to the server
+                    PacketEntityInteractionManager interactionManager = PacketEntityInteractionManager.getInstance();
+                    PacketEntityInteractionManager.Dispatch dispatch = interactionManager.captureDispatch(entityId);
+                    if (dispatch != null) {
+                        PacketEntityInteractionManager.PreparedInteraction prepared =
+                                dispatch.prepare(interactionContext);
+                        switch (prepared.decision()) {
+                            case ROUTE -> {
+                                Bukkit.getScheduler().runTask(plugin, () -> prepared.route(player));
+                                return;
+                            }
+                            case CONSUME -> {
+                                return;
+                            }
+                            case PASS -> {
+                                // Forward to the native server handler.
+                            }
+                        }
                     }
                 } catch (Exception e) {
                     // If anything goes wrong, let the packet through normally
@@ -379,17 +394,56 @@ public class PacketInteractionListener implements Listener {
         return -1;
     }
 
-    private static boolean isAttackAction(ServerboundInteractPacket packet) {
+    private static PacketInteractionContext getInteractionContext(ServerboundInteractPacket packet) {
         try {
-            if (interactionActionField != null && attackAction != null) {
-                return interactionActionField.get(packet) == attackAction;
+            if (interactionActionField != null) {
+                Object action = interactionActionField.get(packet);
+                if (attackAction != null && action == attackAction) {
+                    return PacketInteractionContext.attack();
+                }
+                if (attackAction == null && isAttackMethod != null
+                        && (boolean) isAttackMethod.invoke(packet)) {
+                    return PacketInteractionContext.attack();
+                }
+                return actionDecoders
+                        .computeIfAbsent(action.getClass(), PacketInteractionListener::createActionDecoder)
+                        .decode(action);
             }
-            if (isAttackMethod != null) {
-                return (boolean) isAttackMethod.invoke(packet);
+            if (isAttackMethod != null && (boolean) isAttackMethod.invoke(packet)) {
+                return PacketInteractionContext.attack();
             }
         } catch (ReflectiveOperationException exception) {
-            exception.printStackTrace();
+            throw new IllegalStateException("Could not decode interaction packet", exception);
         }
-        return false;
+        throw new IllegalStateException("Interaction packet action is unavailable");
+    }
+
+    private static InteractionActionDecoder createActionDecoder(Class<?> actionClass) {
+        Field handField = null;
+        boolean interactionAt = false;
+        for (Field field : actionClass.getDeclaredFields()) {
+            if (InteractionHand.class.isAssignableFrom(field.getType())) {
+                field.setAccessible(true);
+                handField = field;
+            } else if (Vec3.class.isAssignableFrom(field.getType())) {
+                interactionAt = true;
+            }
+        }
+        if (handField == null) {
+            throw new IllegalStateException("Interaction action has no hand: " + actionClass.getName());
+        }
+        return new InteractionActionDecoder(handField, interactionAt);
+    }
+
+    private record InteractionActionDecoder(Field handField, boolean interactionAt) {
+        private PacketInteractionContext decode(Object action) throws IllegalAccessException {
+            InteractionHand hand = (InteractionHand) handField.get(action);
+            EquipmentSlot equipmentSlot = hand == InteractionHand.MAIN_HAND
+                    ? EquipmentSlot.HAND
+                    : EquipmentSlot.OFF_HAND;
+            return interactionAt
+                    ? PacketInteractionContext.interactAt(equipmentSlot)
+                    : PacketInteractionContext.interact(equipmentSlot);
+        }
     }
 }

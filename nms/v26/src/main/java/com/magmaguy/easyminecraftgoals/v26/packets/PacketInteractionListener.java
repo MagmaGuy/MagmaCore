@@ -2,6 +2,7 @@ package com.magmaguy.easyminecraftgoals.v26.packets;
 
 import com.magmaguy.easyminecraftgoals.internal.DamageIndicatorClamp;
 import com.magmaguy.easyminecraftgoals.internal.PacketEntityInteractionManager;
+import com.magmaguy.easyminecraftgoals.internal.PacketInteractionContext;
 import com.magmaguy.easyminecraftgoals.v26.CraftBukkitBridge;
 import io.netty.channel.*;
 import net.minecraft.core.particles.ParticleOptions;
@@ -13,6 +14,7 @@ import net.minecraft.network.protocol.game.ServerboundInteractPacket;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.ServerCommonPacketListenerImpl;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
+import net.minecraft.world.InteractionHand;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -21,6 +23,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.Plugin;
+import org.bukkit.inventory.EquipmentSlot;
 
 import java.lang.reflect.Field;
 import java.util.Map;
@@ -198,28 +201,35 @@ public class PacketInteractionListener implements Listener {
             // MC 26.1+ splits the old ServerboundInteractPacket: attacks now use
             // ServerboundAttackPacket, while ServerboundInteractPacket covers right-click only.
             int entityId = -1;
-            boolean isAttack = false;
-            boolean handled = false;
+            PacketInteractionContext interactionContext = null;
 
             if (msg instanceof ServerboundAttackPacket packet) {
                 entityId = packet.entityId();
-                isAttack = true;
-                handled = true;
+                interactionContext = PacketInteractionContext.attack();
             } else if (msg instanceof ServerboundInteractPacket packet) {
                 entityId = packet.entityId();
-                isAttack = false;
-                handled = true;
+                interactionContext = PacketInteractionContext.interactAt(toEquipmentSlot(packet.hand()));
             }
 
-            if (handled) {
+            if (interactionContext != null) {
                 try {
-                    if (PacketEntityInteractionManager.getInstance().getByEntityId(entityId) != null) {
-                        final int capturedEntityId = entityId;
-                        final boolean capturedIsAttack = isAttack;
-                        Bukkit.getScheduler().runTask(plugin, () -> {
-                            PacketEntityInteractionManager.getInstance().handleInteraction(player, capturedEntityId, capturedIsAttack);
-                        });
-                        return;
+                    PacketEntityInteractionManager interactionManager = PacketEntityInteractionManager.getInstance();
+                    PacketEntityInteractionManager.Dispatch dispatch = interactionManager.captureDispatch(entityId);
+                    if (dispatch != null) {
+                        PacketEntityInteractionManager.PreparedInteraction prepared =
+                                dispatch.prepare(interactionContext);
+                        switch (prepared.decision()) {
+                            case ROUTE -> {
+                                Bukkit.getScheduler().runTask(plugin, () -> prepared.route(player));
+                                return;
+                            }
+                            case CONSUME -> {
+                                return;
+                            }
+                            case PASS -> {
+                                // Forward to the native server handler.
+                            }
+                        }
                     }
                 } catch (Exception e) {
                     e.printStackTrace();
@@ -236,6 +246,10 @@ public class PacketInteractionListener implements Listener {
             }
             super.write(ctx, msg, promise);
         }
+    }
+
+    private static EquipmentSlot toEquipmentSlot(InteractionHand hand) {
+        return hand == InteractionHand.MAIN_HAND ? EquipmentSlot.HAND : EquipmentSlot.OFF_HAND;
     }
 
     /**

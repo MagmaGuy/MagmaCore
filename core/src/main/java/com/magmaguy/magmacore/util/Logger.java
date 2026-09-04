@@ -48,8 +48,12 @@ public class Logger {
     private static void dispatch(CommandSender commandSender, String message) {
         if (commandSender instanceof Player player) {
             player.spigot().sendMessage(com.magmaguy.magmacore.util.minimessage.MiniMessageParser.parse(message));
-        } else {
+        } else if (commandSender != null) {
             commandSender.sendMessage(ChatColorConverter.convert(message));
+        } else {
+            //Callers routinely pass a "player" that is null when the action came from the console
+            //or from automation - deliver to the console instead of throwing.
+            org.bukkit.Bukkit.getConsoleSender().sendMessage(ChatColorConverter.convert(message));
         }
     }
 

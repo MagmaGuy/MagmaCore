@@ -51,10 +51,9 @@ public class NightbreakFirstTimeSetupWarner implements Listener {
                 Logger.sendMessage(event.getPlayer(), "&fInitial setup message:");
                 Logger.sendSimpleMessage(event.getPlayer(), "&7Welcome to " + spec.pluginDisplayName() + "! &c&lIt looks like setup is still pending.");
 
-                boolean showPresetModes = pluginSpec == null || pluginSpec.hasPresetModes();
                 boolean showContentPackages = pluginSpec == null || pluginSpec.hasContentPackages();
 
-                if (showPresetModes && spec.initializeCommand() != null && !spec.initializeCommand().isEmpty()) {
+                if (!spec.initializeCommand().isEmpty()) {
                     String wording = showContentPackages
                             ? " &7to walk through the guided content setup."
                             : " &7to walk through the first-time setup.";

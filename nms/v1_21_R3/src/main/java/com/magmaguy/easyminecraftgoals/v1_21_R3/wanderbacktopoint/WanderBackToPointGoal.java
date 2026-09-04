@@ -157,6 +157,12 @@ public class WanderBackToPointGoal extends Goal implements AbstractWanderBackToP
     }
 
     @Override
+    public AbstractWanderBackToPoint setReturnLocation(Location location) {
+        this.returnLocation = location.clone();
+        return this;
+    }
+
+    @Override
     public int getStopReturnDistance() {
         return stopReturnDistance;
     }

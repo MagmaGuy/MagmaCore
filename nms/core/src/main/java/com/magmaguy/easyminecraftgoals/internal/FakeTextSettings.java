@@ -2,6 +2,10 @@ package com.magmaguy.easyminecraftgoals.internal;
 
 import org.bukkit.Color;
 import org.bukkit.entity.Display;
+import org.bukkit.entity.Player;
+
+import java.util.Objects;
+import java.util.function.Predicate;
 
 /**
  * Configuration settings for FakeText.
@@ -24,6 +28,7 @@ public class FakeTextSettings {
     private float translationX = 0f;
     private float translationY = 0f;
     private float translationZ = 0f;
+    private Predicate<Player> viewerFilter = player -> true;
 
     public FakeTextSettings() {
     }
@@ -45,6 +50,7 @@ public class FakeTextSettings {
         this.translationX = other.translationX;
         this.translationY = other.translationY;
         this.translationZ = other.translationZ;
+        this.viewerFilter = other.viewerFilter;
     }
 
     public String getText() {
@@ -173,5 +179,14 @@ public class FakeTextSettings {
 
     public boolean hasTranslation() {
         return translationX != 0f || translationY != 0f || translationZ != 0f;
+    }
+
+    public FakeTextSettings setViewerFilter(Predicate<Player> viewerFilter) {
+        this.viewerFilter = Objects.requireNonNull(viewerFilter, "viewerFilter");
+        return this;
+    }
+
+    public boolean canBeSeenBy(Player player) {
+        return viewerFilter.test(player);
     }
 }
