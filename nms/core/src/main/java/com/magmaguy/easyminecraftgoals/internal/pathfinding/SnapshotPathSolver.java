@@ -1,7 +1,5 @@
 package com.magmaguy.easyminecraftgoals.internal.pathfinding;
 
-import org.bukkit.Material;
-
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -84,7 +82,7 @@ final class SnapshotPathSolver {
             neighbours.add(candidate);
         }
 
-        Material feet = terrain.blockType(current.x(), current.y(), current.z());
+        BlockProperties feet = terrain.blockProperties(current.x(), current.y(), current.z());
         if (isWater(feet)) {
             Point above = current.add(0, 1, 0);
             Point below = current.add(0, -1, 0);
@@ -151,19 +149,25 @@ final class SnapshotPathSolver {
         boolean inWater = false;
         for (int dx = -body.horizontalRadius(); dx <= body.horizontalRadius(); dx++) {
             for (int dz = -body.horizontalRadius(); dz <= body.horizontalRadius(); dz++) {
-                Material feet = terrain.blockType(point.x() + dx, point.y(), point.z() + dz);
+                BlockProperties feet = terrain.blockProperties(point.x() + dx, point.y(), point.z() + dz);
                 if (!isPassable(feet)) return false;
                 inWater |= isWater(feet);
                 for (int height = 1; height < body.heightBlocks(); height++) {
-                    if (!isPassable(terrain.blockType(point.x() + dx, point.y() + height, point.z() + dz))) {
+                    if (!isPassable(terrain.blockProperties(
+                            point.x() + dx,
+                            point.y() + height,
+                            point.z() + dz))) {
                         return false;
                     }
                 }
-                Material support = terrain.blockType(point.x() + dx, point.y() - 1, point.z() + dz);
+                BlockProperties support = terrain.blockProperties(
+                        point.x() + dx,
+                        point.y() - 1,
+                        point.z() + dz);
                 if (!isSupport(support) && !isWater(feet)) return false;
             }
         }
-        return inWater || !isHazard(terrain.blockType(point.x(), point.y() - 1, point.z()));
+        return inWater || !isHazard(terrain.blockProperties(point.x(), point.y() - 1, point.z()));
     }
 
     private static boolean hasVolumeClearance(
@@ -174,8 +178,11 @@ final class SnapshotPathSolver {
         for (int dx = -body.horizontalRadius(); dx <= body.horizontalRadius(); dx++) {
             for (int dz = -body.horizontalRadius(); dz <= body.horizontalRadius(); dz++) {
                 for (int height = 0; height < body.heightBlocks(); height++) {
-                    Material material = terrain.blockType(point.x() + dx, point.y() + height, point.z() + dz);
-                    if (requireWater ? !isWater(material) : !isPassable(material)) return false;
+                    BlockProperties block = terrain.blockProperties(
+                            point.x() + dx,
+                            point.y() + height,
+                            point.z() + dz);
+                    if (requireWater ? !isWater(block) : !isPassable(block)) return false;
                 }
             }
         }
@@ -187,7 +194,7 @@ final class SnapshotPathSolver {
         int dy = Math.abs(to.y() - from.y());
         int dz = Math.abs(to.z() - from.z());
         double cost = Math.sqrt(dx * dx + dy * dy + dz * dz);
-        Material feet = terrain.blockType(to.x(), to.y(), to.z());
+        BlockProperties feet = terrain.blockProperties(to.x(), to.y(), to.z());
         if (isWater(feet) && body.mode() == MovementMode.GROUND) cost += 3D;
         if (isWoodenDoor(feet)) cost += 2D;
         if (to.y() > from.y()) cost += 0.35D;
@@ -212,50 +219,42 @@ final class SnapshotPathSolver {
         return List.copyOf(reversed);
     }
 
-    private static boolean isPassable(Material material) {
-        return material != null && !isHazard(material)
-                && (!material.isSolid() || isWoodenDoor(material) || isWater(material));
+    private static boolean isPassable(BlockProperties block) {
+        return block != null && block.passable();
     }
 
-    private static boolean isSupport(Material material) {
-        if (material == null || !material.isSolid() || isHazard(material)) return false;
-        String name = material.name();
-        return !name.endsWith("_FENCE")
-                && !name.endsWith("_WALL")
-                && !name.endsWith("_FENCE_GATE")
-                && !name.endsWith("_DOOR")
-                && !name.endsWith("_TRAPDOOR")
-                && !name.endsWith("_CAULDRON");
+    private static boolean isSupport(BlockProperties block) {
+        return block != null && block.support();
     }
 
-    private static boolean isWater(Material material) {
-        return material == Material.WATER || material != null && material.name().equals("BUBBLE_COLUMN");
+    private static boolean isWater(BlockProperties block) {
+        return block != null && block.water();
     }
 
-    private static boolean isWoodenDoor(Material material) {
-        return material != null && material.name().endsWith("_DOOR") && material != Material.IRON_DOOR;
+    private static boolean isWoodenDoor(BlockProperties block) {
+        return block != null && block.woodenDoor();
     }
 
-    private static boolean isHazard(Material material) {
-        if (material == null) return true;
-        String name = material.name();
-        return material == Material.LAVA
-                || name.equals("FIRE")
-                || name.equals("SOUL_FIRE")
-                || name.equals("CACTUS")
-                || name.equals("SWEET_BERRY_BUSH")
-                || name.equals("POWDER_SNOW")
-                || name.equals("WITHER_ROSE")
-                || name.equals("MAGMA_BLOCK")
-                || name.endsWith("CAMPFIRE");
+    private static boolean isHazard(BlockProperties block) {
+        return block == null || block.hazard();
     }
 
     interface Terrain {
-        Material blockType(int x, int y, int z);
+        BlockProperties blockProperties(int x, int y, int z);
 
         int minimumY();
 
         int maximumY();
+    }
+
+    /** Immutable block semantics captured on the server thread before A* runs asynchronously. */
+    record BlockProperties(
+            boolean passable,
+            boolean support,
+            boolean water,
+            boolean woodenDoor,
+            boolean hazard) {
+        static final BlockProperties UNKNOWN = new BlockProperties(false, false, false, false, true);
     }
 
     enum MovementMode {

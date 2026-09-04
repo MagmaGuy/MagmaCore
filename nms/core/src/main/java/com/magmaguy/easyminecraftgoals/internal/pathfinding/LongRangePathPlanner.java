@@ -186,6 +186,7 @@ final class LongRangePathPlanner {
         private final int maximumY;
         private final Map<Long, ChunkSnapshot> snapshots = new HashMap<>();
         private final AtomicBoolean cancelled = new AtomicBoolean();
+        private SnapshotPathSolver.BlockProperties[] materialProperties;
         private int nextChunk;
         private boolean missingTerrain;
 
@@ -231,6 +232,7 @@ final class LongRangePathPlanner {
         @Override
         public void compute() {
             if (cancelled.get()) return;
+            if (materialProperties == null) materialProperties = MaterialProperties.snapshot();
             World world = start.getWorld();
             if (world == null || nextChunk >= chunks.size()) {
                 dispatchSearch();
@@ -267,6 +269,7 @@ final class LongRangePathPlanner {
             if (world == null) return PlanResult.noPath(false);
             SnapshotTerrain terrain = new SnapshotTerrain(
                     snapshots,
+                    materialProperties,
                     minimumY,
                     maximumY);
             SnapshotPathSolver.Result solved = SnapshotPathSolver.solve(
@@ -364,16 +367,71 @@ final class LongRangePathPlanner {
 
     private record SnapshotTerrain(
             Map<Long, ChunkSnapshot> snapshots,
+            SnapshotPathSolver.BlockProperties[] materialProperties,
             int minimumY,
             int maximumY) implements SnapshotPathSolver.Terrain {
         @Override
-        public Material blockType(int x, int y, int z) {
-            if (y < minimumY || y >= maximumY) return null;
+        public SnapshotPathSolver.BlockProperties blockProperties(int x, int y, int z) {
+            if (y < minimumY || y >= maximumY) return SnapshotPathSolver.BlockProperties.UNKNOWN;
             int chunkX = Math.floorDiv(x, 16);
             int chunkZ = Math.floorDiv(z, 16);
             ChunkSnapshot snapshot = snapshots.get(((long) chunkX << 32) ^ (chunkZ & 0xffffffffL));
-            if (snapshot == null) return null;
-            return snapshot.getBlockType(Math.floorMod(x, 16), y, Math.floorMod(z, 16));
+            if (snapshot == null) return SnapshotPathSolver.BlockProperties.UNKNOWN;
+            Material material = snapshot.getBlockType(Math.floorMod(x, 16), y, Math.floorMod(z, 16));
+            return materialProperties[material.ordinal()];
+        }
+    }
+
+    private static final class MaterialProperties {
+        private static volatile SnapshotPathSolver.BlockProperties[] cached;
+
+        private MaterialProperties() {
+        }
+
+        /** Called from the synchronous snapshot workload; the resulting array is immutable after publication. */
+        private static SnapshotPathSolver.BlockProperties[] snapshot() {
+            SnapshotPathSolver.BlockProperties[] existing = cached;
+            if (existing != null) return existing;
+
+            Material[] materials = Material.values();
+            SnapshotPathSolver.BlockProperties[] captured =
+                    new SnapshotPathSolver.BlockProperties[materials.length];
+            for (Material material : materials) captured[material.ordinal()] = classify(material);
+            cached = captured;
+            return captured;
+        }
+
+        private static SnapshotPathSolver.BlockProperties classify(Material material) {
+            String name = material.name();
+            if (name.startsWith("LEGACY_") || !material.isBlock()) {
+                return SnapshotPathSolver.BlockProperties.UNKNOWN;
+            }
+            boolean hazard = material == Material.LAVA
+                    || name.equals("FIRE")
+                    || name.equals("SOUL_FIRE")
+                    || name.equals("CACTUS")
+                    || name.equals("SWEET_BERRY_BUSH")
+                    || name.equals("POWDER_SNOW")
+                    || name.equals("WITHER_ROSE")
+                    || name.equals("MAGMA_BLOCK")
+                    || name.endsWith("CAMPFIRE");
+            boolean water = material == Material.WATER || name.equals("BUBBLE_COLUMN");
+            boolean woodenDoor = name.endsWith("_DOOR") && material != Material.IRON_DOOR;
+            boolean solid = material.isSolid();
+            boolean support = solid
+                    && !hazard
+                    && !name.endsWith("_FENCE")
+                    && !name.endsWith("_WALL")
+                    && !name.endsWith("_FENCE_GATE")
+                    && !name.endsWith("_DOOR")
+                    && !name.endsWith("_TRAPDOOR")
+                    && !name.endsWith("_CAULDRON");
+            return new SnapshotPathSolver.BlockProperties(
+                    !hazard && (!solid || woodenDoor || water),
+                    support,
+                    water,
+                    woodenDoor,
+                    hazard);
         }
     }
 

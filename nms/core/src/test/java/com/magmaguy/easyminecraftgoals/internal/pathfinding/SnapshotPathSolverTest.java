@@ -1,6 +1,5 @@
 package com.magmaguy.easyminecraftgoals.internal.pathfinding;
 
-import org.bukkit.Material;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
@@ -10,6 +9,10 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SnapshotPathSolverTest {
+    private static final SnapshotPathSolver.BlockProperties AIR =
+            new SnapshotPathSolver.BlockProperties(true, false, false, false, false);
+    private static final SnapshotPathSolver.BlockProperties SOLID =
+            new SnapshotPathSolver.BlockProperties(false, true, false, false, false);
     private static final SnapshotPathSolver.BodyProfile GROUND_BODY = new SnapshotPathSolver.BodyProfile(
             SnapshotPathSolver.MovementMode.GROUND,
             0,
@@ -35,7 +38,7 @@ class SnapshotPathSolverTest {
         FakeTerrain terrain = new FakeTerrain(-4, 20, -8, 8);
         for (int z = -6; z <= 6; z++) {
             if (z == 4) continue;
-            terrain.column(8, z, 1, 3, Material.STONE_BRICKS);
+            terrain.column(8, z, 1, 3, SOLID);
         }
 
         SnapshotPathSolver.Result result = SnapshotPathSolver.solve(
@@ -52,7 +55,7 @@ class SnapshotPathSolverTest {
     @Test
     void reportsNoPathWhenKnownTerrainIsSealed() {
         FakeTerrain terrain = new FakeTerrain(-2, 12, -3, 3);
-        for (int z = -3; z <= 3; z++) terrain.column(5, z, 1, 5, Material.STONE);
+        for (int z = -3; z <= 3; z++) terrain.column(5, z, 1, 5, SOLID);
 
         SnapshotPathSolver.Result result = SnapshotPathSolver.solve(
                 terrain,
@@ -70,7 +73,7 @@ class SnapshotPathSolverTest {
         private final int maximumX;
         private final int minimumZ;
         private final int maximumZ;
-        private final Map<SnapshotPathSolver.Point, Material> blocks = new HashMap<>();
+        private final Map<SnapshotPathSolver.Point, SnapshotPathSolver.BlockProperties> blocks = new HashMap<>();
 
         private FakeTerrain(int minimumX, int maximumX, int minimumZ, int maximumZ) {
             this.minimumX = minimumX;
@@ -79,18 +82,25 @@ class SnapshotPathSolverTest {
             this.maximumZ = maximumZ;
         }
 
-        private void column(int x, int z, int minimumY, int maximumY, Material material) {
+        private void column(
+                int x,
+                int z,
+                int minimumY,
+                int maximumY,
+                SnapshotPathSolver.BlockProperties properties) {
             for (int y = minimumY; y <= maximumY; y++) {
-                blocks.put(new SnapshotPathSolver.Point(x, y, z), material);
+                blocks.put(new SnapshotPathSolver.Point(x, y, z), properties);
             }
         }
 
         @Override
-        public Material blockType(int x, int y, int z) {
-            if (x < minimumX || x > maximumX || z < minimumZ || z > maximumZ) return null;
-            Material explicit = blocks.get(new SnapshotPathSolver.Point(x, y, z));
+        public SnapshotPathSolver.BlockProperties blockProperties(int x, int y, int z) {
+            if (x < minimumX || x > maximumX || z < minimumZ || z > maximumZ) {
+                return SnapshotPathSolver.BlockProperties.UNKNOWN;
+            }
+            SnapshotPathSolver.BlockProperties explicit = blocks.get(new SnapshotPathSolver.Point(x, y, z));
             if (explicit != null) return explicit;
-            return y <= 0 ? Material.STONE : Material.AIR;
+            return y <= 0 ? SOLID : AIR;
         }
 
         @Override
