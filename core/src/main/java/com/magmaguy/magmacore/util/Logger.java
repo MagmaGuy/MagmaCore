@@ -17,24 +17,29 @@ public class Logger {
     }
 
     public static void info(String msg) {
-        Bukkit.getLogger().info("[" + MagmaCore.getInstance().getRequestingPlugin().getName() + "] " + msg);
+        Bukkit.getLogger().info(prefix() + msg);
     }
 
     public static void warn(String msg) {
-        Bukkit.getLogger().warning("[" + MagmaCore.getInstance().getRequestingPlugin().getName() + "] " + msg);
+        Bukkit.getLogger().warning(prefix() + msg);
     }
 
     public static void warn(String msg, boolean printStackTrace) {
-        Bukkit.getLogger().warning("[" + MagmaCore.getInstance().getRequestingPlugin().getName() + "] " + msg);
+        warn(msg);
         if (printStackTrace) Thread.dumpStack();
     }
 
     public static void debug(String msg) {
-        Bukkit.getLogger().info("[" + MagmaCore.getInstance().getRequestingPlugin().getName() + "] Developer message:" + msg);
+        Bukkit.getLogger().info(prefix() + "Developer message:" + msg);
     }
 
     public static void sendMessage(CommandSender commandSender, String message) {
-        dispatch(commandSender, "&8[" + MagmaCore.getInstance().getRequestingPlugin().getName() + "] &f" + message);
+        dispatch(commandSender, "&8" + prefix() + "&f" + message);
+    }
+
+    private static String prefix() {
+        MagmaCore core = MagmaCore.getInstance();
+        return "[" + (core == null ? "MagmaCore" : core.getRequestingPlugin().getName()) + "] ";
     }
 
     public static void sendSimpleMessage(CommandSender commandSender, String message) {
