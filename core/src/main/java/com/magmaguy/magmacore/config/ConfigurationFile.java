@@ -12,7 +12,12 @@ public abstract class ConfigurationFile {
     protected FileConfiguration fileConfiguration;
 
     protected ConfigurationFile(String filename) {
-        file = ConfigurationEngine.fileCreator(filename);
+        this(ConfigurationEngine.fileCreator(filename));
+    }
+
+    /** Loads the same configuration lifecycle without requiring a plugin-owned path. */
+    protected ConfigurationFile(File file) {
+        this.file = ConfigurationEngine.fileCreator(java.util.Objects.requireNonNull(file, "file"));
         fileConfiguration = YamlConfiguration.loadConfiguration(file);
         initializeValues();
         saveDefaults();
