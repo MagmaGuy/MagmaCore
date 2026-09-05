@@ -283,7 +283,7 @@ public class InstanceProtector implements Listener {
         if (block == null) return;
         Material type = block.getType();
         if (type == Material.CHEST || type == Material.TRAPPED_CHEST
-                || type == Material.BARREL || type == Material.SHULKER_BOX
+                || type == Material.BARREL || type == Material.DECORATED_POT || type == Material.SHULKER_BOX
                 || type.name().endsWith("_SHULKER_BOX")) {
             if (containerAllowlist != null && containerAllowlist.isAllowed(block)) return;
             event.setCancelled(true);
