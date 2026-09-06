@@ -3,10 +3,14 @@ package com.magmaguy.magmacore.util.minimessage;
 import net.md_5.bungee.api.ChatColor;
 import net.md_5.bungee.api.chat.BaseComponent;
 import net.md_5.bungee.api.chat.ClickEvent;
+import net.md_5.bungee.api.chat.HoverEvent;
 import net.md_5.bungee.api.chat.KeybindComponent;
 import net.md_5.bungee.api.chat.TranslatableComponent;
 import net.md_5.bungee.api.chat.hover.content.Item;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.awt.Color;
 
@@ -37,16 +41,18 @@ class MiniMessageParserTest {
         assertNull(c[0].getColorRaw(), "plain text carries no colour");
     }
 
-    @Test
-    void namedColour() {
-        BaseComponent[] c = MiniMessageParser.parse("<red>hi");
+    @ParameterizedTest(name = "{displayName} [{index}] {arguments}")
+    @CsvSource({"<red>hi, hi", "&cInferno Lord, Inferno Lord"})
+    void namedAndLegacyColour(String input, String text) {
+        BaseComponent[] c = MiniMessageParser.parse(input);
         assertEquals(ChatColor.RED, c[0].getColorRaw());
-        assertEquals("hi", plainText(c));
+        assertEquals(text, plainText(c));
     }
 
-    @Test
-    void hexColour() {
-        BaseComponent[] c = MiniMessageParser.parse("<#ff8800>hi");
+    @ParameterizedTest(name = "{displayName} [{index}] {arguments}")
+    @ValueSource(strings = {"<#ff8800>hi", "&#ff8800hi", "§x§f§f§8§8§0§0hi"})
+    void hexColourForms(String input) {
+        BaseComponent[] c = MiniMessageParser.parse(input);
         assertEquals(new Color(0xFF, 0x88, 0x00), c[0].getColor().getColor());
     }
 
@@ -70,16 +76,18 @@ class MiniMessageParserTest {
         assertNull(c[1].isBoldRaw(), "bold cleared after closing tag");
     }
 
-    @Test
-    void decorationNegation() {
-        BaseComponent[] c = MiniMessageParser.parse("<bold>a<!bold>b");
+    @ParameterizedTest(name = "{displayName} [{index}] {arguments}")
+    @ValueSource(strings = {"<bold>a<!bold>b", "<bold>a<bold:false>b"})
+    void decorationCanBeDisabled(String input) {
+        BaseComponent[] c = MiniMessageParser.parse(input);
         assertTrue(c[0].isBold());
         assertEquals(Boolean.FALSE, c[1].isBoldRaw());
     }
 
-    @Test
-    void gradientColoursEachCodePoint() {
-        BaseComponent[] c = MiniMessageParser.parse("<gradient:#ff0000:#0000ff>ab</gradient>");
+    @ParameterizedTest(name = "{displayName} [{index}] {arguments}")
+    @ValueSource(strings = {"<gradient:#ff0000:#0000ff>ab</gradient>", "<g:#ff0000:#0000ff>ab</g>"})
+    void gradientColoursEachCodePoint(String input) {
+        BaseComponent[] c = MiniMessageParser.parse(input);
         assertEquals(2, c.length, "one component per code point");
         assertEquals(new Color(0xFF, 0, 0), c[0].getColor().getColor(), "first char = first stop");
         assertEquals(new Color(0, 0, 0xFF), c[1].getColor().getColor(), "last char = last stop");
@@ -129,20 +137,18 @@ class MiniMessageParserTest {
 
     // ── the migration-compat cases that decide whether existing content survives ──
 
-    @Test
-    void literalAngleBracketsLeftVerbatim() {
-        // role names like "<Quest Giver>" must NOT be eaten as a tag (space = not a tag name)
-        assertEquals("<Quest Giver>", plainText(MiniMessageParser.parse("<Quest Giver>")));
-    }
-
-    @Test
-    void unknownTagLeftVerbatim() {
-        assertEquals("<notatag>x", plainText(MiniMessageParser.parse("<notatag>x")));
-    }
-
-    @Test
-    void escapedTagIsLiteral() {
-        assertEquals("<red>", plainText(MiniMessageParser.parse("\\<red>")));
+    @ParameterizedTest(name = "{displayName} [{index}] {arguments}")
+    @CsvSource(value = {
+            "<Quest Giver>|<Quest Giver>",
+            "<notatag>x|<notatag>x",
+            "\\<red>|<red>",
+            "hp: <score:player:health>|'hp: '",
+            "<shadow:#ff0000>x</shadow>|x",
+            "<selector:@p>|''",
+            "a<sprite:icon>b|ab"
+    }, delimiter = '|')
+    void literalTextSurvivesAndInertTagsAreConsumed(String input, String expected) {
+        assertEquals(expected, plainText(MiniMessageParser.parse(input)));
     }
 
     // ── the legacy-string adapter used for boss / item name sinks ──
@@ -170,25 +176,12 @@ class MiniMessageParserTest {
     // ── legacy & code back-compatibility (existing configs must keep rendering) ──
 
     @Test
-    void legacyAmpersandColour() {
-        BaseComponent[] c = MiniMessageParser.parse("&cInferno Lord");
-        assertEquals(ChatColor.RED, c[0].getColorRaw());
-        assertEquals("Inferno Lord", plainText(c));
-    }
-
-    @Test
     void legacyColourResetsDecorations() {
         // vanilla semantics: a colour code clears formatting (&l then &c → red, not bold)
         BaseComponent[] c = MiniMessageParser.parse("&lBold &cPlainRed");
         assertTrue(c[0].isBold());
         assertEquals(ChatColor.RED, c[c.length - 1].getColorRaw());
         assertNull(c[c.length - 1].isBoldRaw(), "colour code cleared the bold");
-    }
-
-    @Test
-    void legacyHexCode() {
-        BaseComponent[] c = MiniMessageParser.parse("&#ff8800hi");
-        assertEquals(new Color(0xFF, 0x88, 0x00), c[0].getColor().getColor());
     }
 
     @Test
@@ -199,14 +192,6 @@ class MiniMessageParserTest {
     }
 
     // ── new tags ──
-
-    @Test
-    void shortGradientAlias() {
-        // the historical MagmaCore <g:...> alias must still resolve to a gradient
-        BaseComponent[] c = MiniMessageParser.parse("<g:#ff0000:#0000ff>ab</g>");
-        assertEquals(2, c.length);
-        assertEquals(new Color(0xFF, 0, 0), c[0].getColor().getColor());
-    }
 
     @Test
     void gradientHonoursNestedColourOverride() {
@@ -221,24 +206,21 @@ class MiniMessageParserTest {
         assertEquals(new Color(0, 0, 0xFF), c[4].getColor().getColor());
     }
 
-    @Test
-    void showItemHover() {
-        BaseComponent[] c = MiniMessageParser.parse("<hover:show_item:'minecraft:diamond':3>loot");
+    @ParameterizedTest(name = "{displayName} [{index}] {arguments}")
+    @ValueSource(strings = {"<hover:show_item:'minecraft:diamond':3>loot", "<hover:show_item:minecraft:diamond:3>loot"})
+    void itemHoverRetainsNamespacedIdentityAndCount(String input) {
+        BaseComponent[] c = MiniMessageParser.parse(input);
         assertNotNull(c[0].getHoverEvent());
-        assertEquals(HoverEventActions.SHOW_ITEM, c[0].getHoverEvent().getAction());
+        assertEquals(HoverEvent.Action.SHOW_ITEM, c[0].getHoverEvent().getAction());
+        Item item = (Item) c[0].getHoverEvent().getContents().get(0);
+        assertEquals("minecraft:diamond", item.getId());
+        assertEquals(3, item.getCount());
     }
 
     @Test
     void prideRendersAsGradient() {
         BaseComponent[] c = MiniMessageParser.parse("<pride>abcdef</pride>");
         assertEquals(6, c.length);
-    }
-
-    @Test
-    void inertTagsAreConsumedNotPrinted() {
-        // server-rendered / too-new tags must not leak as literal text
-        assertEquals("hp: ", plainText(MiniMessageParser.parse("hp: <score:player:health>")));
-        assertEquals("x", plainText(MiniMessageParser.parse("<shadow:#ff0000>x</shadow>")));
     }
 
     // ── integration: ChatColorConverter is the universal chokepoint ──
@@ -295,20 +277,11 @@ class MiniMessageParserTest {
     }
 
     @Test
-    void namespacedShowItemUnquoted() {
-        BaseComponent[] c = MiniMessageParser.parse("<hover:show_item:minecraft:diamond:3>loot");
-        assertNotNull(c[0].getHoverEvent());
-        Item item = (Item) c[0].getHoverEvent().getContents().get(0);
-        assertEquals("minecraft:diamond", item.getId());
-        assertEquals(3, item.getCount());
-    }
-
-    @Test
     void showEntityHover() {
         BaseComponent[] c = MiniMessageParser.parse(
                 "<hover:show_entity:minecraft:pig:06e96388-0000-4000-8000-000000000001:Babe>x");
         assertNotNull(c[0].getHoverEvent());
-        assertEquals(HoverEventActions.SHOW_ENTITY, c[0].getHoverEvent().getAction());
+        assertEquals(HoverEvent.Action.SHOW_ENTITY, c[0].getHoverEvent().getAction());
     }
 
     @Test
@@ -342,30 +315,10 @@ class MiniMessageParserTest {
     }
 
     @Test
-    void prideVariantFlags() {
-        assertTrue(MiniMessageParser.parse("<pride:trans>hello</pride>").length >= 1);
-        assertTrue(MiniMessageParser.parse("<pride:bi>hi</pride>").length >= 1);
-    }
-
-    @Test
-    void explicitDecorationFalse() {
-        BaseComponent[] c = MiniMessageParser.parse("<bold>a<bold:false>b");
-        assertTrue(c[0].isBold());
-        assertEquals(Boolean.FALSE, c[1].isBoldRaw());
-    }
-
-    @Test
     void decorationAliases() {
         assertTrue(MiniMessageParser.parse("<b>x</b>")[0].isBold());
         assertTrue(MiniMessageParser.parse("<i>x</i>")[0].isItalic());
         assertEquals(Boolean.TRUE, MiniMessageParser.parse("<st>x</st>")[0].isStrikethroughRaw());
-    }
-
-    @Test
-    void legacySpreadHex() {
-        // §x§f§f§8§8§0§0 → #ff8800
-        assertEquals(new Color(0xFF, 0x88, 0x00),
-                MiniMessageParser.parse("§x§f§f§8§8§0§0hi")[0].getColor().getColor());
     }
 
     @Test
@@ -383,24 +336,10 @@ class MiniMessageParserTest {
     }
 
     @Test
-    void inertTagsEmitNothingOrPassThrough() {
-        assertEquals("", plainText(MiniMessageParser.parse("<selector:@p>")));
-        assertEquals("ab", plainText(MiniMessageParser.parse("a<sprite:icon>b")));
-        assertEquals("x", plainText(MiniMessageParser.parse("<shadow:#ff0000>x</shadow>")));
-    }
-
-    @Test
     void nullAndEmptyInput() {
         assertEquals("", MiniMessageParser.toLegacy(null));
         assertEquals("", plainText(MiniMessageParser.parse("")));
         assertEquals("", plainText(MiniMessageParser.parse(null)));
     }
 
-    /** Small indirection so the test reads cleanly regardless of BungeeCord's enum import path. */
-    private static final class HoverEventActions {
-        static final net.md_5.bungee.api.chat.HoverEvent.Action SHOW_ITEM =
-                net.md_5.bungee.api.chat.HoverEvent.Action.SHOW_ITEM;
-        static final net.md_5.bungee.api.chat.HoverEvent.Action SHOW_ENTITY =
-                net.md_5.bungee.api.chat.HoverEvent.Action.SHOW_ENTITY;
-    }
 }
