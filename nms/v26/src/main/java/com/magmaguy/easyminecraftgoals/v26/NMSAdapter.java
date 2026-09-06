@@ -53,6 +53,32 @@ import java.util.Optional;
 
 public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter {
 
+    @Override
+    public void damageWithoutCooldown(LivingEntity target, double amount, Entity source) {
+        if (!Double.isFinite(amount) || amount < 0D || amount > Float.MAX_VALUE)
+            throw new IllegalArgumentException("Damage must be finite and fit a native float");
+        var victim = CraftBukkitBridge.getNMSLivingEntity(target);
+        if (victim.generation) throw new IllegalStateException("Cannot damage an entity during world generation");
+        var attacker = CraftBukkitBridge.getNMSEntity(source);
+        var sources = victim.damageSources();
+        net.minecraft.world.damagesource.DamageSource original;
+        if (attacker instanceof net.minecraft.world.entity.projectile.arrow.AbstractArrow arrow)
+            original = sources.arrow(arrow, arrow.getOwner());
+        else if (attacker instanceof net.minecraft.world.entity.player.Player player)
+            original = sources.playerAttack(player);
+        else if (attacker instanceof net.minecraft.world.entity.LivingEntity living)
+            original = sources.mobAttack(living);
+        else throw new IllegalArgumentException("Damage source must be a living attacker or arrow");
+        var damage = new net.minecraft.world.damagesource.DamageSource(
+                original.typeHolder(), original.getDirectEntity(), original.getEntity(), original.sourcePositionRaw()) {
+            @Override
+            public boolean is(net.minecraft.tags.TagKey<net.minecraft.world.damagesource.DamageType> tag) {
+                return tag.equals(net.minecraft.tags.DamageTypeTags.BYPASSES_COOLDOWN) || super.is(tag);
+            }
+        };
+        victim.hurtServer((net.minecraft.server.level.ServerLevel) victim.level(), damage, (float) amount);
+    }
+
     public NMSAdapter() {
         // Register the real packet-size measurer so the FMM packet sampler reports true
         // serialized bytes instead of a flat estimate. Defensive: if the codec reflection

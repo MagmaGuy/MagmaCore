@@ -42,6 +42,13 @@ import java.util.Optional;
 
 public abstract class NMSAdapter {
     /**
+     * Delivers a living attacker or owned arrow hit through native damage and Bukkit events,
+     * bypassing only this invocation's hit cooldown. Does not clear the target's immunity state.
+     * Cancellation, armor, invulnerability, attribution and normal subsequent hits stay native.
+     */
+    public abstract void damageWithoutCooldown(LivingEntity target, double amount, Entity source);
+
+    /**
      * Creates the version-specific native mind host. Adapters before 26.2 do not support native
      * MagmaCore bodies and fail explicitly instead of falling back to a Java scheduler.
      */
