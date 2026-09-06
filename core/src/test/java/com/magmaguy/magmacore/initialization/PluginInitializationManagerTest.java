@@ -12,10 +12,13 @@ import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitScheduler;
 import org.bukkit.scheduler.BukkitTask;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 
 import java.time.Duration;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Queue;
 import java.util.UUID;
@@ -33,6 +36,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
@@ -82,26 +86,59 @@ class PluginInitializationManagerTest {
         }
     }
 
-    @Test
-    void setupFailureRunsFailureCallbackAndPublishesTerminalState() {
+    @ParameterizedTest(name = "{displayName} [{index}] {arguments}")
+    @ValueSource(strings = {"setup", "async", "sync"})
+    void failurePublishesTerminalStateAndAllowsCleanRecovery(String phase) {
         try (Harness harness = new Harness(true)) {
             AtomicInteger failures = new AtomicInteger();
-
+            List<String> callbacks = new ArrayList<>();
             PluginInitializationManager.run(
                     harness.plugin,
-                    null,
+                    phase.equals("setup") ? null : harness.config(List.of()),
                     ignored -> {
+                        callbacks.add("async");
+                        if (phase.equals("async")) {
+                            throw new IllegalStateException("async failed");
+                        }
                     },
                     ignored -> {
+                        callbacks.add("sync");
+                        if (phase.equals("sync")) {
+                            throw new IllegalStateException("sync failed");
+                        }
                     },
-                    () -> {
-                    },
-                    ignored -> failures.incrementAndGet());
+                    () -> callbacks.add("unexpected-success"),
+                    ignored -> {
+                        callbacks.add("failure");
+                        failures.incrementAndGet();
+                    });
 
             assertEquals(1, failures.get());
+            assertEquals(switch (phase) {
+                case "setup" -> List.of("failure");
+                case "async" -> List.of("async", "failure");
+                default -> List.of("async", "sync", "failure");
+            }, callbacks);
             assertEquals(
                     PluginInitializationState.FAILED,
                     PluginInitializationManager.getState(harness.pluginName));
+            if (!phase.equals("setup")) {
+                verify(harness.bossBar).removeAll();
+            }
+
+            callbacks.clear();
+            clearInvocations(harness.bossBar);
+            PluginInitializationManager.run(
+                    harness.plugin, harness.config(List.of()),
+                    ignored -> callbacks.add("async"),
+                    ignored -> callbacks.add("sync"),
+                    () -> callbacks.add("success"),
+                    ignored -> failures.incrementAndGet());
+            assertEquals(List.of("async", "sync", "success"), callbacks);
+            assertEquals(1, failures.get());
+            assertEquals(PluginInitializationState.INITIALIZED,
+                    PluginInitializationManager.getState(harness.pluginName));
+            verify(harness.bossBar).removeAll();
         }
     }
 
