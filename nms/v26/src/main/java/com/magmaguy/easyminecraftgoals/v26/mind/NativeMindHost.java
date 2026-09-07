@@ -136,7 +136,7 @@ public final class NativeMindHost implements MindHost {
         // CreatureSpawnEvent fires inside addFreshEntity. Mark the not-yet-added wrapper first so
         // consumers can distinguish this carrier before they run their normal spawn conversion.
         MindCarrierState.markBody(bukkitEntity, hostIdentity, profile);
-        if (!level.addFreshEntity(mob)) {
+        if (!level.addFreshEntity(mob, org.bukkit.event.entity.CreatureSpawnEvent.SpawnReason.CUSTOM)) {
             MindCarrierState.clear(bukkitEntity, hostIdentity);
             throw new IllegalStateException("Minecraft rejected the native mind body spawn");
         }
