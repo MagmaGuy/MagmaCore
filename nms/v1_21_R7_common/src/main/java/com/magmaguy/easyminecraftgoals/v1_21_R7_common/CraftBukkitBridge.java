@@ -39,6 +39,7 @@ public class CraftBukkitBridge {
     private static Method craftEntityGetHandle;
     private static Method craftLivingEntityGetHandle;
     private static Method craftItemStackAsNMSCopy;
+    private static Method craftItemStackAsBukkitCopy;
     private static Method craftBlockDataGetState;
 
     static {
@@ -82,6 +83,7 @@ public class CraftBukkitBridge {
             craftEntityGetHandle = craftEntityClass.getMethod("getHandle");
             craftLivingEntityGetHandle = craftLivingEntityClass.getMethod("getHandle");
             craftItemStackAsNMSCopy = craftItemStackClass.getMethod("asNMSCopy", org.bukkit.inventory.ItemStack.class);
+            craftItemStackAsBukkitCopy = craftItemStackClass.getMethod("asBukkitCopy", ItemStack.class);
             craftBlockDataGetState = craftBlockDataClass.getMethod("getState");
 
         } catch (Exception e) {
@@ -126,6 +128,14 @@ public class CraftBukkitBridge {
             return (net.minecraft.world.entity.LivingEntity) craftLivingEntityGetHandle.invoke(entity);
         } catch (Exception e) {
             throw new RuntimeException("Failed to get NMS LivingEntity from Bukkit LivingEntity", e);
+        }
+    }
+
+    public static org.bukkit.inventory.ItemStack asBukkitCopy(ItemStack itemStack) {
+        try {
+            return (org.bukkit.inventory.ItemStack) craftItemStackAsBukkitCopy.invoke(null, itemStack);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Failed to convert native item to Bukkit", e);
         }
     }
 

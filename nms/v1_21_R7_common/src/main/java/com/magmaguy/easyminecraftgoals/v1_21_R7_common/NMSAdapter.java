@@ -44,6 +44,26 @@ import java.lang.reflect.Method;
 import java.util.Optional;
 
 public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter {
+    @Override
+    public float getConsumptionSeconds(org.bukkit.inventory.ItemStack item) {
+        var nativeItem = CraftBukkitBridge.asNMSCopy(item);
+        var consumable = nativeItem.get(net.minecraft.core.component.DataComponents.CONSUMABLE);
+        return consumable == null ? -1F : consumable.consumeSeconds();
+    }
+
+    @Override
+    public org.bukkit.inventory.ItemStack withConsumptionSeconds(org.bukkit.inventory.ItemStack item, float seconds) {
+        if (!Float.isFinite(seconds) || seconds < 0F)
+            throw new IllegalArgumentException("Consumption duration must be finite and non-negative");
+        var nativeItem = CraftBukkitBridge.asNMSCopy(item);
+        var original = nativeItem.get(net.minecraft.core.component.DataComponents.CONSUMABLE);
+        if (original == null) throw new IllegalArgumentException("Item is not consumable");
+        nativeItem.set(net.minecraft.core.component.DataComponents.CONSUMABLE,
+                new net.minecraft.world.item.component.Consumable(seconds, original.animation(), original.sound(),
+                        original.hasConsumeParticles(), original.onConsumeEffects()));
+        return CraftBukkitBridge.asBukkitCopy(nativeItem);
+    }
+
 
     @Override
     public void damageWithoutCooldown(LivingEntity target, double amount, Entity source) {

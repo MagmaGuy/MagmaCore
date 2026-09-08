@@ -41,6 +41,16 @@ import java.util.Objects;
 import java.util.Optional;
 
 public abstract class NMSAdapter {
+    /** Effective native consumption duration, including material defaults; -1 for non-consumables. */
+    public float getConsumptionSeconds(ItemStack item) {
+        throw new UnsupportedOperationException("Consumption duration is unavailable on this adapter");
+    }
+
+    /** Returns a copy with only consumption duration changed, preserving native effects and animation. */
+    public ItemStack withConsumptionSeconds(ItemStack item, float seconds) {
+        throw new UnsupportedOperationException("Consumption duration is unavailable on this adapter");
+    }
+
     /**
      * Delivers a living attacker or owned arrow hit through native damage and Bukkit events,
      * bypassing only this invocation's hit cooldown. Does not clear the target's immunity state.
