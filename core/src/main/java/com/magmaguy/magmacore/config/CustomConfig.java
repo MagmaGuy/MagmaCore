@@ -66,6 +66,8 @@ public class CustomConfig {
         try {
             Set<Class> classSet = new HashSet<>(reflections.getSubTypesOf(customConfigFields));
             classSet.forEach(aClass -> {
+                // Reflections includes shared abstract bases through subtype expansion.
+                if (java.lang.reflect.Modifier.isAbstract(aClass.getModifiers())) return;
                 try {
                     customConfigFieldsArrayList.add((CustomConfigFields) aClass.getDeclaredConstructor().newInstance());
                 } catch (Exception ex) {
