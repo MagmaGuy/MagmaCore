@@ -32,11 +32,13 @@ public class PacketEntityEventListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerRespawn(PlayerRespawnEvent event) {
+        PacketPassengerRegistry.clearViewer(event.getPlayer().getUniqueId());
         tracker.onPlayerRespawn(event.getPlayer());
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerChangedWorld(PlayerChangedWorldEvent event) {
+        PacketPassengerRegistry.clearViewer(event.getPlayer().getUniqueId());
         World fromWorld = event.getFrom();
         tracker.onPlayerChangedWorld(event.getPlayer(), fromWorld);
     }

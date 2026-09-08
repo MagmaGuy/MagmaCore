@@ -2,6 +2,7 @@ package com.magmaguy.easyminecraftgoals.v1_21_R7_common.packets;
 
 import com.google.common.collect.Sets;
 import com.magmaguy.easyminecraftgoals.internal.PacketEntityInterface;
+import com.magmaguy.easyminecraftgoals.internal.PacketPassengerRegistry;
 import com.magmaguy.easyminecraftgoals.v1_21_R7_common.CraftBukkitBridge;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.*;
@@ -63,6 +64,7 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
 
     @Override
     public void removeViewer(UUID player) {
+        detachPassengerFor(player);
         viewers.remove(player);
     }
 
@@ -114,8 +116,10 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
 
     //Entity destruction
     public void remove() {
+        dismount();
         // Broadcast remove to all viewers
         sendPacketToAll(generateRemovePacket());
+        viewers.clear();
         removeCallbacks.forEach(Runnable::run);
     }
 
@@ -131,8 +135,10 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
     }
 
     public void setVisible(boolean visible) {
+        if (!visible) for (UUID viewer : viewers) detachPassengerFor(viewer);
         // This is a global visibility change - send to all
         sendPacketToAll(generateSetVisiblePacket(visible));
+        if (visible) for (UUID viewer : viewers) refreshPassengerFor(viewer);
     }
 
     // Hide from specific player - FIXED
@@ -176,6 +182,7 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
                 generateHeadRotationPacket(),
                 createEntityDataPacket()
         );
+        refreshPassengerFor(player.getUniqueId());
     }
 
     @Override
@@ -257,46 +264,43 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
 
     @Override
     public void mountTo(int vehicleEntityId) {
-        this.currentVehicleId = vehicleEntityId;
-        sendPacketToAll(generateMountPacket(vehicleEntityId, EntityID));
+        if (currentVehicleId != vehicleEntityId) dismount();
+        currentVehicleId = vehicleEntityId;
+        for (UUID viewer : viewers) refreshPassengerFor(viewer);
     }
 
     @Override
     public void dismount() {
-        if (currentVehicleId != -1) {
-            // Send empty passengers packet to the previous vehicle
-            sendPacketToAll(generateMountPacket(currentVehicleId)); // No passengers = dismount
-            currentVehicleId = -1;
-        }
+        if (currentVehicleId == -1) return;
+        for (UUID viewer : viewers) detachPassengerFor(viewer);
+        currentVehicleId = -1;
     }
 
-    protected Packet<?> generateMountPacket(int vehicleEntityId, int... passengerIds) {
-        // Create packet using our entity (it has no passengers so fields will be wrong)
-        // Then use reflection to fix the vehicle ID and passenger array
-        try {
-            ClientboundSetPassengersPacket packet = new ClientboundSetPassengersPacket(entity);
+    private int[] nativePassengerIds() {
+        Entity vehicle = entity.level().getEntity(currentVehicleId);
+        return vehicle == null ? new int[0]
+                : vehicle.getPassengers().stream().mapToInt(Entity::getId).toArray();
+    }
 
-            // The packet has two fields: vehicle (int) and passengers (IntList)
-            // Field names may vary by mapping - try common names
-            for (java.lang.reflect.Field field : ClientboundSetPassengersPacket.class.getDeclaredFields()) {
-                field.setAccessible(true);
-                if (field.getType() == int.class) {
-                    // This is the vehicle ID field
-                    field.setInt(packet, vehicleEntityId);
-                } else if (field.getType().getName().contains("IntList") || field.getType() == int[].class) {
-                    // This is the passengers field
-                    if (field.getType() == int[].class) {
-                        field.set(packet, passengerIds);
-                    } else {
-                        // It's an IntList
-                        field.set(packet, it.unimi.dsi.fastutil.ints.IntList.of(passengerIds));
-                    }
-                }
-            }
+    private void refreshPassengerFor(UUID viewer) {
+        if (currentVehicleId == -1 || !visible) return;
+        Player player = Bukkit.getPlayer(viewer);
+        if (player == null) {
+            PacketPassengerRegistry.clearViewer(viewer);
+            return;
+        }
+        PacketPassengerRegistry.attach(viewer, currentVehicleId, EntityID);
+        sendPacketToPlayer(player, PassengerPackets.create(currentVehicleId,
+                PacketPassengerRegistry.compose(viewer, currentVehicleId, nativePassengerIds())));
+    }
 
-            return packet;
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to create mount packet", e);
+    private void detachPassengerFor(UUID viewer) {
+        if (currentVehicleId == -1) return;
+        PacketPassengerRegistry.detach(viewer, currentVehicleId, EntityID);
+        Player player = Bukkit.getPlayer(viewer);
+        if (player != null) {
+            sendPacketToPlayer(player, PassengerPackets.create(currentVehicleId,
+                    PacketPassengerRegistry.compose(viewer, currentVehicleId, nativePassengerIds())));
         }
     }
 

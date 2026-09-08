@@ -92,6 +92,7 @@ public class PacketEntityTracker {
             }
         }
         trackedEntities.clear();
+        PacketPassengerRegistry.clear();
 
         plugin = null;
     }
