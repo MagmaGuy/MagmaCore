@@ -130,6 +130,7 @@ final class ConfigurationImportRegistry {
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.ELITEMOBS, "customarenas", importer -> importer.getEliteMobsPath().resolve("customarenas"));
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.ELITEMOBS, "npcs", importer -> importer.getEliteMobsPath().resolve("npcs"));
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.ELITEMOBS, "npc_scripts", importer -> importer.getEliteMobsPath().resolve("npc_scripts"));
+        registerPlatformFolder(ConfigurationImporter.PluginPlatform.ELITEMOBS, "transport_routes", importer -> importer.getEliteMobsPath().resolve("transport_routes"));
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.ELITEMOBS, "wormholes", importer -> importer.getEliteMobsPath().resolve("wormholes"));
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.ELITEMOBS, "powers", importer -> importer.getEliteMobsPath().resolve("powers"));
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.ELITEMOBS, "world_blueprints", importer -> importer.getEliteMobsPath().resolve("world_blueprints"));

@@ -9,6 +9,9 @@ import org.bukkit.entity.LivingEntity;
 public interface MindActuator {
     boolean moveTo(Location destination, double speedModifier);
 
+    /** One-tick native flight velocity in blocks/tick; requires MOVE and LOOK leases and a flying body. */
+    default boolean steerFlight(org.bukkit.util.Vector velocity) { return false; }
+
     void stopMoving();
 
     void lookAt(Location destination);

@@ -33,9 +33,7 @@ final class NativeMindActuator {
     }
 
     void stopAll() {
-        mob.getNavigation().stop();
-        mob.getMoveControl().setWait();
-        mob.stopInPlace();
+        body.stopMovement();
         mob.setTarget(null);
         mob.setAggressive(false);
         navigation.reset();
@@ -79,10 +77,22 @@ final class NativeMindActuator {
         public void stopMoving() {
             require(MindControl.MOVE);
             if (movementOverridden.getAsBoolean()) return;
-            mob.getNavigation().stop();
-            mob.getMoveControl().setWait();
-            mob.stopInPlace();
+            body.stopMovement();
             navigation.reset();
+        }
+
+        @Override
+        public boolean steerFlight(org.bukkit.util.Vector velocity) {
+            require(MindControl.MOVE);
+            require(MindControl.LOOK);
+            Objects.requireNonNull(velocity, "velocity");
+            if (!Double.isFinite(velocity.getX()) || !Double.isFinite(velocity.getY())
+                    || !Double.isFinite(velocity.getZ()) || velocity.lengthSquared() > 4D)
+                throw new IllegalArgumentException("Flight velocity must be finite and at most two blocks/tick");
+            if (movementOverridden.getAsBoolean() || body.profile().locomotion() != MindBodyLocomotion.FLYING)
+                return false;
+            body.steerFlight(new net.minecraft.world.phys.Vec3(velocity.getX(), velocity.getY(), velocity.getZ()));
+            return true;
         }
 
         @Override
@@ -141,9 +151,7 @@ final class NativeMindActuator {
                 throw new IllegalStateException("Mind sensors cannot use actuators");
             }
             if (holds(MindControl.MOVE) && !movementOverridden.getAsBoolean()) {
-                mob.getNavigation().stop();
-                mob.getMoveControl().setWait();
-                mob.stopInPlace();
+                body.stopMovement();
                 navigation.reset();
             }
             if (holds(MindControl.TARGET)) mob.setTarget(null);

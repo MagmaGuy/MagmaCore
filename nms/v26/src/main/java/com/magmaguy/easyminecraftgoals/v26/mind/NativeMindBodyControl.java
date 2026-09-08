@@ -25,6 +25,7 @@ final class NativeMindBodyControl {
 
     private final Mob mob;
     private final MindBodyProfile profile;
+    private Vec3 flightVelocity;
 
     NativeMindBodyControl(Mob mob, MindBodyProfile profile) {
         this.mob = mob;
@@ -33,6 +34,7 @@ final class NativeMindBodyControl {
     }
 
     void beforeMindTick() {
+        flightVelocity = null;
         // NoAI suppresses carrier-specific serverAiStep implementations such as Bat roosting and
         // zombie sunlight behavior. MagmaCore advances navigation and controls explicitly below.
         mob.setNoAi(true);
@@ -46,6 +48,23 @@ final class NativeMindBodyControl {
     }
 
     void afterMindTick() {
+        if (flightVelocity != null) {
+            mob.getNavigation().stop();
+            mob.getMoveControl().setWait();
+            mob.setNoGravity(true);
+            mob.setDeltaMovement(flightVelocity);
+            mob.move(net.minecraft.world.entity.MoverType.SELF, flightVelocity);
+            mob.fallDistance = 0;
+            double horizontal = flightVelocity.horizontalDistance();
+            if (horizontal > 1.0E-5) {
+                float desired = (float) (Math.toDegrees(Math.atan2(-flightVelocity.x, flightVelocity.z)));
+                float difference = net.minecraft.util.Mth.wrapDegrees(desired - mob.getYRot());
+                mob.setYRot(mob.getYRot() + net.minecraft.util.Mth.clamp(difference, -8F, 8F));
+                mob.setYBodyRot(mob.getYRot());
+                mob.setYHeadRot(mob.getYRot());
+            }
+            return;
+        }
         if (profile.locomotion() == MindBodyLocomotion.STATIONARY) {
             stopMovement();
             return;
@@ -61,10 +80,13 @@ final class NativeMindBodyControl {
     }
 
     void stopMovement() {
+        flightVelocity = null;
         mob.getNavigation().stop();
         mob.getMoveControl().setWait();
         mob.stopInPlace();
     }
+
+    void steerFlight(Vec3 velocity) { flightVelocity = velocity; }
 
     private void applyProfile() {
         mob.removeFreeWill();
