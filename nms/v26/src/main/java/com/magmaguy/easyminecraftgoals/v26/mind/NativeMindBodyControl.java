@@ -14,6 +14,7 @@ import net.minecraft.world.entity.ai.navigation.FlyingPathNavigation;
 import net.minecraft.world.entity.ai.navigation.GroundPathNavigation;
 import net.minecraft.world.entity.ai.navigation.PathNavigation;
 import net.minecraft.world.entity.ai.navigation.WaterBoundPathNavigation;
+import net.minecraft.world.phys.Vec3;
 
 import java.lang.reflect.Field;
 
@@ -53,6 +54,10 @@ final class NativeMindBodyControl {
         mob.getMoveControl().tick();
         mob.getLookControl().tick();
         mob.getJumpControl().tick();
+        // LivingEntity.aiStep skips travel when NoAI makes isEffectiveAi false. Advance the
+        // native collision/friction/gravity step here too, or a fresh body never even lands
+        // and GroundPathNavigation cannot start. Keep carrier AI disabled throughout.
+        mob.travel(new Vec3(mob.xxa, mob.yya, mob.zza));
     }
 
     void stopMovement() {
