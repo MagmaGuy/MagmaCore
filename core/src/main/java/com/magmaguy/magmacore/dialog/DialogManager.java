@@ -25,6 +25,7 @@ import java.util.*;
  * and default value:contentReference[oaicite:0]{index=0}.
  */
 public class DialogManager {
+    private static final Map<Player, Object> dialogOwners = new WeakHashMap<>();
     private DialogManager() {
     }
 
@@ -1684,6 +1685,22 @@ public class DialogManager {
     }
 
     public static void sendDialog(Player player, DialogBuilder builder) {
-        Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "minecraft:dialog show " + player.getName() + " " + builder.build().toString());
+        sendDialog(player, builder, null);
+    }
+
+    public static void sendDialog(Player player, DialogBuilder builder, Object owner) {
+        dialogOwners.remove(player);
+        if (Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "minecraft:dialog show " + player.getName() + " " + builder.build())
+                && owner != null) dialogOwners.put(player, owner);
+    }
+
+    public static void clearOwnedDialog(Player player, Object owner) {
+        if (dialogOwners.get(player) != owner) return;
+        dialogOwners.remove(player);
+        player.clearDialog();
+    }
+
+    public static void forgetDialogOwner(Player player, Object owner) {
+        dialogOwners.remove(player, owner);
     }
 }
