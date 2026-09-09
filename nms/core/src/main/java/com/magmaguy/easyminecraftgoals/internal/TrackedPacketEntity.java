@@ -15,6 +15,10 @@ import java.util.UUID;
  */
 public interface TrackedPacketEntity {
 
+    /** Updates a moving anchor before visibility is evaluated. Called on the server thread. */
+    default void updateTracking() {
+    }
+
     /**
      * Gets the location used for tracking distance.
      * If attached to a vehicle, this should return the vehicle's location.

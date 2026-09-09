@@ -120,6 +120,7 @@ public class PacketEntityTracker {
      */
     private void tick() {
         tickCounter++;
+        for (TrackedPacketEntity entity : trackedEntities) entity.updateTracking();
 
         // Low-frequency self-healing re-mount sweep. Re-issues the mount packet for already-visible
         // displays whose passenger link may have been silently dropped server-side.
