@@ -19,7 +19,7 @@ public final class StackedText {
     private final Map<UUID, Viewer> viewers = new HashMap<>();
     private List<String> lines = List.of();
     private float scale = 1;
-    private double gap = 0.2;
+    private double gap = 0.1;
     private boolean visible = true;
     private boolean removed;
     private Location anchor;
