@@ -1,6 +1,7 @@
 package com.magmaguy.magmacore.menus;
 
 import com.magmaguy.magmacore.nightbreak.NightbreakAccount;
+import com.magmaguy.magmacore.nightbreak.NightbreakChatStyle;
 import com.magmaguy.magmacore.util.ItemStackGenerator;
 import com.magmaguy.magmacore.util.Logger;
 import com.magmaguy.magmacore.util.SpigotMessage;
@@ -21,15 +22,6 @@ import java.util.List;
  * {@link NightbreakAccount#hasToken()}, and a closing gradient bar.
  */
 public final class InfoButtonFactory {
-
-    /**
-     * Gradient bar shown above and below the chat block. Lifted verbatim from
-     * the original {@code EliteSetupMenu} so the visual output is unchanged.
-     */
-    private static final String GRADIENT_BAR =
-            "<g:#8B0000:#CC4400:#DAA520>" +
-                    "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬" +
-                    "</g>";
 
     private InfoButtonFactory() {
     }
@@ -88,7 +80,7 @@ public final class InfoButtonFactory {
             @Override
             public void onClick(Player p) {
                 p.closeInventory();
-                Logger.sendSimpleMessage(p, GRADIENT_BAR);
+                Logger.sendSimpleMessage(p, NightbreakChatStyle.separator());
                 Logger.sendSimpleMessage(p, headlineMessage);
                 p.spigot().sendMessage(
                         SpigotMessage.simpleMessage(wikiLabel),
@@ -106,7 +98,7 @@ public final class InfoButtonFactory {
                                     downloadAllClickHover,
                                     downloadAllCommand));
                 }
-                Logger.sendSimpleMessage(p, GRADIENT_BAR);
+                Logger.sendSimpleMessage(p, NightbreakChatStyle.separator());
             }
         };
     }
