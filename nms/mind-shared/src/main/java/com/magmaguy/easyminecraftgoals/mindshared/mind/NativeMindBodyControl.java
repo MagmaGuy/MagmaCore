@@ -79,8 +79,9 @@ final class NativeMindBodyControl {
         mob.getJumpControl().tick();
         // LivingEntity.aiStep skips travel when NoAI makes isEffectiveAi false. Advance the
         // native collision/friction/gravity step here too, or a fresh body never even lands
-        // and GroundPathNavigation cannot start. Keep carrier AI disabled throughout.
-        mob.travel(new Vec3(mob.xxa, mob.yya, mob.zza));
+        // and GroundPathNavigation cannot start. The version bridge handles older travel guards
+        // without running an entity tick, goal selector, or native Brain.
+        NativeMindVersion.advancePhysics(mob, new Vec3(mob.xxa, mob.yya, mob.zza));
     }
 
     void stopMovement() {
@@ -99,7 +100,7 @@ final class NativeMindBodyControl {
         mob.setXxa(0);
         mob.setYya(0);
         mob.setZza(0);
-        if (profile.locomotion() != MindBodyLocomotion.STATIONARY) mob.travel(Vec3.ZERO);
+        if (profile.locomotion() != MindBodyLocomotion.STATIONARY) NativeMindVersion.advancePhysics(mob, Vec3.ZERO);
     }
 
     private void applyProfile() {
@@ -116,6 +117,8 @@ final class NativeMindBodyControl {
             }
         }
         mob.setNoAi(true);
+        // Bat.tick pins resting bats in place even when their native AI is disabled.
+        if (mob.getBukkitEntity() instanceof org.bukkit.entity.Bat bat) bat.setAwake(true);
         set(NAVIGATION, navigation());
         set(MOVE_CONTROL, moveControl());
         mob.setNoGravity(profile.locomotion() == MindBodyLocomotion.FLYING);

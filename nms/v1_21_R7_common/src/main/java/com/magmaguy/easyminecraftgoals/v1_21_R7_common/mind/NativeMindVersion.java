@@ -27,6 +27,7 @@ final class NativeMindVersion {
         throw new ExceptionInInitializerError("MoveControl operation is unavailable");
     }
     private NativeMindVersion() { }
+    static void advancePhysics(Mob mob, net.minecraft.world.phys.Vec3 input) { mob.travel(input); }
     static ServerLevel getServerLevel(Location location) { return CraftBukkitBridge.getServerLevel(location); }
     static net.minecraft.world.entity.LivingEntity getNMSLivingEntity(LivingEntity entity) { return CraftBukkitBridge.getNMSLivingEntity(entity); }
     static EntityType<?> entityType(String key) { return BuiltInRegistries.ENTITY_TYPE.getValue(net.minecraft.resources.Identifier.parse(key)); }

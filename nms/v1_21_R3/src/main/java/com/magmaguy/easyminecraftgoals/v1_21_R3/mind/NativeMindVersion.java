@@ -32,6 +32,16 @@ final class NativeMindVersion {
     static net.minecraft.world.entity.LivingEntity getNMSLivingEntity(LivingEntity entity) { return ((CraftLivingEntity) entity).getHandle(); }
     static EntityType<?> entityType(String key) { return BuiltInRegistries.ENTITY_TYPE.getValue(net.minecraft.resources.ResourceLocation.parse(key)); }
     static void position(Mob mob, double x, double y, double z, float yaw, float pitch) { mob.moveTo(x, y, z, yaw, pitch); }
+    static void advancePhysics(Mob mob, net.minecraft.world.phys.Vec3 input) {
+        // 1.21.4 checks isControlledByLocalInstance inside travel itself. Advance only native
+        // physics here; no entity/AI tick runs while this synchronous guard is lifted.
+        mob.setNoAi(false);
+        try {
+            mob.travel(input);
+        } finally {
+            mob.setNoAi(true);
+        }
+    }
     static Brain<Mob> newBrain() { return new Brain<>(java.util.List.of(), java.util.List.of(), ImmutableList.of(), () -> Brain.codec(java.util.List.of(), java.util.List.of())); }
     static void addActivity(Brain<Mob> brain, Activity activity,
             ImmutableList<? extends Pair<Integer, ? extends BehaviorControl<? super Mob>>> controls) {
