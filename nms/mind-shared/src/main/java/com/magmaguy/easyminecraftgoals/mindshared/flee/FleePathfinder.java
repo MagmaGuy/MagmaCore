@@ -1,4 +1,4 @@
-package com.magmaguy.easyminecraftgoals.v26.flee;
+package com.magmaguy.easyminecraftgoals.mindshared.flee;
 
 import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.level.pathfinder.Path;

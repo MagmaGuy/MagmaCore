@@ -1,5 +1,5 @@
 /**
- * Native 26.2 Mind implementation.
+ * Canonical native Mind implementation, compiled for every supported adapter.
  *
  * <p>The carrier uses the requested vanilla living entity type without registering a custom
  * Mojang entity, memory, or sensor type. Minecraft therefore reloads it as that vanilla carrier
@@ -16,4 +16,4 @@
  * diagnostics sample body movement once at the start of each native Mind tick. Reissuing a move
  * request does not erase stuck history.</p>
  */
-package com.magmaguy.easyminecraftgoals.v26.mind;
+package com.magmaguy.easyminecraftgoals.mindshared.mind;

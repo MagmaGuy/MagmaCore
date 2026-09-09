@@ -1,6 +1,5 @@
-package com.magmaguy.easyminecraftgoals.v26.mind;
+package com.magmaguy.easyminecraftgoals.mindshared.mind;
 
-import com.magmaguy.easyminecraftgoals.v26.CraftBukkitBridge;
 import com.magmaguy.magmacore.ai.MindPerception;
 import com.magmaguy.magmacore.ai.MindNavigationStatus;
 import net.minecraft.server.level.ServerPlayer;
@@ -54,7 +53,7 @@ final class NativeMindPerception implements MindPerception {
         NativeMindHost.requirePrimaryThread();
         if (target == null || target.getWorld() != mob.getBukkitEntity().getWorld()) return false;
         net.minecraft.world.entity.LivingEntity nativeTarget =
-                CraftBukkitBridge.getNMSLivingEntity(target);
+                NativeMindVersion.getNMSLivingEntity(target);
         return mob.getSensing().hasLineOfSight(nativeTarget);
     }
 

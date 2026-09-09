@@ -1,4 +1,4 @@
-package com.magmaguy.easyminecraftgoals.v26.mind;
+package com.magmaguy.easyminecraftgoals.mindshared.mind;
 
 import com.magmaguy.magmacore.ai.MindControl;
 

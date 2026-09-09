@@ -1,4 +1,4 @@
-package com.magmaguy.easyminecraftgoals.v26.mind;
+package com.magmaguy.easyminecraftgoals.mindshared.mind;
 
 import com.magmaguy.magmacore.ai.MindBodyCapabilities;
 import com.magmaguy.magmacore.ai.MindBodyProfile;
@@ -16,6 +16,7 @@ final class NativeMindBody implements MobBody {
     private final MindBodyProfile profile;
     private final NativeMindBodyControl control;
     private NativeMindSession session;
+    private boolean preparing;
 
     NativeMindBody(NativeMindHost host, Mob mob, MindBodyProfile profile) {
         this.host = Objects.requireNonNull(host, "host");
@@ -51,6 +52,19 @@ final class NativeMindBody implements MobBody {
         return session != null;
     }
 
+    void beginPreparation() { preparing = true; }
+
+    void endPreparation() { preparing = false; }
+
+    boolean canAttach() {
+        return isValid() || (preparing && !mob.isRemoved() && mob.isAlive());
+    }
+
+    void abortPreparation() {
+        preparing = false;
+        if (session != null) session.close();
+    }
+
     void beforeMindTick() {
         control.beforeMindTick();
     }
@@ -62,6 +76,8 @@ final class NativeMindBody implements MobBody {
     void stopMovement() {
         control.stopMovement();
     }
+
+    void tickPausedPhysics() { control.tickPausedPhysics(); }
 
     void steerFlight(net.minecraft.world.phys.Vec3 velocity) { control.steerFlight(velocity); }
 

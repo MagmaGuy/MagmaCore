@@ -5,6 +5,7 @@ import org.bukkit.entity.LivingEntity;
 
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 /**
  * Version-independent seam for one logical mind session. A session may outlive its native body
@@ -19,13 +20,22 @@ public interface MindHost {
 
     MindBodyCapabilities bodyCapabilities();
 
-    /** Creates the default grounded hostile carrier. */
+    /** Creates the default grounded carrier. */
     default MobBody spawnBody(Location location) {
         return spawnBody(location, MindBodyProfile.GROUNDED);
     }
 
-    /** Creates a hostile carrier using the requested native movement and physical profile. */
-    MobBody spawnBody(Location location, MindBodyProfile profile);
+    /** Creates a carrier using the requested native movement and physical profile. */
+    default MobBody spawnBody(Location location, MindBodyProfile profile) {
+        return spawnBody(location, profile, body -> { });
+    }
+
+    /**
+     * Prepares the marked carrier before publishing its CreatureSpawnEvent. The callback may bind
+     * its Mind and configure the entity. Rejection or failure closes any attached Mind and removes
+     * the unpublished body. Callers retain responsibility for their own external bookkeeping.
+     */
+    MobBody spawnBody(Location location, MindBodyProfile profile, Consumer<MobBody> preparation);
 
     /**
      * Advances every attached Mind session once on the server thread. The plugin that owns the

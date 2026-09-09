@@ -1,4 +1,4 @@
-package com.magmaguy.easyminecraftgoals.v26.mind;
+package com.magmaguy.easyminecraftgoals.mindshared.mind;
 
 import com.magmaguy.magmacore.ai.MindBehavior;
 import com.magmaguy.magmacore.ai.MindControl;
@@ -50,7 +50,6 @@ final class NativeMindBehaviorControl implements BehaviorControl<Mob> {
         return status;
     }
 
-    @Override
     public Set<MemoryModuleType<?>> getRequiredMemories() {
         return Set.of();
     }

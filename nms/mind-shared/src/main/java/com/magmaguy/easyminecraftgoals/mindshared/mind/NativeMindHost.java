@@ -1,6 +1,5 @@
-package com.magmaguy.easyminecraftgoals.v26.mind;
+package com.magmaguy.easyminecraftgoals.mindshared.mind;
 
-import com.magmaguy.easyminecraftgoals.v26.CraftBukkitBridge;
 import com.magmaguy.magmacore.ai.MindBodyRehydration;
 import com.magmaguy.magmacore.ai.MindActionContext;
 import com.magmaguy.magmacore.ai.MindActionRequest;
@@ -17,8 +16,6 @@ import com.magmaguy.magmacore.ai.MindPersistentState;
 import com.magmaguy.magmacore.ai.MindProgram;
 import com.magmaguy.magmacore.ai.MobBody;
 import com.magmaguy.easyminecraftgoals.TransientMovementOverride;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.EntityType;
@@ -39,6 +36,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 public final class NativeMindHost implements MindHost {
     private final String hostIdentity;
@@ -47,6 +45,7 @@ public final class NativeMindHost implements MindHost {
     private final MindBodyCapabilities bodyCapabilities;
     private final Map<UUID, NativeMindSession> sessions = new LinkedHashMap<>();
     private final NativeMindServerBudget serverBudget = new NativeMindServerBudget();
+    private final NativeMindEnvironment environment;
     private boolean closed;
 
     public NativeMindHost(NamespacedKey hostIdentity, MindFailureListener failureListener) {
@@ -76,6 +75,7 @@ public final class NativeMindHost implements MindHost {
                 false,
                 true,
                 false);
+        environment = new NativeMindEnvironment(this.hostIdentity);
     }
 
     @Override
@@ -106,16 +106,17 @@ public final class NativeMindHost implements MindHost {
     }
 
     @Override
-    public MobBody spawnBody(Location location, MindBodyProfile profile) {
+    public MobBody spawnBody(Location location, MindBodyProfile profile, Consumer<MobBody> preparation) {
         requirePrimaryThread();
         requireOpen();
         Objects.requireNonNull(location, "location");
         bodyCapabilities.validate(profile);
+        Objects.requireNonNull(preparation, "preparation");
         if (location.getWorld() == null) {
             throw new IllegalArgumentException("Native mind body requires a world");
         }
 
-        ServerLevel level = CraftBukkitBridge.getServerLevel(location);
+        ServerLevel level = NativeMindVersion.getServerLevel(location);
         EntityType<? extends Mob> carrierType = resolveCarrierType(profile.carrierType());
         net.minecraft.world.entity.Entity created = carrierType.create(level, EntitySpawnReason.COMMAND);
         if (!(created instanceof Mob mob) || mob.getType() != carrierType) {
@@ -123,7 +124,7 @@ public final class NativeMindHost implements MindHost {
             throw new IllegalStateException("Minecraft did not create the requested native Mind carrier: "
                     + profile.carrierType());
         }
-        mob.snapTo(
+        NativeMindVersion.position(mob,
                 location.getX(),
                 location.getY(),
                 location.getZ(),
@@ -132,13 +133,20 @@ public final class NativeMindHost implements MindHost {
         mob.setPersistenceRequired();
         LivingEntity bukkitEntity = null;
         boolean published = false;
+        NativeMindBody body = null;
         try {
-            NativeMindBody body = new NativeMindBody(this, mob, profile);
+            body = new NativeMindBody(this, mob, profile);
             bukkitEntity = body.entity();
             bukkitEntity.setCollidable(profile.entityCollidable());
             // CreatureSpawnEvent fires inside addFreshEntity. Mark the not-yet-added wrapper first so
             // consumers can distinguish this carrier before they run their normal spawn conversion.
             MindCarrierState.markBody(bukkitEntity, hostIdentity, profile);
+            body.beginPreparation();
+            preparation.accept(body);
+            body.endPreparation();
+            if (mob.isRemoved() || !mob.isAlive()) {
+                throw new IllegalStateException("Mind body was removed during preparation");
+            }
             if (!level.addFreshEntity(mob, org.bukkit.event.entity.CreatureSpawnEvent.SpawnReason.CUSTOM)) {
                 throw new IllegalStateException("Minecraft rejected the native mind body spawn");
             }
@@ -146,8 +154,12 @@ public final class NativeMindHost implements MindHost {
             return body;
         } finally {
             if (!published) {
-                if (bukkitEntity != null) MindCarrierState.clear(bukkitEntity, hostIdentity);
-                mob.discard();
+                try {
+                    if (body != null) body.abortPreparation();
+                } finally {
+                    if (bukkitEntity != null) MindCarrierState.clear(bukkitEntity, hostIdentity);
+                    mob.discard();
+                }
             }
         }
     }
@@ -184,6 +196,14 @@ public final class NativeMindHost implements MindHost {
         return Optional.empty();
     }
 
+    public Optional<com.magmaguy.easyminecraftgoals.PathfindingHandle> openPathfinding(LivingEntity body) {
+        requirePrimaryThread();
+        requireOpen();
+        for (NativeMindSession session : sessions.values())
+            if (session.hasBody(body.getUniqueId())) return session.openPathfinding();
+        return Optional.empty();
+    }
+
     @Override
     public Optional<MindBodyRehydration> rehydrateBody(LivingEntity carrier) {
         requirePrimaryThread();
@@ -194,7 +214,7 @@ public final class NativeMindHost implements MindHost {
         MindCarrierState.Stored marker = stored.get();
         bodyCapabilities.validate(marker.profile());
 
-        net.minecraft.world.entity.LivingEntity loaded = CraftBukkitBridge.getNMSLivingEntity(carrier);
+        net.minecraft.world.entity.LivingEntity loaded = NativeMindVersion.getNMSLivingEntity(carrier);
         if (!(loaded.level() instanceof ServerLevel)) {
             throw new IllegalArgumentException("Mind carrier is not in a server level");
         }
@@ -260,6 +280,7 @@ public final class NativeMindHost implements MindHost {
             session.closeForShutdown();
         }
         sessions.clear();
+        environment.close();
     }
 
     private void requireOpen() {
@@ -281,11 +302,11 @@ public final class NativeMindHost implements MindHost {
         if (bukkitType == null
                 || !bukkitType.isSpawnable()
                 || bukkitType.getEntityClass() == null
-                || !LivingEntity.class.isAssignableFrom(bukkitType.getEntityClass())) {
-            throw new IllegalArgumentException("Mind carrier is not a spawnable living entity type: "
+                || !org.bukkit.entity.Mob.class.isAssignableFrom(bukkitType.getEntityClass())) {
+            throw new IllegalArgumentException("Mind carrier is not a spawnable Mob type: "
                     + carrierKey);
         }
-        EntityType<?> entityType = BuiltInRegistries.ENTITY_TYPE.getValue(Identifier.parse(carrierKey));
+        EntityType<?> entityType = NativeMindVersion.entityType(carrierKey);
         if (entityType == null) {
             throw new IllegalArgumentException("Unknown Minecraft Mind carrier type: " + carrierKey);
         }

@@ -1,7 +1,7 @@
-package com.magmaguy.easyminecraftgoals.v26.mind;
+package com.magmaguy.easyminecraftgoals.mindshared.mind;
 
 import com.magmaguy.easyminecraftgoals.TransientMovementOverride;
-import com.magmaguy.easyminecraftgoals.v26.flee.FleePathfinder;
+import com.magmaguy.easyminecraftgoals.mindshared.flee.FleePathfinder;
 import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.level.pathfinder.Path;
 import org.bukkit.Location;

@@ -45,6 +45,23 @@ import org.bukkit.entity.LivingEntity;
 import java.util.Optional;
 
 public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter {
+    private com.magmaguy.easyminecraftgoals.v1_21_R4.mind.NativeMindHost mindHost;
+    @Override public com.magmaguy.magmacore.ai.MindHost createMindHost(org.bukkit.NamespacedKey identity,
+            com.magmaguy.magmacore.ai.MindFailureListener failures, com.magmaguy.magmacore.ai.MindActionSink actions) {
+        if (mindHost != null) throw new IllegalStateException("This adapter already has a native mind host");
+        mindHost = new com.magmaguy.easyminecraftgoals.v1_21_R4.mind.NativeMindHost(identity, failures, actions);
+        return mindHost;
+    }
+    @Override public boolean isMindBody(Entity entity) { return com.magmaguy.easyminecraftgoals.v1_21_R4.mind.NativeMindHost.isMindCarrier(entity); }
+    @Override public void shutdownMindHost() {
+        if (mindHost == null) return;
+        mindHost.shutdown(); mindHost = null;
+    }
+    @Override public Optional<com.magmaguy.easyminecraftgoals.TransientMovementOverride> beginFlee(
+            LivingEntity entity, Location threat, double speed) {
+        return mindHost == null ? Optional.empty() : mindHost.beginFlee(entity, threat, speed);
+    }
+
     @Override
     public com.magmaguy.easyminecraftgoals.ammunition.RangedAmmunition grantOrdinaryAmmunition(
             org.bukkit.plugin.Plugin plugin, java.util.function.Predicate<org.bukkit.entity.Player> eligible) {
@@ -109,6 +126,8 @@ public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter {
 
     @Override
     protected Optional<PathfindingHandle> createPathfindingHandle(LivingEntity livingEntity, int priority) {
+        if (isMindBody(livingEntity))
+            return mindHost == null ? Optional.empty() : mindHost.openPathfinding(livingEntity);
         PathfinderMob pathfinderMob = getPathfinderMob(livingEntity);
         if (pathfinderMob == null) return Optional.empty();
         NativePathfindingGoal goal = new NativePathfindingGoal(pathfinderMob, livingEntity, priority);

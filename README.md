@@ -58,6 +58,25 @@ The pre-1.21.4 adapter modules (`v1_19_R3`, `v1_20_R1`–`v1_20_R4`, `v1_21_R1`,
 history as well as restoring their Gradle entries if support below 1.21.4 is
 ever required again.
 
+## Native Mind adapters
+
+All active adapters compile the canonical runtime from `nms/mind-shared/src/main/java`.
+The root build generates adapter-local packages, matching the existing R7 shared-source
+pattern. Only `NativeMindVersion` contains signatures that differ between native versions;
+Mind programs, lifecycle, controls and movement arbitration remain shared.
+
+Factory-created bodies suppress native decisions while preserving native movement and
+combat events. Missing melee attributes are supplied for passive species. Body preparation
+can bind the program and apply consumer configuration before `CreatureSpawnEvent` fires;
+rejection closes the attached session and discards the body. The consumer must roll back
+its own bookkeeping. Existing pathfinding handles use the Mind clock and movement lease,
+yield to combat and flee, and pause alongside the Mind. Pausing decisions retains native
+physical movement such as gravity for non-stationary profiles.
+
+Sunlight suppression is limited to marked, susceptible bodies exposed to daylight and
+plain combustion events. Entity/block-caused combustion remains untouched. Native goals
+are removed and NoAI prevents zombie underwater conversion; unrelated damage remains native.
+
 ## Consuming MagmaCore
 
 MagmaCore is published to the MagmaGuy repository. Add the repo and depend on it,

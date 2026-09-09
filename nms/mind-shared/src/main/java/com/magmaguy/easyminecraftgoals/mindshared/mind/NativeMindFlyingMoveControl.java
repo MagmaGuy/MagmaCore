@@ -1,4 +1,4 @@
-package com.magmaguy.easyminecraftgoals.v26.mind;
+package com.magmaguy.easyminecraftgoals.mindshared.mind;
 
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Mob;
@@ -6,7 +6,7 @@ import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.control.MoveControl;
 
 /** Flying control that falls back to movement speed when a carrier has no flying-speed attribute. */
-final class NativeMindFlyingMoveControl extends MoveControl<Mob> {
+final class NativeMindFlyingMoveControl extends MoveControl {
     private static final double ARRIVAL_DISTANCE_SQUARED = 2.5000003E-7D;
     private final int maximumPitchTurn;
     private final boolean hoversInPlace;

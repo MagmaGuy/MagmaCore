@@ -1,4 +1,4 @@
-package com.magmaguy.easyminecraftgoals.v26.mind;
+package com.magmaguy.easyminecraftgoals.mindshared.mind;
 
 import com.google.common.collect.ImmutableList;
 import com.magmaguy.magmacore.ai.MindBehavior;
@@ -63,7 +63,7 @@ final class NativeMindProgramRuntime {
     }
 
     Brain<Mob> buildBrain() {
-        Brain<Mob> next = new Brain<>();
+        Brain<Mob> next = NativeMindVersion.newBrain();
         List<Pair<Integer, ? extends BehaviorControl<? super Mob>>> sensorControls =
                 new ArrayList<>();
         for (MindSensor sensor : program.sensors()) {
@@ -80,16 +80,8 @@ final class NativeMindProgramRuntime {
             behaviorControls.add(Pair.of(behavior.priority(), control));
         }
 
-        next.addActivity(
-                Activity.CORE,
-                ImmutableList.copyOf(sensorControls),
-                Set.of(),
-                Set.of());
-        next.addActivity(
-                Activity.IDLE,
-                ImmutableList.copyOf(behaviorControls),
-                Set.of(),
-                Set.of());
+        NativeMindVersion.addActivity(next, Activity.CORE, ImmutableList.copyOf(sensorControls));
+        NativeMindVersion.addActivity(next, Activity.IDLE, ImmutableList.copyOf(behaviorControls));
         next.setCoreActivities(Set.of(Activity.CORE));
         next.setDefaultActivity(Activity.IDLE);
         next.useDefaultActivity();

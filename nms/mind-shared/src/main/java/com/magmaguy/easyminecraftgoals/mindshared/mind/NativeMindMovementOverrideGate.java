@@ -1,4 +1,4 @@
-package com.magmaguy.easyminecraftgoals.v26.mind;
+package com.magmaguy.easyminecraftgoals.mindshared.mind;
 
 /** Counts independent temporary movement owners without exposing Mind behavior controls. */
 final class NativeMindMovementOverrideGate {

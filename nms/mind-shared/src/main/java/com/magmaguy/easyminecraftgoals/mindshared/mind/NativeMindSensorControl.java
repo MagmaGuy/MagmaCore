@@ -1,4 +1,4 @@
-package com.magmaguy.easyminecraftgoals.v26.mind;
+package com.magmaguy.easyminecraftgoals.mindshared.mind;
 
 import com.magmaguy.magmacore.ai.MindSensor;
 import net.minecraft.server.level.ServerLevel;
@@ -31,7 +31,6 @@ final class NativeMindSensorControl implements BehaviorControl<Mob> {
         return Behavior.Status.STOPPED;
     }
 
-    @Override
     public Set<MemoryModuleType<?>> getRequiredMemories() {
         return Set.of();
     }

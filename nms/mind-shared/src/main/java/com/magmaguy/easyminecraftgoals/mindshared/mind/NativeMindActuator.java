@@ -1,6 +1,5 @@
-package com.magmaguy.easyminecraftgoals.v26.mind;
+package com.magmaguy.easyminecraftgoals.mindshared.mind;
 
-import com.magmaguy.easyminecraftgoals.v26.CraftBukkitBridge;
 import com.magmaguy.magmacore.ai.MindActuator;
 import com.magmaguy.magmacore.ai.MindBodyLocomotion;
 import com.magmaguy.magmacore.ai.MindControl;
@@ -34,9 +33,21 @@ final class NativeMindActuator {
 
     void stopAll() {
         body.stopMovement();
-        mob.setTarget(null);
+        setNativeTarget(null);
         mob.setAggressive(false);
         navigation.reset();
+    }
+
+    private void setNativeTarget(net.minecraft.world.entity.LivingEntity target) {
+        if (mob.getTarget() == target) return;
+        // CraftMob's accepted-target setter does not emit an event. Fire the ordinary event
+        // explicitly with our actual reason, then honor cancellation and target replacement.
+        org.bukkit.event.entity.EntityTargetLivingEntityEvent event =
+                new org.bukkit.event.entity.EntityTargetLivingEntityEvent(
+                        body.entity(), target == null ? null : (LivingEntity) target.getBukkitEntity(),
+                        org.bukkit.event.entity.EntityTargetEvent.TargetReason.CUSTOM);
+        org.bukkit.Bukkit.getPluginManager().callEvent(event);
+        if (!event.isCancelled()) ((org.bukkit.entity.Mob) body.entity()).setTarget(event.getTarget());
     }
 
     private void requireSameWorld(Location location) {
@@ -119,17 +130,17 @@ final class NativeMindActuator {
             require(MindControl.TARGET);
             Objects.requireNonNull(target, "target");
             net.minecraft.world.entity.LivingEntity nativeTarget =
-                    CraftBukkitBridge.getNMSLivingEntity(target);
+                    NativeMindVersion.getNMSLivingEntity(target);
             if (nativeTarget.level() != mob.level()) {
                 throw new IllegalArgumentException("Mind target must be in the body's world");
             }
-            mob.setTarget(nativeTarget);
+            setNativeTarget(nativeTarget);
         }
 
         @Override
         public void clearTarget() {
             require(MindControl.TARGET);
-            mob.setTarget(null);
+            setNativeTarget(null);
         }
 
         @Override
@@ -137,7 +148,7 @@ final class NativeMindActuator {
             require(MindControl.ATTACK);
             Objects.requireNonNull(target, "target");
             net.minecraft.world.entity.LivingEntity nativeTarget =
-                    CraftBukkitBridge.getNMSLivingEntity(target);
+                    NativeMindVersion.getNMSLivingEntity(target);
             if (nativeTarget.level() != mob.level()) {
                 throw new IllegalArgumentException("Mind target must be in the body's world");
             }
@@ -154,7 +165,7 @@ final class NativeMindActuator {
                 body.stopMovement();
                 navigation.reset();
             }
-            if (holds(MindControl.TARGET)) mob.setTarget(null);
+            if (holds(MindControl.TARGET)) setNativeTarget(null);
             if (holds(MindControl.ATTACK)) mob.setAggressive(false);
         }
 

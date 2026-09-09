@@ -65,8 +65,8 @@ public abstract class NMSAdapter {
     public abstract void damageWithoutCooldown(LivingEntity target, double amount, Entity source);
 
     /**
-     * Creates the version-specific native mind host. Adapters before 26.2 do not support native
-     * MagmaCore bodies and fail explicitly instead of falling back to a Java scheduler.
+     * Creates the version-specific native Mind host. Every supported adapter uses the shared
+     * native runtime compiled against its own Minecraft mappings.
      */
     public MindHost createMindHost(MindFailureListener failureListener) {
         if (NMSManager.pluginProvider == null) {
@@ -96,7 +96,7 @@ public abstract class NMSAdapter {
         Objects.requireNonNull(hostIdentity, "hostIdentity");
         Objects.requireNonNull(failureListener, "failureListener");
         Objects.requireNonNull(actionSink, "actionSink");
-        throw new UnsupportedOperationException("Native mind bodies require Minecraft 26.2 or newer");
+        throw new UnsupportedOperationException("Native mind bodies are not supported by this adapter");
     }
 
     /**

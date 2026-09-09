@@ -1,4 +1,4 @@
-package com.magmaguy.easyminecraftgoals.v26.mind;
+package com.magmaguy.easyminecraftgoals.mindshared.mind;
 
 import com.magmaguy.magmacore.ai.MindBodyLocomotion;
 import com.magmaguy.magmacore.ai.MindBodyProfile;
@@ -6,6 +6,9 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.ai.attributes.Attribute;
+import net.minecraft.world.entity.ai.attributes.AttributeMap;
+import net.minecraft.core.Holder;
 import net.minecraft.world.entity.ai.control.MoveControl;
 import net.minecraft.world.entity.ai.control.SmoothSwimmingMoveControl;
 import net.minecraft.world.entity.ai.goal.GoalSelector;
@@ -20,10 +23,9 @@ import java.lang.reflect.Field;
 
 /** Owns the clean-slate controls installed on one factory-created vanilla carrier. */
 final class NativeMindBodyControl {
-    private static final Field NAVIGATION = field("navigation");
-    private static final Field MOVE_CONTROL = field("moveControl");
-    private static final Field GOAL_SELECTOR = field("goalSelector");
-    private static final Field TARGET_SELECTOR = field("targetSelector");
+    private static final Field NAVIGATION = field(PathNavigation.class);
+    private static final Field MOVE_CONTROL = field(MoveControl.class);
+    private static final Field ATTRIBUTE_INSTANCES = attributeInstances();
 
     private final Mob mob;
     private final MindBodyProfile profile;
@@ -37,8 +39,8 @@ final class NativeMindBodyControl {
 
     void beforeMindTick() {
         flightVelocity = null;
-        // NoAI suppresses carrier-specific serverAiStep implementations such as Bat roosting and
-        // zombie sunlight behavior. MagmaCore advances navigation and controls explicitly below.
+        // NoAI suppresses native decision loops and zombie underwater conversion.
+        // Sunlight ignition is handled separately by the host's combustion listener.
         mob.setNoAi(true);
         mob.getSensing().tick();
         if (profile.locomotion() == MindBodyLocomotion.AQUATIC
@@ -52,7 +54,7 @@ final class NativeMindBodyControl {
     void afterMindTick() {
         if (flightVelocity != null) {
             mob.getNavigation().stop();
-            mob.getMoveControl().setWait();
+            NativeMindVersion.stopControl(mob.getMoveControl());
             mob.setNoGravity(true);
             mob.setDeltaMovement(flightVelocity);
             mob.move(net.minecraft.world.entity.MoverType.SELF, flightVelocity);
@@ -84,23 +86,42 @@ final class NativeMindBodyControl {
     void stopMovement() {
         flightVelocity = null;
         mob.getNavigation().stop();
-        mob.getMoveControl().setWait();
+        NativeMindVersion.stopControl(mob.getMoveControl());
         mob.stopInPlace();
     }
 
     void steerFlight(Vec3 velocity) { flightVelocity = velocity; }
 
+    void tickPausedPhysics() {
+        beforeMindTick();
+        mob.getNavigation().stop();
+        NativeMindVersion.stopControl(mob.getMoveControl());
+        mob.setXxa(0);
+        mob.setYya(0);
+        mob.setZza(0);
+        if (profile.locomotion() != MindBodyLocomotion.STATIONARY) mob.travel(Vec3.ZERO);
+    }
+
     private void applyProfile() {
         mob.removeFreeWill();
-        // Spigot widens these fields, but Paper retains Minecraft's protected visibility.
-        // Use the same cached access path as navigation and movement controls on both runtimes.
-        set(GOAL_SELECTOR, new GoalSelector());
-        set(TARGET_SELECTOR, new GoalSelector());
+        // removeFreeWill clears the movement selector, but older versions retain
+        // targetSelector entries. Clear both without depending on obfuscated names.
+        for (Field field : Mob.class.getDeclaredFields()) {
+            if (field.getType() != GoalSelector.class) continue;
+            try {
+                field.setAccessible(true);
+                ((GoalSelector) field.get(mob)).removeAllGoals(goal -> true);
+            } catch (IllegalAccessException failure) {
+                throw new IllegalStateException("Could not clear native target goals", failure);
+            }
+        }
         mob.setNoAi(true);
         set(NAVIGATION, navigation());
         set(MOVE_CONTROL, moveControl());
         mob.setNoGravity(profile.locomotion() == MindBodyLocomotion.FLYING);
         applyUniformScale();
+        ensureAttribute(Attributes.ATTACK_DAMAGE, 2D);
+        ensureAttribute(Attributes.ATTACK_KNOCKBACK, 0D);
         if (profile.locomotion() == MindBodyLocomotion.STATIONARY) stopMovement();
     }
 
@@ -122,11 +143,11 @@ final class NativeMindBodyControl {
         };
     }
 
-    private MoveControl<?> moveControl() {
+    private MoveControl moveControl() {
         return switch (profile.locomotion()) {
-            case GROUNDED, AMPHIBIOUS, STATIONARY -> new MoveControl<>(mob);
+            case GROUNDED, AMPHIBIOUS, STATIONARY -> new MoveControl(mob);
             case FLYING -> new NativeMindFlyingMoveControl(mob, 20, true);
-            case AQUATIC -> new SmoothSwimmingMoveControl<>(mob, 85, 10, 0.02F, 0.1F, true);
+            case AQUATIC -> new SmoothSwimmingMoveControl(mob, 85, 10, 0.02F, 0.1F, true);
         };
     }
 
@@ -138,6 +159,32 @@ final class NativeMindBodyControl {
         scale.setBaseValue(profile.uniformScale());
     }
 
+    @SuppressWarnings("unchecked")
+    private void ensureAttribute(Holder<Attribute> attribute, double baseline) {
+        AttributeMap attributes = mob.getAttributes();
+        if (attributes.hasAttribute(attribute)) return;
+        AttributeInstance instance = new AttributeInstance(attribute, changed -> {
+            if (attribute.value().isClientSyncable()) attributes.getAttributesToSync().add(changed);
+            attributes.getAttributesToUpdate().add(changed);
+        });
+        try {
+            ((java.util.Map<Holder<Attribute>, AttributeInstance>) ATTRIBUTE_INSTANCES.get(attributes))
+                    .put(attribute, instance);
+            instance.setBaseValue(baseline);
+        } catch (IllegalAccessException failure) {
+            throw new IllegalStateException("Could not install native melee attributes", failure);
+        }
+    }
+
+    private static Field attributeInstances() {
+        for (Field field : AttributeMap.class.getDeclaredFields()) {
+            if (field.getType() != java.util.Map.class) continue;
+            field.setAccessible(true);
+            return field;
+        }
+        throw new ExceptionInInitializerError("Native attribute instance map is unavailable");
+    }
+
     private void set(Field field, Object value) {
         try {
             field.set(mob, value);
@@ -146,11 +193,14 @@ final class NativeMindBodyControl {
         }
     }
 
-    private static Field field(String name) {
+    private static Field field(Class<?> type) {
         try {
-            Field field = Mob.class.getDeclaredField(name);
-            field.setAccessible(true);
-            return field;
+            for (Field field : Mob.class.getDeclaredFields()) {
+                if (field.getType() != type) continue;
+                field.setAccessible(true);
+                return field;
+            }
+            throw new NoSuchFieldException(type.getName());
         } catch (ReflectiveOperationException | RuntimeException exception) {
             throw new ExceptionInInitializerError(exception);
         }

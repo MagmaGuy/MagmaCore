@@ -1,4 +1,4 @@
-package com.magmaguy.easyminecraftgoals.v26.mind;
+package com.magmaguy.easyminecraftgoals.mindshared.mind;
 
 import com.magmaguy.magmacore.ai.MindFailure;
 import com.magmaguy.magmacore.ai.MindActionRequest;
@@ -33,6 +33,7 @@ final class NativeMindSession implements MindHandle {
     private final NativeMindServerBudget serverBudget;
     private final Deque<SwapRequest> swaps = new ArrayDeque<>();
     private final Deque<NativeMindFleeOverride> movementOverrides = new ArrayDeque<>();
+    private NativeMindPathfindingHandle pathfinding;
     private final NativeMindMovementOverrideGate movementOverrideGate =
             new NativeMindMovementOverrideGate();
     private MindProgram program;
@@ -84,7 +85,7 @@ final class NativeMindSession implements MindHandle {
             return Optional.empty();
         }
         net.minecraft.world.level.pathfinder.Path initialPath =
-                com.magmaguy.easyminecraftgoals.v26.flee.FleePathfinder.findPath(
+                com.magmaguy.easyminecraftgoals.mindshared.flee.FleePathfinder.findPath(
                         pathfinderMob, threatLocation);
         if (initialPath == null) return Optional.empty();
         NativeMindFleeOverride override;
@@ -107,6 +108,18 @@ final class NativeMindSession implements MindHandle {
         return movementOverrideGate.isOverridden();
     }
 
+    Optional<com.magmaguy.easyminecraftgoals.PathfindingHandle> openPathfinding() {
+        requireOpen();
+        if (body == null) return Optional.empty();
+        if (pathfinding != null) pathfinding.close();
+        pathfinding = new NativeMindPathfindingHandle(this, body, movementOverrideGate);
+        return Optional.of(pathfinding);
+    }
+
+    void releasePathfinding(NativeMindPathfindingHandle handle) {
+        if (pathfinding == handle) pathfinding = null;
+    }
+
     void removeMovementOverride(NativeMindFleeOverride override) {
         movementOverrides.remove(override);
     }
@@ -120,7 +133,7 @@ final class NativeMindSession implements MindHandle {
         }
         if (body != null) throw new IllegalStateException("Logical mind session already has a body");
         if (nativeBody.attached()) throw new IllegalStateException("Native mind body is already attached");
-        if (!nativeBody.isValid()) throw new IllegalArgumentException("Native mind body is not valid");
+        if (!nativeBody.canAttach()) throw new IllegalArgumentException("Native mind body is not valid");
 
         applyDetachedSwaps();
         NativeMindProgramRuntime candidate = new NativeMindProgramRuntime(
@@ -257,8 +270,9 @@ final class NativeMindSession implements MindHandle {
             applyAttachedSwaps(level);
             if (runtime == null || body == null) return;
             NativeMindFleeOverride movementOverride = activeMovementOverride();
+            if (pathfinding != null) pathfinding.tick(paused || movementOverride != null);
             if (paused && movementOverride == null) {
-                tickingBody.stopMovement();
+                tickingBody.tickPausedPhysics();
                 writeMarkerIfChanged(tickingBody);
                 return;
             }
@@ -506,6 +520,7 @@ final class NativeMindSession implements MindHandle {
     }
 
     private void closeMovementOverrides() {
+        if (pathfinding != null) pathfinding.close();
         for (NativeMindFleeOverride movementOverride : new ArrayList<>(movementOverrides)) {
             movementOverride.close();
         }

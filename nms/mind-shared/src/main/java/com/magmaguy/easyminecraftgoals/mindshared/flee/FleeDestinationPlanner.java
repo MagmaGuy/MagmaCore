@@ -1,4 +1,4 @@
-package com.magmaguy.easyminecraftgoals.v26.flee;
+package com.magmaguy.easyminecraftgoals.mindshared.flee;
 
 import java.util.ArrayList;
 import java.util.List;

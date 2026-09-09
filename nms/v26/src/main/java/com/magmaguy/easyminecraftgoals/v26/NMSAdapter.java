@@ -206,6 +206,8 @@ public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter {
 
     @Override
     protected Optional<PathfindingHandle> createPathfindingHandle(LivingEntity livingEntity, int priority) {
+        if (isMindBody(livingEntity))
+            return mindHost == null ? Optional.empty() : mindHost.openPathfinding(livingEntity);
         PathfinderMob pathfinderMob = getPathfinderMob(livingEntity);
         if (pathfinderMob == null) return Optional.empty();
         NativePathfindingGoal goal = new NativePathfindingGoal(pathfinderMob, livingEntity, priority);
