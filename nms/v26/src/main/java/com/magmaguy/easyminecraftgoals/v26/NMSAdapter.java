@@ -53,6 +53,12 @@ import java.util.Optional;
 
 public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter {
     @Override
+    public com.magmaguy.easyminecraftgoals.ammunition.RangedAmmunition grantOrdinaryAmmunition(
+            org.bukkit.plugin.Plugin plugin, java.util.function.Predicate<org.bukkit.entity.Player> eligible) {
+        return new NativeRangedAmmunition(plugin, eligible).start();
+    }
+
+    @Override
     public float getConsumptionSeconds(org.bukkit.inventory.ItemStack item) {
         var nativeItem = CraftBukkitBridge.asNMSCopy(item);
         var consumable = nativeItem.get(net.minecraft.core.component.DataComponents.CONSUMABLE);

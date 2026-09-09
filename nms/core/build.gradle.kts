@@ -15,6 +15,7 @@ repositories {
 }
 
 dependencies {
+    compileOnly("io.netty:netty-transport:4.1.118.Final")
     compileOnly(project(":core"))
     compileOnly("org.spigotmc:spigot-api:1.21.4-R0.1-SNAPSHOT")
     // Bedrock detection - optional runtime dependencies

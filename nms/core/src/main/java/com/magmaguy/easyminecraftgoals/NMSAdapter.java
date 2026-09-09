@@ -41,6 +41,12 @@ import java.util.Objects;
 import java.util.Optional;
 
 public abstract class NMSAdapter {
+    /** Grants ordinary bow/crossbow ammunition while retaining the native item-use and projectile paths. */
+    public com.magmaguy.easyminecraftgoals.ammunition.RangedAmmunition grantOrdinaryAmmunition(
+            org.bukkit.plugin.Plugin plugin, java.util.function.Predicate<org.bukkit.entity.Player> eligible) {
+        throw new UnsupportedOperationException("Native ammunition is not supported by this adapter");
+    }
+
     /** Effective native consumption duration, including material defaults; -1 for non-consumables. */
     public float getConsumptionSeconds(ItemStack item) {
         throw new UnsupportedOperationException("Consumption duration is unavailable on this adapter");
