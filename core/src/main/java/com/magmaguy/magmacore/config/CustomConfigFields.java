@@ -52,11 +52,6 @@ public abstract class CustomConfigFields {
         this.writableFileConfiguration = writableConfiguration;
     }
 
-    void finishInheritedRead() {
-        // Keep the merged view available to runtime readers. Mutations must use
-        // getWritableFileConfiguration(), which always points at the sparse leaf.
-    }
-
     /** Returns the leaf's disk model without exposing inherited values to write-back paths. */
     public FileConfiguration getWritableFileConfiguration() {
         return writableFileConfiguration == null ? fileConfiguration : writableFileConfiguration;

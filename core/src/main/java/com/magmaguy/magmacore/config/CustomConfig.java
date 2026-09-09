@@ -175,11 +175,7 @@ public class CustomConfig {
                 fields.beginInheritedRead(resolved.readConfiguration(), resolved.rawConfiguration());
             else
                 fields.setFileConfiguration(resolved.rawConfiguration());
-            try {
-                fields.processConfigFields();
-            } finally {
-                if (resolved.inherited()) fields.finishInheritedRead();
-            }
+            fields.processConfigFields();
 
             // Sparse leaves remain sparse: inherited values and parser defaults never leak into them.
             if (!resolved.inherited())
