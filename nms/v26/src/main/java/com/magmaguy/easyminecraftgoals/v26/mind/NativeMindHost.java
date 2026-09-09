@@ -130,18 +130,26 @@ public final class NativeMindHost implements MindHost {
                 location.getYaw(),
                 location.getPitch());
         mob.setPersistenceRequired();
-        NativeMindBody body = new NativeMindBody(this, mob, profile);
-        LivingEntity bukkitEntity = body.entity();
-        bukkitEntity.setCollidable(profile.entityCollidable());
-        // CreatureSpawnEvent fires inside addFreshEntity. Mark the not-yet-added wrapper first so
-        // consumers can distinguish this carrier before they run their normal spawn conversion.
-        MindCarrierState.markBody(bukkitEntity, hostIdentity, profile);
-        if (!level.addFreshEntity(mob, org.bukkit.event.entity.CreatureSpawnEvent.SpawnReason.CUSTOM)) {
-            MindCarrierState.clear(bukkitEntity, hostIdentity);
-            throw new IllegalStateException("Minecraft rejected the native mind body spawn");
+        LivingEntity bukkitEntity = null;
+        boolean published = false;
+        try {
+            NativeMindBody body = new NativeMindBody(this, mob, profile);
+            bukkitEntity = body.entity();
+            bukkitEntity.setCollidable(profile.entityCollidable());
+            // CreatureSpawnEvent fires inside addFreshEntity. Mark the not-yet-added wrapper first so
+            // consumers can distinguish this carrier before they run their normal spawn conversion.
+            MindCarrierState.markBody(bukkitEntity, hostIdentity, profile);
+            if (!level.addFreshEntity(mob, org.bukkit.event.entity.CreatureSpawnEvent.SpawnReason.CUSTOM)) {
+                throw new IllegalStateException("Minecraft rejected the native mind body spawn");
+            }
+            published = true;
+            return body;
+        } finally {
+            if (!published) {
+                if (bukkitEntity != null) MindCarrierState.clear(bukkitEntity, hostIdentity);
+                mob.discard();
+            }
         }
-
-        return body;
     }
 
     @Override

@@ -22,6 +22,8 @@ import java.lang.reflect.Field;
 final class NativeMindBodyControl {
     private static final Field NAVIGATION = field("navigation");
     private static final Field MOVE_CONTROL = field("moveControl");
+    private static final Field GOAL_SELECTOR = field("goalSelector");
+    private static final Field TARGET_SELECTOR = field("targetSelector");
 
     private final Mob mob;
     private final MindBodyProfile profile;
@@ -90,8 +92,10 @@ final class NativeMindBodyControl {
 
     private void applyProfile() {
         mob.removeFreeWill();
-        mob.goalSelector = new GoalSelector();
-        mob.targetSelector = new GoalSelector();
+        // Spigot widens these fields, but Paper retains Minecraft's protected visibility.
+        // Use the same cached access path as navigation and movement controls on both runtimes.
+        set(GOAL_SELECTOR, new GoalSelector());
+        set(TARGET_SELECTOR, new GoalSelector());
         mob.setNoAi(true);
         set(NAVIGATION, navigation());
         set(MOVE_CONTROL, moveControl());
