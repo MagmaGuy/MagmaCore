@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
+import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -59,7 +60,9 @@ public final class WorldFolderResolver {
      * the dimensions root doesn't exist on disk.
      */
     public static Path modernFolder(String worldName) {
-        return modernNamespaceRoot().resolve(worldName);
+        // Paper derives the dimension key from the lowercase world name, even
+        // when the legacy folder and Bukkit world name contain capital letters.
+        return modernNamespaceRoot().resolve(worldName.toLowerCase(Locale.ROOT));
     }
 
     /**
