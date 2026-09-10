@@ -60,6 +60,12 @@ public class ScriptInstance {
         return closed;
     }
 
+    /** Allows a single-input host to release an idle activation without counting its own lifetime guard. */
+    public boolean hasOwnedWorkExcept(int hostGuardTask) {
+        return tickTaskId != null || !zoneWatches.isEmpty() || !ownedCleanup.isEmpty()
+                || ownedTasks.keySet().stream().anyMatch(id -> id != hostGuardTask);
+    }
+
     /** Register optional Java-owned restoration. Runs once on every shutdown path, including Lua errors. */
     public void ownCleanup(Runnable cleanup) {
         Objects.requireNonNull(cleanup, "cleanup");

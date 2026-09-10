@@ -79,9 +79,13 @@ public final class EnchantmentAnvil {
     }
 
     private static EnchantmentItemProfile profile(ItemStack item) {
+        return profile(item, true);
+    }
+
+    static EnchantmentItemProfile profile(ItemStack item, boolean anvilPolicy) {
         EnchantmentItemProfile selected = null;
         for (var peer : peers()) {
-            Map<String,Object> result = peer.endpoint.apply("policy", item.clone());
+            Map<String,Object> result = peer.endpoint.apply(anvilPolicy ? "policy" : "classify", item.clone());
             if (result.get("denied") instanceof String reason) throw new IllegalArgumentException(reason);
             if (!Boolean.TRUE.equals(result.get("accepted"))) throw new IllegalStateException("Anvil policy unavailable: " + peer.owner);
             if (result.get("type") instanceof String type) {

@@ -27,12 +27,26 @@ public class LuaEntityTable {
         enrichers.add(enricher);
     }
 
+    /** Optional supplied-effect target rule. Scripts remain free to use ordinary direct entity APIs. */
+    public static boolean isHostileEffectTarget(Player actor, Entity target) {
+        return actor != null && actor.isOnline() && actor.isValid() && !actor.isDead()
+                && target instanceof org.bukkit.entity.LivingEntity && !(target instanceof Player)
+                && !(target instanceof org.bukkit.entity.ArmorStand) && target.isValid() && !target.isDead()
+                && !target.isInvulnerable() && !target.hasMetadata("NPC")
+                && !(target instanceof org.bukkit.entity.Tameable tameable && tameable.isTamed())
+                && actor.getWorld().equals(target.getWorld());
+    }
+
     public static LuaTable build(Entity entity) {
         LuaTable table = new LuaTable();
         if (entity == null) return table;
 
         table.set("uuid", entity.getUniqueId().toString());
         table.set("entity_type", entity.getType().name().toLowerCase());
+        table.set("can_receive_hostile_effect", LuaTableSupport.tableMethod(table, args -> {
+            Entity actor = org.bukkit.Bukkit.getEntity(java.util.UUID.fromString(args.checkjstring(1)));
+            return LuaValue.valueOf(actor instanceof Player player && isHostileEffectTarget(player, entity));
+        }));
 
         LuaTableSupport.lazyField(table, "is_valid", () -> LuaValue.valueOf(entity.isValid()));
         LuaTableSupport.lazyField(table, "is_dead", () -> LuaValue.valueOf(entity.isDead()));

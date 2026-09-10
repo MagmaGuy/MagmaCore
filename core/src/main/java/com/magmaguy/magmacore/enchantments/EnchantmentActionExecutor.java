@@ -35,6 +35,7 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
     private final Plugin plugin;
     private final Set<ScriptHook> hooks;
     private final Set<String> capabilities;
+    private final EnchantmentInputs inputs;
     private final Map<String, Running> active = new HashMap<>();
     // Activations are short lived; cooldowns belong to the player and authored effect.
     // Keep them through action completion, equipment swaps, world changes and valid reloads.
@@ -50,6 +51,8 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
         this.hooks = Set.copyOf(hooks);
         this.capabilities = Set.copyOf(capabilities);
         Bukkit.getPluginManager().registerEvents(this, plugin);
+        inputs = new EnchantmentInputs(plugin, catalog.namespace());
+        Bukkit.getPluginManager().registerEvents(inputs, plugin);
     }
 
     Map<String, Object> evaluate(Map<String, Object> request) {
@@ -68,7 +71,7 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
     }
 
     private Map<String, Object> begin(Map<String, Object> request) {
-        requireKeys(request, "kind", "operation", "id", "level", "attack", "actor", "world", "lifetime", "facts");
+        requireKeys(request, "kind", "operation", "id", "level", "attack", "actor", "world", "lifetime", "facts", "hook");
         String id = text(request, "id");
         if (!(request.get("level") instanceof Integer level) || !(request.get("lifetime") instanceof Long lifetime)
                 || lifetime < 1 || !(request.get("facts") instanceof Map<?, ?> facts))
@@ -77,6 +80,9 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
         var script = catalog.script(id).orElse(null);
         if (definition == null || script == null || level < 1 || level > definition.maxLevel())
             return response(EnchantmentActions.Status.INVALID);
+        String initialHook = text(request, "hook");
+        if (!initialHook.isEmpty() && !script.supportsHook(new ScriptHook(initialHook)))
+            return response(EnchantmentActions.Status.UNAVAILABLE);
         if (!capabilities.containsAll(definition.requires())) return response(EnchantmentActions.Status.UNAVAILABLE);
         var source = new EnchantmentActions.Source(UUID.fromString(text(request, "attack")),
                 UUID.fromString(text(request, "actor")), UUID.fromString(text(request, "world")),
@@ -87,8 +93,10 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
         active.put(running.token, running);
         try {
             // Guard all owned work, even scripts that do not declare an on_game_tick hook.
-            running.instance.ownRepeating(1, 1, () -> {
-                if (--running.remainingTicks <= 0 || !running.isScriptOwnerActive()) running.instance.shutdown();
+            running.guardTask = running.instance.ownRepeating(1, 1, () -> {
+                if (--running.remainingTicks <= 0 || !running.isScriptOwnerActive()
+                        || running.finalStage && !running.instance.hasOwnedWorkExcept(running.guardTask))
+                    running.instance.shutdown();
             });
         } catch (RuntimeException failure) {
             running.instance.shutdown();
@@ -98,9 +106,11 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
     }
 
     private Map<String, Object> dispatch(Map<String, Object> request) {
-        requireKeys(request, "kind", "operation", "token", "stage", "hook", "target");
+        requireKeys(request, "kind", "operation", "token", "stage", "hook", "target", "final");
+        if (!(request.get("final") instanceof Boolean finalStage)) throw new IllegalArgumentException("Invalid final-stage flag");
         Running running = active.get(text(request, "token"));
         if (running == null) return response(EnchantmentActions.Status.UNAVAILABLE);
+        if (running.finalStage) return response(EnchantmentActions.Status.UNAVAILABLE);
         if (!running.isScriptOwnerActive()) {
             running.instance.shutdown();
             return response(EnchantmentActions.Status.UNAVAILABLE);
@@ -116,14 +126,17 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
             return response(EnchantmentActions.Status.UNAVAILABLE);
         // Claim before invoking Lua, including reentrant event dispatch caused by authored damage.
         if (!running.delivered.add(stage + "/" + hook.getKey())) return response(EnchantmentActions.Status.DUPLICATE);
+        running.finalStage = finalStage;
         running.target = entity instanceof LivingEntity living ? living : null;
         running.instance.handleEvent(hook, null, running.target, (LivingEntity) running.getBukkitEntity());
+        if (running.finalStage && !running.instance.hasOwnedWorkExcept(running.guardTask)) running.instance.shutdown();
         return response(running.failed ? EnchantmentActions.Status.FAILED : EnchantmentActions.Status.OK);
     }
 
     void reload(EnchantmentCatalog candidate) {
         stopAll();
         catalog = candidate;
+        inputs.clearWarnings();
     }
 
     private void stopAll() {
@@ -133,6 +146,7 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
     @Override public void close() {
         closed = true;
         HandlerList.unregisterAll(this);
+        HandlerList.unregisterAll(inputs);
         stopAll();
         globalCooldowns.clear();
         localCooldowns.clear();
@@ -163,10 +177,15 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
         final int level;
         final EnchantmentActions.Source source;
         final Set<String> delivered = new HashSet<>();
+        final EnchantmentItemAccess item;
+        final boolean stopOnUnequip;
+        final Map<UUID, OwnedEntityState> gravity = new HashMap<>();
         ScriptInstance instance;
         LivingEntity target;
         boolean failed;
         long remainingTicks;
+        int guardTask;
+        boolean finalStage;
 
         Running(String token, EnchantmentDefinition definition, int level, EnchantmentActions.Source source) {
             this.token = token;
@@ -174,12 +193,21 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
             this.level = level;
             this.source = source;
             remainingTicks = source.lifetimeTicks();
+            var facts = source.facts();
+            item = facts.get("item") instanceof org.bukkit.inventory.ItemStack stack
+                    && facts.get("inventory_slot") instanceof Integer slot
+                    ? new EnchantmentItemAccess(source.actor(), slot, stack) : null;
+            Object unequip = definition.parametersAt(level).get("stop_on_unequip");
+            if (unequip != null && !(unequip instanceof Boolean))
+                throw new IllegalArgumentException("stop_on_unequip must be a boolean");
+            stopOnUnequip = Boolean.TRUE.equals(unequip);
         }
         @Override public boolean isScriptOwnerActive() {
             Entity actor = getBukkitEntity();
             return !closed && plugin.isEnabled() && actor instanceof LivingEntity && actor.isValid() && !actor.isDead()
                     && (!(actor instanceof Player player) || player.isOnline())
-                    && actor.getWorld().getUID().equals(source.world());
+                    && actor.getWorld().getUID().equals(source.world())
+                    && (!stopOnUnequip || item != null && item.isEquipped());
         }
         @Override public Entity getBukkitEntity() { return Bukkit.getEntity(source.actor()); }
         @Override public Location getLocation() {
@@ -202,6 +230,7 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
             return switch (key) {
                 case "parameters" -> lua(definition.parametersAt(level));
                 case "source" -> lua(source.facts());
+                case "item" -> item == null ? LuaValue.NIL : item.table();
                 case "target" -> target == null ? LuaValue.NIL : LuaLivingEntityTable.build(target);
                 case "player" -> getBukkitEntity() instanceof Player player ? LuaLivingEntityTable.build(player) : LuaValue.NIL;
                 case "action" -> {
@@ -224,7 +253,15 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
                         Entity entity = Bukkit.getEntity(UUID.fromString(args.checkjstring(1)));
                         var lease = OwnedEntityState.gravity(entity, args.checkboolean(2), plugin);
                         if (lease == null) return LuaValue.FALSE;
-                        instance.ownCleanup(lease::close);
+                        UUID id = entity.getUniqueId();
+                        gravity.put(id, lease);
+                        instance.ownCleanup(() -> { gravity.remove(id, lease); lease.close(); });
+                        return LuaValue.TRUE;
+                    }));
+                    table.set("restore_gravity", LuaTableSupport.tableMethod(table, args -> {
+                        var lease = gravity.remove(UUID.fromString(args.checkjstring(1)));
+                        if (lease == null) return LuaValue.FALSE;
+                        lease.close();
                         return LuaValue.TRUE;
                     }));
                     table.set("temporary_scale", LuaTableSupport.tableMethod(table, args -> {

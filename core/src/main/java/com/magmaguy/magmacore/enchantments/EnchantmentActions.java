@@ -57,13 +57,22 @@ public final class EnchantmentActions {
 
         /** Stage identity includes the projectile/impact identity; duplicate delivery cannot replay Lua. */
         public Status dispatch(String stage, ScriptHook hook, UUID target) {
+            return dispatch(stage, hook, target, false);
+        }
+
+        /** Last input for this activation. Owned callbacks/restoration continue; an idle effect closes immediately. */
+        public Status dispatchFinal(String stage, ScriptHook hook, UUID target) {
+            return dispatch(stage, hook, target, true);
+        }
+
+        private Status dispatch(String stage, ScriptHook hook, UUID target, boolean finalStage) {
             EnchantmentProviders.requireServerThread();
             if (closed) return Status.UNAVAILABLE;
             Objects.requireNonNull(hook, "hook");
             if (stage == null || stage.isBlank()) throw new IllegalArgumentException("Missing stage identity");
             var result = EnchantmentProviders.call(provider, EnchantmentProviders.Operation.EVALUATE,
                     Map.of("kind", CAPABILITY, "operation", "dispatch", "token", token,
-                            "stage", stage, "hook", hook.getKey(), "target", target == null ? "" : target.toString()));
+                            "stage", stage, "hook", hook.getKey(), "target", target == null ? "" : target.toString(), "final", finalStage));
             return status(result);
         }
 
@@ -78,6 +87,11 @@ public final class EnchantmentActions {
 
     /** Called once by the host after accepting the action, using its launch-time definition/revision. */
     public static Action begin(EnchantmentItems.Resolved resolved, int level, Source source) {
+        return begin(resolved, level, source, null);
+    }
+
+    /** The input owner can avoid creating a timed instance when this definition has no matching hook. */
+    public static Action begin(EnchantmentItems.Resolved resolved, int level, Source source, ScriptHook initialHook) {
         EnchantmentProviders.requireServerThread();
         Objects.requireNonNull(resolved, "resolved");
         Objects.requireNonNull(source, "source");
@@ -85,7 +99,8 @@ public final class EnchantmentActions {
         var result = EnchantmentProviders.call(resolved.provider(), EnchantmentProviders.Operation.EVALUATE,
                 Map.of("kind", CAPABILITY, "operation", "begin", "id", resolved.definition().id(),
                         "level", level, "attack", source.attackId().toString(), "actor", source.actor().toString(),
-                        "world", source.world().toString(), "lifetime", source.lifetimeTicks(), "facts", source.facts()));
+                        "world", source.world().toString(), "lifetime", source.lifetimeTicks(), "facts", source.facts(),
+                        "hook", initialHook == null ? "" : initialHook.getKey()));
         if (status(result) != Status.OK || !(result.payload().get("token") instanceof String token)) return null;
         UUID.fromString(token);
         return new Action(resolved.provider(), token);

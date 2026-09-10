@@ -19,8 +19,9 @@ final class EnchantmentAnvilEndpoint implements BiFunction<String, ItemStack, Ma
         EnchantmentProviders.requireServerThread();
         if (!active || !owner.isEnabled()) return Map.of();
         if (operation.equals("describe")) return Map.of("protocol", PROTOCOL, "owner", owner.getName());
-        if (!operation.equals("policy") || item == null) throw new IllegalArgumentException("Invalid anvil policy call");
-        String denied = veto.apply(item.clone());
+        if ((!operation.equals("policy") && !operation.equals("classify")) || item == null)
+            throw new IllegalArgumentException("Invalid item policy call");
+        String denied = operation.equals("policy") ? veto.apply(item.clone()) : null;
         if (denied != null) return Map.of("denied", denied);
         EnchantmentItemProfile profile = classifier.apply(item.clone());
         if (profile == null) return Map.of("accepted", true);

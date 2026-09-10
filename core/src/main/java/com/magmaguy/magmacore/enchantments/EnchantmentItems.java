@@ -20,6 +20,11 @@ import java.util.function.UnaryOperator;
 
 /** Shared item operations. Hosts retain inventory transactions, acquisition policy and effect dispatch. */
 public final class EnchantmentItems {
+    /** Reuses registered authored-item classifiers without applying anvil-specific acquisition vetoes. */
+    public static EnchantmentItemProfile classify(ItemStack item) {
+        EnchantmentProviders.requireServerThread();
+        return EnchantmentAnvil.profile(item, false);
+    }
     private final Function<String, Resolved> resolver;
     private final Function<ItemStack, EnchantmentItemProfile> classifier;
 
