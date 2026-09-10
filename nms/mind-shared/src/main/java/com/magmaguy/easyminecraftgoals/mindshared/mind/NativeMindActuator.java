@@ -98,8 +98,8 @@ final class NativeMindActuator {
             require(MindControl.LOOK);
             Objects.requireNonNull(velocity, "velocity");
             if (!Double.isFinite(velocity.getX()) || !Double.isFinite(velocity.getY())
-                    || !Double.isFinite(velocity.getZ()) || velocity.lengthSquared() > 4D)
-                throw new IllegalArgumentException("Flight velocity must be finite and at most two blocks/tick");
+                    || !Double.isFinite(velocity.getZ()))
+                throw new IllegalArgumentException("Flight velocity must be finite");
             if (movementOverridden.getAsBoolean() || body.profile().locomotion() != MindBodyLocomotion.FLYING)
                 return false;
             body.steerFlight(new net.minecraft.world.phys.Vec3(velocity.getX(), velocity.getY(), velocity.getZ()));

@@ -11,22 +11,19 @@ public final class CurvedRoute {
     private final double[] distances;
 
     public CurvedRoute(List<Vector> points) {
-        if (points.size() < 2 || points.size() > 256)
-            throw new IllegalArgumentException("A route needs 2 to 256 waypoints");
+        if (points.size() < 2)
+            throw new IllegalArgumentException("A route needs at least two waypoints");
         List<Vector> nodes = points.stream().map(Vector::clone).toList();
-        double chords = 0;
         for (int i = 0; i < nodes.size(); i++) {
             Vector p = nodes.get(i);
             if (!Double.isFinite(p.getX()) || !Double.isFinite(p.getY()) || !Double.isFinite(p.getZ()))
                 throw new IllegalArgumentException("Waypoint coordinates must be finite");
             if (i > 0) {
                 double length = p.distance(nodes.get(i - 1));
-                if (length < .05 || length > 2048)
-                    throw new IllegalArgumentException("Consecutive waypoints must be 0.05 to 2048 blocks apart");
-                chords += length;
+                if (!Double.isFinite(length) || length == 0)
+                    throw new IllegalArgumentException("Consecutive waypoints must have a finite, nonzero distance");
             }
         }
-        if (chords > 16384) throw new IllegalArgumentException("Route exceeds 16384 blocks");
         ArrayList<Vector> result = new ArrayList<>();
         result.add(nodes.getFirst().clone());
         for (int i = 0; i < nodes.size() - 1; i++) {
