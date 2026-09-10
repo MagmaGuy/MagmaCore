@@ -224,6 +224,23 @@ public abstract class RangedAmmunition implements Listener, AutoCloseable {
 
     /** Signatures survive Spigot remapping; resolve once, reject missing or ambiguous native entry points. */
     protected static MethodHandle nativeMethod(Class<?> owner, Class<?> result, boolean isStatic, Class<?>... arguments) {
+        MethodHandle method = findNativeMethod(owner, result, isStatic, arguments);
+        if (method == null) throw new IllegalStateException("Missing native ammunition method on " + owner
+                + " with parameters " + Arrays.toString(arguments));
+        return method;
+    }
+
+    /** Paper exposes bow force separately for its shoot event; Spigot has no separate argument. */
+    protected static MethodHandle nativeShootMethod(Class<?> owner, Class<?>... arguments) {
+        Class<?>[] withForce = Arrays.copyOf(arguments, arguments.length + 1);
+        withForce[arguments.length] = float.class;
+        MethodHandle method = findNativeMethod(owner, void.class, false, withForce);
+        if (method != null) return method;
+        method = nativeMethod(owner, void.class, false, arguments);
+        return MethodHandles.dropArguments(method, method.type().parameterCount(), float.class);
+    }
+
+    private static MethodHandle findNativeMethod(Class<?> owner, Class<?> result, boolean isStatic, Class<?>... arguments) {
         Method found = null;
         for (Method method : owner.getDeclaredMethods()) {
             if (method.getReturnType() != result || Modifier.isStatic(method.getModifiers()) != isStatic
@@ -231,7 +248,7 @@ public abstract class RangedAmmunition implements Listener, AutoCloseable {
             if (found != null) throw new IllegalStateException("Ambiguous native ammunition method on " + owner);
             found = method;
         }
-        if (found == null) throw new IllegalStateException("Missing native ammunition method on " + owner);
+        if (found == null) return null;
         try { found.setAccessible(true); return MethodHandles.lookup().unreflect(found); }
         catch (IllegalAccessException failure) { throw new IllegalStateException(failure); }
     }
