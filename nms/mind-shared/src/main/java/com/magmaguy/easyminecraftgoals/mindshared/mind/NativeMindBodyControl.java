@@ -10,6 +10,8 @@ import net.minecraft.world.entity.ai.attributes.Attribute;
 import net.minecraft.world.entity.ai.attributes.AttributeMap;
 import net.minecraft.core.Holder;
 import net.minecraft.world.entity.ai.control.MoveControl;
+import net.minecraft.world.entity.ai.control.LookControl;
+import net.minecraft.world.entity.ai.control.SmoothSwimmingLookControl;
 import net.minecraft.world.entity.ai.control.SmoothSwimmingMoveControl;
 import net.minecraft.world.entity.ai.goal.GoalSelector;
 import net.minecraft.world.entity.ai.navigation.AmphibiousPathNavigation;
@@ -25,6 +27,7 @@ import java.lang.reflect.Field;
 final class NativeMindBodyControl {
     private static final Field NAVIGATION = field(PathNavigation.class);
     private static final Field MOVE_CONTROL = field(MoveControl.class);
+    private static final Field LOOK_CONTROL = field(LookControl.class);
     private static final Field ATTRIBUTE_INSTANCES = attributeInstances();
 
     private final Mob mob;
@@ -121,6 +124,10 @@ final class NativeMindBodyControl {
         if (mob.getBukkitEntity() instanceof org.bukkit.entity.Bat bat) bat.setAwake(true);
         set(NAVIGATION, navigation());
         set(MOVE_CONTROL, moveControl());
+        // The ordinary look controller resets body pitch each tick, preventing the swimming
+        // move controller from steering downward against buoyancy while pursuing a target.
+        if (profile.locomotion() == MindBodyLocomotion.AQUATIC)
+            set(LOOK_CONTROL, new SmoothSwimmingLookControl(mob, 10));
         mob.setNoGravity(profile.locomotion() == MindBodyLocomotion.FLYING);
         applyUniformScale();
         ensureAttribute(Attributes.ATTACK_DAMAGE, 2D);
