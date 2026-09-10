@@ -45,7 +45,7 @@ public final class NativeRangedAmmunition extends RangedAmmunition {
     private static final Field CHANNEL = nativeField(Connection.class, Channel.class);
     private static final MethodHandle DRAW = nativeMethod(ProjectileWeaponItem.class, List.class, true,
             ItemStack.class, ItemStack.class, LivingEntity.class);
-    private static final MethodHandle SHOOT = nativeMethod(ProjectileWeaponItem.class, void.class, false,
+    private static final MethodHandle SHOOT = nativeShootMethod(ProjectileWeaponItem.class,
             ServerLevel.class, LivingEntity.class, InteractionHand.class, ItemStack.class, List.class,
             float.class, float.class, boolean.class, LivingEntity.class);
     private static final MethodHandle CHARGING_SOUNDS = nativeMethod(CrossbowItem.class, CrossbowItem.ChargingSounds.class,
@@ -170,7 +170,7 @@ public final class NativeRangedAmmunition extends RangedAmmunition {
             try {
                 ProjectileWeaponItem item = (ProjectileWeaponItem) weapon.getItem();
                 SHOOT.invoke(item, (ServerLevel) player.level(), player, hand, weapon, arrows,
-                        power * 3F, 1F, power == 1F, null);
+                        power * 3F, 1F, power == 1F, null, power);
                 player.level().playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.ARROW_SHOOT,
                         SoundSource.PLAYERS, 1F, 1F / (player.getRandom().nextFloat() * .4F + 1.2F) + power * .5F);
                 player.awardStat(Stats.ITEM_USED.get(item));
