@@ -157,7 +157,9 @@ final class NativeMindBodyControl {
         return switch (profile.locomotion()) {
             case GROUNDED, AMPHIBIOUS, STATIONARY -> new MoveControl(mob);
             case FLYING -> new NativeMindFlyingMoveControl(mob, 20, true);
-            case AQUATIC -> new SmoothSwimmingMoveControl(mob, 85, 10, 0.02F, 0.1F, true);
+            // Native travel owns fluid forces. The controller's optional upward impulse
+            // nearly cancels a small carrier's dive thrust when it has a combat target.
+            case AQUATIC -> new SmoothSwimmingMoveControl(mob, 85, 10, 0.02F, 0.1F, false);
         };
     }
 
