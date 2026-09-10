@@ -51,11 +51,22 @@ public final class EnchantmentItems {
 
     /** Produces a reviewable clone. proposed is the complete resulting native/custom enchantment set. */
     public Preview preview(ItemStack source, Map<String, Integer> proposed) {
+        return preview(source, proposed, false);
+    }
+
+    /** Updates the complete custom set while leaving the host's native enchantment data untouched. */
+    public Preview previewCustom(ItemStack source, Map<String, Integer> proposedCustom) {
+        return preview(source, proposedCustom, true);
+    }
+
+    private Preview preview(ItemStack source, Map<String, Integer> proposed, boolean preserveNative) {
         EnchantmentProviders.requireServerThread();
         ItemStack snapshot = source.clone();
         ItemMeta originalMeta = requireMeta(snapshot);
         inspect(snapshot); // Reject corrupt data even when the proposed set would discard it.
         Map<String, Integer> requested = Map.copyOf(proposed);
+        Set<String> nativeIds = new java.util.HashSet<>();
+        nativeEnchantments(originalMeta).keySet().forEach(enchantment -> nativeIds.add(enchantment.getKey().toString()));
         EnchantmentItemProfile profile = Objects.requireNonNull(classifier.apply(snapshot.clone()), "item profile");
         Map<String, Resolved> pinned = new LinkedHashMap<>();
         // Provider loss must not turn a custom update into accidental removal of an unavailable entry.
@@ -66,6 +77,8 @@ public final class EnchantmentItems {
             String id = EnchantmentDefinition.requireId(entry.getKey());
             Integer level = entry.getValue();
             if (level == null || level < 1) throw new IllegalArgumentException("Enchantment levels must be positive integers");
+            if (preserveNative && (id.startsWith("minecraft:") || nativeIds.contains(id)))
+                throw new IllegalArgumentException("Custom-only updates cannot write a native enchantment: " + id);
             if (id.startsWith("minecraft:")) {
                 Enchantment enchantment = Registry.ENCHANTMENT.get(Objects.requireNonNull(NamespacedKey.fromString(id)));
                 if (enchantment == null) throw new IllegalArgumentException("Unknown native enchantment: " + id);
@@ -79,24 +92,30 @@ public final class EnchantmentItems {
             }
         }
         if (custom.size() > EnchantmentItemData.MAX_ENTRIES) throw new IllegalArgumentException("Too many custom enchantments");
-        List<String> problems = validateCustom(profile, requested, pinned, isBook(snapshot));
+        Set<String> resultingIds = new java.util.HashSet<>(requested.keySet());
+        if (preserveNative) resultingIds.addAll(nativeIds);
+        List<String> problems = validateCustom(profile, custom, resultingIds, pinned, isBook(snapshot));
         if (!problems.isEmpty()) throw new IllegalArgumentException(String.join("; ", problems));
-        for (Enchantment first : vanilla.keySet()) for (Enchantment second : vanilla.keySet())
-            if (first != second && (first.conflictsWith(second) || second.conflictsWith(first)))
-                throw new IllegalArgumentException("Conflicting native enchantments: " + first.getKey() + " / " + second.getKey());
-        for (Enchantment existing : nativeEnchantments(originalMeta).keySet())
-            if (!existing.getKey().getNamespace().equals("minecraft"))
-                throw new IllegalArgumentException("Updating third-party native registry enchantments is not supported: " + existing.getKey());
+        if (!preserveNative) {
+            for (Enchantment first : vanilla.keySet()) for (Enchantment second : vanilla.keySet())
+                if (first != second && (first.conflictsWith(second) || second.conflictsWith(first)))
+                    throw new IllegalArgumentException("Conflicting native enchantments: " + first.getKey() + " / " + second.getKey());
+            for (Enchantment existing : nativeEnchantments(originalMeta).keySet())
+                if (!existing.getKey().getNamespace().equals("minecraft"))
+                    throw new IllegalArgumentException("Updating third-party native registry enchantments is not supported: " + existing.getKey());
+        }
         ItemStack draft = snapshot.clone();
         ItemMeta meta = requireMeta(draft);
-        if (meta instanceof EnchantmentStorageMeta book) {
-            for (Enchantment existing : List.copyOf(book.getStoredEnchants().keySet())) book.removeStoredEnchant(existing);
-            for (var entry : vanilla.entrySet())
-                if (!book.addStoredEnchant(entry.getKey(), entry.getValue(), false)) throw new IllegalArgumentException("Native book enchantment rejected");
-        } else {
-            meta.removeEnchantments();
-            for (var entry : vanilla.entrySet())
-                if (!meta.addEnchant(entry.getKey(), entry.getValue(), false)) throw new IllegalArgumentException("Native enchantment rejected");
+        if (!preserveNative) {
+            if (meta instanceof EnchantmentStorageMeta book) {
+                for (Enchantment existing : List.copyOf(book.getStoredEnchants().keySet())) book.removeStoredEnchant(existing);
+                for (var entry : vanilla.entrySet())
+                    if (!book.addStoredEnchant(entry.getKey(), entry.getValue(), false)) throw new IllegalArgumentException("Native book enchantment rejected");
+            } else {
+                meta.removeEnchantments();
+                for (var entry : vanilla.entrySet())
+                    if (!meta.addEnchant(entry.getKey(), entry.getValue(), false)) throw new IllegalArgumentException("Native enchantment rejected");
+            }
         }
         EnchantmentItemData.write(meta, custom);
         EnchantmentPresentation.render(meta, custom, pinned::get);
@@ -152,6 +171,7 @@ public final class EnchantmentItems {
     }
 
     static List<String> validateCustom(EnchantmentItemProfile profile, Map<String, Integer> requested,
+                                       Set<String> resultingIds,
                                        Map<String, Resolved> resolved, boolean book) {
         List<String> problems = new ArrayList<>();
         for (var entry : requested.entrySet()) {
@@ -169,7 +189,7 @@ public final class EnchantmentItems {
                     problems.add("No supported attack for " + entry.getKey());
             }
             for (String conflict : definition.conflicts())
-                if (requested.containsKey(conflict)) problems.add("Conflicting enchantments: " + entry.getKey() + " / " + conflict);
+                if (resultingIds.contains(conflict)) problems.add("Conflicting enchantments: " + entry.getKey() + " / " + conflict);
         }
         return List.copyOf(problems);
     }
