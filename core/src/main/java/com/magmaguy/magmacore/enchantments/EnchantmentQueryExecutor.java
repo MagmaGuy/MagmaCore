@@ -20,6 +20,7 @@ import static com.magmaguy.magmacore.enchantments.EnchantmentQueries.Status;
 final class EnchantmentQueryExecutor {
     private EnchantmentCatalog catalog;
     private final Set<ScriptHook> hooks;
+    private final Set<ScriptHook> catalogHooks;
     private final Consumer<String> warning;
     private final Set<String> capabilities;
     private final Set<String> quarantined = new HashSet<>();
@@ -27,7 +28,13 @@ final class EnchantmentQueryExecutor {
     private boolean closed;
 
     EnchantmentQueryExecutor(EnchantmentCatalog catalog, Set<ScriptHook> hooks, Set<String> capabilities, Consumer<String> warning) {
+        this(catalog, hooks, hooks, capabilities, warning);
+    }
+
+    EnchantmentQueryExecutor(EnchantmentCatalog catalog, Set<ScriptHook> hooks, Set<ScriptHook> catalogHooks,
+                            Set<String> capabilities, Consumer<String> warning) {
         this.hooks = Set.copyOf(hooks);
+        this.catalogHooks = Set.copyOf(catalogHooks);
         this.hooks.forEach(EnchantmentQueries::requireHook);
         this.warning = warning;
         this.capabilities = Set.copyOf(capabilities);
@@ -38,7 +45,7 @@ final class EnchantmentQueryExecutor {
     void validate(EnchantmentCatalog candidate) {
         for (String id : candidate.definitions().keySet()) {
             ScriptDefinition script = candidate.script(id).orElseThrow();
-            if (!hooks.containsAll(script.getHooks()))
+            if (!catalogHooks.containsAll(script.getHooks()))
                 throw new IllegalArgumentException("Catalog declares unsupported query hooks: " + id);
         }
     }

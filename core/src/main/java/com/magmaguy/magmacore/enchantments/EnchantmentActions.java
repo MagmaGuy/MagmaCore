@@ -1,0 +1,84 @@
+package com.magmaguy.magmacore.enchantments;
+
+import com.magmaguy.magmacore.scripting.ScriptHook;
+import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
+
+/** Provider-owned Lua effects. Only copied facts and stable identities cross the shaded bridge. */
+public final class EnchantmentActions {
+    public static final String CAPABILITY = "enchantment.actions.v1";
+    private EnchantmentActions() { }
+
+    /** The host chooses the lifetime from the authored effect, with no global gameplay quota. */
+    public record Source(UUID attackId, UUID actor, UUID world, long lifetimeTicks, Map<String, Object> facts) {
+        public Source {
+            Objects.requireNonNull(attackId, "attackId");
+            Objects.requireNonNull(actor, "actor");
+            Objects.requireNonNull(world, "world");
+            if (lifetimeTicks < 1) throw new IllegalArgumentException("An action needs a positive lifetime");
+            facts = EnchantmentValues.copy(facts);
+        }
+        @Override public Map<String, Object> facts() { return EnchantmentValues.copy(facts); }
+    }
+
+    public enum Status { OK, DUPLICATE, UNAVAILABLE, STALE, INVALID, FAILED }
+
+    /** One accepted activation. Keep this handle for every subsequent impact/stage of that effect. */
+    public static final class Action implements AutoCloseable {
+        private final EnchantmentProviders.Provider provider;
+        private final String token;
+        private boolean closed;
+
+        private Action(EnchantmentProviders.Provider provider, String token) {
+            this.provider = provider;
+            this.token = token;
+        }
+
+        /** Stage identity includes the projectile/impact identity; duplicate delivery cannot replay Lua. */
+        public Status dispatch(String stage, ScriptHook hook, UUID target) {
+            EnchantmentProviders.requireServerThread();
+            if (closed) return Status.UNAVAILABLE;
+            Objects.requireNonNull(hook, "hook");
+            if (stage == null || stage.isBlank()) throw new IllegalArgumentException("Missing stage identity");
+            var result = EnchantmentProviders.call(provider, EnchantmentProviders.Operation.EVALUATE,
+                    Map.of("kind", CAPABILITY, "operation", "dispatch", "token", token,
+                            "stage", stage, "hook", hook.getKey(), "target", target == null ? "" : target.toString()));
+            return status(result);
+        }
+
+        @Override public void close() {
+            EnchantmentProviders.requireServerThread();
+            if (closed) return;
+            closed = true;
+            EnchantmentProviders.call(provider, EnchantmentProviders.Operation.EVALUATE,
+                    Map.of("kind", CAPABILITY, "operation", "close", "token", token));
+        }
+    }
+
+    /** Called once by the host after accepting the action, using its launch-time definition/revision. */
+    public static Action begin(EnchantmentItems.Resolved resolved, int level, Source source) {
+        EnchantmentProviders.requireServerThread();
+        Objects.requireNonNull(resolved, "resolved");
+        Objects.requireNonNull(source, "source");
+        if (!resolved.provider().capabilities().contains(CAPABILITY)) return null;
+        var result = EnchantmentProviders.call(resolved.provider(), EnchantmentProviders.Operation.EVALUATE,
+                Map.of("kind", CAPABILITY, "operation", "begin", "id", resolved.definition().id(),
+                        "level", level, "attack", source.attackId().toString(), "actor", source.actor().toString(),
+                        "world", source.world().toString(), "lifetime", source.lifetimeTicks(), "facts", source.facts()));
+        if (status(result) != Status.OK || !(result.payload().get("token") instanceof String token)) return null;
+        UUID.fromString(token);
+        return new Action(resolved.provider(), token);
+    }
+
+    private static Status status(EnchantmentProviders.Result result) {
+        if (result.status() != EnchantmentProviders.Status.OK) return switch (result.status()) {
+            case STALE -> Status.STALE;
+            case INVALID_REQUEST -> Status.INVALID;
+            case FAILED -> Status.FAILED;
+            default -> Status.UNAVAILABLE;
+        };
+        try { return Status.valueOf((String) result.payload().get("status")); }
+        catch (RuntimeException malformed) { return Status.FAILED; }
+    }
+}

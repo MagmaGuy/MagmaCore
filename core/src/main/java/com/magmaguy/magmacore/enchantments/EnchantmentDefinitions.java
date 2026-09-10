@@ -16,7 +16,7 @@ public final class EnchantmentDefinitions {
     public static HostedCatalog publish(Plugin owner, EnchantmentCatalog catalog, Set<String> capabilities,
                                        EnchantmentProviders.Handler domainHandler) {
         EnchantmentProviders.requireServerThread();
-        return new HostedCatalog(owner, catalog, capabilities, domainHandler, null);
+        return new HostedCatalog(owner, catalog, capabilities, domainHandler, null, null);
     }
 
     /** Publishes query execution through the same provider endpoint and revision as definitions. */
@@ -24,24 +24,43 @@ public final class EnchantmentDefinitions {
                                                Set<com.magmaguy.magmacore.scripting.ScriptHook> queryHooks,
                                                EnchantmentProviders.Handler domainHandler) {
         EnchantmentProviders.requireServerThread();
-        return new HostedCatalog(owner, catalog, capabilities, domainHandler, Set.copyOf(queryHooks));
+        return new HostedCatalog(owner, catalog, capabilities, domainHandler, Set.copyOf(queryHooks), null);
+    }
+
+    /** Numeric and timed hooks share one catalog, revision, and provider lifetime. */
+    public static HostedCatalog publishActions(Plugin owner, EnchantmentCatalog catalog, Set<String> capabilities,
+            Set<com.magmaguy.magmacore.scripting.ScriptHook> queryHooks,
+            Set<com.magmaguy.magmacore.scripting.ScriptHook> actionHooks, EnchantmentProviders.Handler domainHandler) {
+        EnchantmentProviders.requireServerThread();
+        return new HostedCatalog(owner, catalog, capabilities, domainHandler, Set.copyOf(queryHooks), Set.copyOf(actionHooks));
     }
 
     public static final class HostedCatalog implements AutoCloseable {
         private EnchantmentCatalog catalog;
         private final EnchantmentProviders.Registration registration;
         private final EnchantmentQueryExecutor queries;
+        private final EnchantmentActionExecutor actions;
         private boolean closed;
 
         private HostedCatalog(Plugin owner, EnchantmentCatalog initial, Set<String> capabilities,
                               EnchantmentProviders.Handler domainHandler,
-                              Set<com.magmaguy.magmacore.scripting.ScriptHook> queryHooks) {
+                              Set<com.magmaguy.magmacore.scripting.ScriptHook> queryHooks,
+                              Set<com.magmaguy.magmacore.scripting.ScriptHook> actionHooks) {
             catalog = Objects.requireNonNull(initial, "catalog");
             Objects.requireNonNull(domainHandler, "domainHandler");
             Set<String> publishedCapabilities = new LinkedHashSet<>(capabilities);
             if (queryHooks != null) publishedCapabilities.add(EnchantmentQueries.CAPABILITY);
-            queries = queryHooks == null ? null : new EnchantmentQueryExecutor(initial, queryHooks, publishedCapabilities, owner.getLogger()::warning);
+            if (actionHooks != null) publishedCapabilities.add(EnchantmentActions.CAPABILITY);
+            Set<com.magmaguy.magmacore.scripting.ScriptHook> supported = new LinkedHashSet<>();
+            if (queryHooks != null) supported.addAll(queryHooks);
+            if (actionHooks != null) supported.addAll(actionHooks);
+            queries = queryHooks == null ? null : new EnchantmentQueryExecutor(initial, queryHooks, supported,
+                    publishedCapabilities, owner.getLogger()::warning);
+            actions = actionHooks == null ? null : new EnchantmentActionExecutor(owner, initial, actionHooks, publishedCapabilities);
+            try {
             registration = EnchantmentProviders.register(owner, initial.namespace(), publishedCapabilities, (operation, request) -> {
+                if (actions != null && operation == EnchantmentProviders.Operation.EVALUATE
+                        && EnchantmentActions.CAPABILITY.equals(request.get("kind"))) return actions.evaluate(request);
                 if (queries != null && operation == EnchantmentProviders.Operation.EVALUATE
                         && EnchantmentQueries.CAPABILITY.equals(request.get("kind"))) return queries.evaluate(request);
                 if (operation != EnchantmentProviders.Operation.RESOLVE) return domainHandler.handle(operation, request);
@@ -52,6 +71,11 @@ public final class EnchantmentDefinitions {
                 EnchantmentDefinition definition = catalog.definitions().get(id);
                 return definition == null ? Map.of("found", false) : Map.of("found", true, "definition", encode(definition));
             });
+            } catch (RuntimeException | LinkageError failure) {
+                if (actions != null) actions.close();
+                if (queries != null) queries.close();
+                throw failure;
+            }
         }
 
         /** Accept only a fully validated candidate. A failed load never reaches this publication step. */
@@ -64,6 +88,7 @@ public final class EnchantmentDefinitions {
             registration.advanceRevision();
             catalog = candidate;
             if (queries != null) queries.reload(candidate);
+            if (actions != null) actions.reload(candidate);
         }
 
         public EnchantmentCatalog catalog() { EnchantmentProviders.requireServerThread(); return catalog; }
@@ -72,6 +97,7 @@ public final class EnchantmentDefinitions {
             EnchantmentProviders.requireServerThread();
             registration.close();
             if (queries != null) queries.close();
+            if (actions != null) actions.close();
             closed = true;
         }
     }

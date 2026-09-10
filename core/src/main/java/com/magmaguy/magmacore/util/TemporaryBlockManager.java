@@ -24,6 +24,64 @@ import java.util.UUID;
 public final class TemporaryBlockManager implements Listener {
 
     private static final HashSet<Block> temporaryBlocks = new HashSet<>();
+    private static final String OWNED_KEY = "nightbreak_owned_temporary_block";
+    private static final java.util.Map<BlockKey, OwnedBlock> ownedBlocks = new java.util.HashMap<>();
+
+    private record BlockKey(UUID world, int x, int y, int z) {
+        static BlockKey of(Block block) { return new BlockKey(block.getWorld().getUID(), block.getX(), block.getY(), block.getZ()); }
+    }
+
+    /** Optional conditional restoration, shared across shaded consumers through Bukkit metadata. */
+    public static final class OwnedBlock implements AutoCloseable {
+        private final BlockKey key;
+        private final org.bukkit.plugin.Plugin owner;
+        private final String token = UUID.randomUUID().toString();
+        private final BlockData original;
+        private final BlockData replacement;
+        private boolean closed;
+
+        private OwnedBlock(Block block, BlockData replacement, org.bukkit.plugin.Plugin owner) {
+            key = BlockKey.of(block);
+            this.owner = owner;
+            original = block.getBlockData().clone();
+            this.replacement = replacement.clone();
+        }
+
+        @Override public void close() {
+            if (!Bukkit.isPrimaryThread()) throw new IllegalStateException("Block restoration requires the server thread");
+            if (closed) return;
+            closed = true;
+            ownedBlocks.remove(key, this);
+            World world = Bukkit.getWorld(key.world());
+            if (world == null || !world.isChunkLoaded(key.x() >> 4, key.z() >> 4)) return;
+            Block block = world.getBlockAt(key.x(), key.y(), key.z());
+            boolean owned = block.getMetadata(OWNED_KEY).stream()
+                    .anyMatch(value -> value.getOwningPlugin() == owner && token.equals(value.asString()));
+            if (!owned) return;
+            block.removeMetadata(OWNED_KEY, owner);
+            if (block.getBlockData().equals(replacement)) block.setBlockData(original, false);
+        }
+    }
+
+    /** Preflight without loading chunks. BlockData restoration deliberately excludes block-entity contents. */
+    public static boolean canOwn(Block block) {
+        return block.getWorld().isChunkLoaded(block.getX() >> 4, block.getZ() >> 4)
+                && !temporaryBlocks.contains(block) && !block.hasMetadata(OWNED_KEY)
+                && !(block.getState() instanceof org.bukkit.block.TileState);
+    }
+
+    public static OwnedBlock replaceOwned(Block block, BlockData replacement, org.bukkit.plugin.Plugin owner) {
+        if (!Bukkit.isPrimaryThread()) throw new IllegalStateException("Block replacement requires the server thread");
+        java.util.Objects.requireNonNull(replacement, "replacement");
+        java.util.Objects.requireNonNull(owner, "owner");
+        if (!owner.isEnabled() || !canOwn(block)) return null;
+        OwnedBlock lease = new OwnedBlock(block, replacement, owner);
+        block.setMetadata(OWNED_KEY, new org.bukkit.metadata.FixedMetadataValue(owner, lease.token));
+        ownedBlocks.put(lease.key, lease);
+        try { block.setBlockData(replacement, false); }
+        catch (RuntimeException failure) { lease.close(); throw failure; }
+        return lease;
+    }
 
     private TemporaryBlockManager() {}
 
@@ -43,6 +101,7 @@ public final class TemporaryBlockManager implements Listener {
      * @param replacementMaterial the material to set
      */
     public static void addTemporaryBlock(Block block, int ticks, Material replacementMaterial) {
+        if (block.hasMetadata(OWNED_KEY)) return;
         BlockData previousBlockData = block.getBlockData().clone();
         if (temporaryBlocks.contains(block)) previousBlockData = null;
         temporaryBlocks.add(block);
@@ -78,7 +137,7 @@ public final class TemporaryBlockManager implements Listener {
     }
 
     public static boolean isTemporaryBlock(Block block) {
-        return temporaryBlocks.contains(block);
+        return temporaryBlocks.contains(block) || block.hasMetadata(OWNED_KEY);
     }
 
     public static void removeTemporaryBlock(Block block) {
@@ -90,6 +149,7 @@ public final class TemporaryBlockManager implements Listener {
      * Call during plugin shutdown.
      */
     public static void shutdown() {
+        for (OwnedBlock lease : new java.util.ArrayList<>(ownedBlocks.values())) lease.close();
         for (Block block : temporaryBlocks)
             block.setType(Material.AIR);
         temporaryBlocks.clear();
@@ -104,6 +164,16 @@ public final class TemporaryBlockManager implements Listener {
 
     @EventHandler(ignoreCancelled = true)
     public void onWorldUnload(WorldUnloadEvent event) {
+        for (OwnedBlock lease : new java.util.ArrayList<>(ownedBlocks.values()))
+            if (lease.key.world().equals(event.getWorld().getUID())) lease.close();
         temporaryBlocks.removeIf(block -> block.getWorld().equals(event.getWorld()));
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    public void onChunkUnload(org.bukkit.event.world.ChunkUnloadEvent event) {
+        for (OwnedBlock lease : new java.util.ArrayList<>(ownedBlocks.values()))
+            if (lease.key.world().equals(event.getWorld().getUID())
+                    && (lease.key.x() >> 4) == event.getChunk().getX() && (lease.key.z() >> 4) == event.getChunk().getZ())
+                lease.close();
     }
 }

@@ -38,6 +38,7 @@ public class ScriptInstance {
     private final ScriptableEntity entity;
     private final LuaTable stateTable = new LuaTable();
     private final Map<Integer, OwnedTask> ownedTasks = new LinkedHashMap<>();
+    private final Deque<Runnable> ownedCleanup = new ArrayDeque<>();
 
     private final Map<Integer, ScriptZone> zoneWatches = new LinkedHashMap<>();
     private int nextZoneHandle = 1;
@@ -57,6 +58,13 @@ public class ScriptInstance {
 
     public boolean isClosed() {
         return closed;
+    }
+
+    /** Register optional Java-owned restoration. Runs once on every shutdown path, including Lua errors. */
+    public void ownCleanup(Runnable cleanup) {
+        Objects.requireNonNull(cleanup, "cleanup");
+        if (closed) cleanup.run();
+        else ownedCleanup.addFirst(cleanup);
     }
 
     /**
@@ -108,6 +116,7 @@ public class ScriptInstance {
 
     /** Schedule a one-shot owned Java task; auto-cancelled on shutdown. Returns its id. */
     public int ownLater(int ticks, Runnable runnable) {
+        requireOpen();
         JavaPlugin plugin = MagmaCore.getInstance().getRequestingPlugin();
         int[] holder = new int[1];
         BukkitTask task = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
@@ -123,6 +132,7 @@ public class ScriptInstance {
 
     /** Schedule a repeating owned Java task; auto-cancelled on shutdown. Returns its id. */
     public int ownRepeating(int delayTicks, int intervalTicks, Runnable runnable) {
+        requireOpen();
         JavaPlugin plugin = MagmaCore.getInstance().getRequestingPlugin();
         BukkitTask task = Bukkit.getScheduler().runTaskTimer(
                 plugin,
@@ -283,6 +293,10 @@ public class ScriptInstance {
         }
         zoneWatches.clear();
 
+        while (!ownedCleanup.isEmpty()) {
+            try { ownedCleanup.removeFirst().run(); }
+            catch (RuntimeException failure) { logLuaError("owned cleanup", failure); }
+        }
         entity.onShutdown();
     }
 
@@ -526,6 +540,7 @@ public class ScriptInstance {
     }
 
     private int ownLaterTask(int ticks, LuaFunction callback) {
+        requireOpen();
         JavaPlugin plugin = MagmaCore.getInstance().getRequestingPlugin();
         int[] taskIdHolder = new int[1];
         BukkitTask task = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
@@ -540,6 +555,7 @@ public class ScriptInstance {
     }
 
     private int ownRepeatingTask(int delay, int interval, LuaFunction callback) {
+        requireOpen();
         JavaPlugin plugin = MagmaCore.getInstance().getRequestingPlugin();
         BukkitTask task = Bukkit.getScheduler().runTaskTimer(
                 plugin,
@@ -551,6 +567,10 @@ public class ScriptInstance {
         int taskId = task.getTaskId();
         ownedTasks.put(taskId, () -> Bukkit.getScheduler().cancelTask(taskId));
         return taskId;
+    }
+
+    private void requireOpen() {
+        if (closed) throw new IllegalStateException("Script instance is closed");
     }
 
     private void cancelOwnedTask(int taskId) {
