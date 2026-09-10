@@ -71,22 +71,26 @@ public final class LuaEngine {
             File directory,
             ScriptProvider provider,
             Map<String, ScriptDefinition> discovered) {
-        File[] files = directory.listFiles();
-        if (files == null) return;
-        Arrays.sort(files, Comparator.comparing(File::getName));
-        for (File file : files) {
-            if (file.isDirectory()) {
-                discoverDirectory(file, provider, discovered);
-                continue;
-            }
-            if (!file.getName().toLowerCase(Locale.ROOT).endsWith(".lua")) continue;
+        List<File> files;
+        try (var paths = Files.walk(directory.toPath())) {
+            files = paths.filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".lua"))
+                    .map(java.nio.file.Path::toFile).toList();
+        } catch (IOException failure) {
+            Logger.warn("Cannot scan script directory " + directory + ": " + failure.getMessage());
+            return;
+        }
+        for (File file : com.magmaguy.magmacore.config.ContentFileSelector.select(files,
+                name -> name.toLowerCase(Locale.ROOT))) {
             try {
                 ScriptDefinition definition = validateScript(file, provider);
                 discovered.put(
                         provider.getNamespace() + ":" + file.getName(),
                         definition);
             } catch (IOException e) {
-                Logger.warn("Failed to read script: " + file.getName());
+                Logger.warn("Skipping unreadable script " + file + ": " + e.getMessage());
+            } catch (IllegalArgumentException invalid) {
+                Logger.warn("Skipping invalid or retired script " + file + ": " + invalid.getMessage());
             } catch (Exception e) {
                 Logger.warn("Failed to load script: " + file.getName());
                 e.printStackTrace();
