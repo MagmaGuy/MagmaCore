@@ -30,6 +30,11 @@ public class LuaLivingEntityTable {
         });
         LuaTableSupport.lazyField(table, "is_alive", () -> LuaValue.valueOf(!entity.isDead()));
 
+        table.set("set_ai", LuaTableSupport.tableMethod(table, args -> {
+            entity.setAI(args.checkboolean(1));
+            return LuaValue.NIL;
+        }));
+
         table.set("damage", LuaTableSupport.tableMethod(table, args -> {
             entity.damage(args.checkdouble(1));
             return LuaValue.NIL;

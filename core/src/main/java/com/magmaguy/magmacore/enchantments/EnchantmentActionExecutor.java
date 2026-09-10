@@ -177,6 +177,15 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
         for (Running running : new ArrayList<>(active.values()))
             if (running.source.world().equals(event.getWorld().getUID())) running.instance.shutdown();
     }
+    @EventHandler(ignoreCancelled = true) public void onChunkUnload(org.bukkit.event.world.ChunkUnloadEvent event) {
+        for (Running running : new ArrayList<>(active.values()))
+            if (running.ownedEntities.values().stream().anyMatch(entity -> {
+                var location = entity.getLocation();
+                return location.getWorld().equals(event.getWorld())
+                        && location.getBlockX() >> 4 == event.getChunk().getX()
+                        && location.getBlockZ() >> 4 == event.getChunk().getZ();
+            })) running.instance.shutdown();
+    }
     private void stopActor(UUID actor) {
         for (Running running : new ArrayList<>(active.values()))
             if (running.source.actor().equals(actor)) running.instance.shutdown();
@@ -191,6 +200,7 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
         final EnchantmentItemAccess item;
         final boolean stopOnUnequip;
         final Map<UUID, OwnedEntityState> gravity = new HashMap<>();
+        final Map<UUID, Entity> ownedEntities = new HashMap<>();
         ScriptInstance instance;
         LivingEntity target;
         boolean failed;
@@ -255,6 +265,38 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
                             if (previous != this && previous.definition.id().equals(definition.id())
                                     && previous.source.actor().equals(source.actor())) previous.instance.shutdown();
                         return LuaValue.NIL;
+                    }));
+                    table.set("has_previous", LuaTableSupport.tableMethod(table, args -> LuaValue.valueOf(
+                            active.values().stream().anyMatch(previous -> previous != this
+                                    && previous.definition.id().equals(definition.id())
+                                    && previous.source.actor().equals(source.actor())))));
+                    // Scripts opt into removal only after using the ordinary world spawn operation.
+                    table.set("own_entity", LuaTableSupport.tableMethod(table, args -> {
+                        Entity entity = Bukkit.getEntity(UUID.fromString(args.checkjstring(1)));
+                        if (entity == null || !entity.isValid() || entity instanceof Player
+                                || !entity.getWorld().getUID().equals(source.world())) return LuaValue.FALSE;
+                        if (ownedEntities.containsKey(entity.getUniqueId())) return LuaValue.TRUE;
+                        instance.ownCleanup(() -> {
+                            ownedEntities.remove(entity.getUniqueId());
+                            entity.remove();
+                        });
+                        ownedEntities.put(entity.getUniqueId(), entity);
+                        entity.setPersistent(false);
+                        return LuaValue.TRUE;
+                    }));
+                    table.set("place_block", LuaTableSupport.tableMethod(table, args -> {
+                        var world = Bukkit.getWorld(source.world());
+                        int x = args.checkint(1), y = args.checkint(2), z = args.checkint(3);
+                        if (!(getBukkitEntity() instanceof Player player) || world == null
+                                || !world.isChunkLoaded(x >> 4, z >> 4)
+                                || y <= world.getMinHeight() || y >= world.getMaxHeight()) return LuaValue.FALSE;
+                        var expected = org.bukkit.Material.matchMaterial(args.checkjstring(4));
+                        var replacement = Bukkit.createBlockData(args.checkjstring(5));
+                        var stack = source.facts().get("item") instanceof org.bukkit.inventory.ItemStack captured ? captured : null;
+                        var hand = Integer.valueOf(40).equals(source.facts().get("inventory_slot"))
+                                ? org.bukkit.inventory.EquipmentSlot.OFF_HAND : org.bukkit.inventory.EquipmentSlot.HAND;
+                        return LuaValue.valueOf(com.magmaguy.magmacore.scripting.ScriptBlockActions
+                                .placeBlock(player, world.getBlockAt(x, y, z), expected, replacement, stack, hand));
                     }));
                     table.set("break_block", LuaTableSupport.tableMethod(table, args -> {
                         var world = Bukkit.getWorld(source.world());

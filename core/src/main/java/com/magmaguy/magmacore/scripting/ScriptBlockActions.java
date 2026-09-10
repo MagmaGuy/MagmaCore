@@ -12,6 +12,49 @@ import org.bukkit.inventory.ItemStack;
 public final class ScriptBlockActions {
     private ScriptBlockActions() { }
 
+    /** Optional permanent authored placement, with the normal cancellable placement event. */
+    public static boolean placeBlock(Player player, Block block, Material expected,
+                                     org.bukkit.block.data.BlockData replacement, ItemStack source,
+                                     org.bukkit.inventory.EquipmentSlot hand) {
+        if (!Bukkit.isPrimaryThread()) throw new IllegalStateException("Script placement requires the server thread");
+        if (player == null || !player.isOnline() || !player.isValid() || player.isDead() || block == null
+                || !player.getWorld().equals(block.getWorld()) || expected == null || replacement == null
+                || !block.getWorld().isChunkLoaded(block.getX() >> 4, block.getZ() >> 4)
+                || block.getY() <= block.getWorld().getMinHeight() || block.getY() >= block.getWorld().getMaxHeight()
+                || block.getType() != expected || block.getState() instanceof org.bukkit.block.TileState
+                || !LocationQueryRegistry.canBuild(player, block.getLocation())) return false;
+        var original = block.getState();
+        String originalData = original.getBlockData().getAsString();
+        String placedData = replacement.getAsString();
+        if (originalData.equals(placedData)) return false;
+        // Match native placement: listeners inspect the proposed block in the world.
+        block.setBlockData(replacement, false);
+        boolean accepted = false;
+        try {
+            var event = new ScriptPlaceEvent(block, original, block.getRelative(org.bukkit.block.BlockFace.DOWN),
+                    source == null ? new ItemStack(Material.AIR) : source.clone(), player, hand);
+            Bukkit.getPluginManager().callEvent(event);
+            accepted = !event.isCancelled() && event.canBuild() && player.isOnline() && player.isValid()
+                    && !player.isDead() && player.getWorld().equals(block.getWorld())
+                    && block.getWorld().isChunkLoaded(block.getX() >> 4, block.getZ() >> 4)
+                    && placedData.equals(block.getBlockData().getAsString())
+                    && LocationQueryRegistry.canBuild(player, block.getLocation());
+            return accepted;
+        } finally {
+            // A listener's independent replacement wins over our rollback.
+            if (!accepted && block.getWorld().isChunkLoaded(block.getX() >> 4, block.getZ() >> 4)
+                    && placedData.equals(block.getBlockData().getAsString()))
+                original.update(true, false);
+        }
+    }
+
+    private static final class ScriptPlaceEvent extends org.bukkit.event.block.BlockPlaceEvent {
+        private ScriptPlaceEvent(Block block, org.bukkit.block.BlockState original, Block against,
+                                 ItemStack item, Player player, org.bukkit.inventory.EquipmentSlot hand) {
+            super(block, original, against, item, player, true, hand);
+        }
+    }
+
     /**
      * Removes an unchanged, authorized block synchronously, then emits the authored drop.
      * Null means intentional no drops. The child event can cancel or suppress drops.
