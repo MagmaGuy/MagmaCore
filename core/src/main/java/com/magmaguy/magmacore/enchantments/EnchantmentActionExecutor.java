@@ -43,6 +43,8 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
     private final Map<UUID, Map<String, Long>> globalCooldowns = new HashMap<>();
     private final Map<UUID, Map<String, Map<String, Long>>> localCooldowns = new HashMap<>();
     private EnchantmentCatalog catalog;
+    private com.magmaguy.magmacore.scripting.ScriptProjectiles projectiles;
+    private com.magmaguy.magmacore.scripting.ScriptNativeProjectiles nativeProjectiles;
     private boolean closed;
 
     EnchantmentActionExecutor(Plugin plugin, EnchantmentCatalog catalog, Set<ScriptHook> hooks,
@@ -80,7 +82,7 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
             throw new IllegalArgumentException("Invalid action source");
         var definition = catalog.definitions().get(id);
         var script = catalog.script(id).orElse(null);
-        if (definition == null || script == null || level < 1 || level > definition.maxLevel())
+        if (definition == null || script == null || level < 1)
             return response(EnchantmentActions.Status.INVALID);
         String initialHook = text(request, "hook");
         if (!initialHook.isEmpty() && !script.supportsHook(new ScriptHook(initialHook)))
@@ -161,6 +163,8 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
         HandlerList.unregisterAll(this);
         HandlerList.unregisterAll(inputs);
         stopAll();
+        if (projectiles != null) projectiles.close();
+        if (nativeProjectiles != null) nativeProjectiles.close();
         globalCooldowns.clear();
         localCooldowns.clear();
     }
@@ -202,6 +206,7 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
         final EnchantmentItemAccess item;
         final boolean stopOnUnequip;
         final Map<UUID, OwnedEntityState> gravity = new HashMap<>();
+        final Map<String, OwnedEntityState> potions = new HashMap<>();
         final Map<UUID, Entity> ownedEntities = new HashMap<>();
         ScriptInstance instance;
         LivingEntity target;
@@ -271,6 +276,23 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
                                 Map.of("kind", "attributed_damage", "attack", source.attackId(), "actor", source.actor(),
                                         "world", source.world(), "target", targetId, "amount", amount, "facts", source.facts()));
                         return LuaValue.valueOf(Boolean.TRUE.equals(result.get("applied")));
+                    }));
+                    table.set("launch_projectile", LuaTableSupport.tableMethod(table, args -> {
+                        if (!(getBukkitEntity() instanceof Player player) || !isScriptOwnerActive()) return LuaValue.FALSE;
+                        Location at = LuaTableSupport.tableToLocation(args.checktable(1), player.getWorld());
+                        var direction = args.checktable(2);
+                        if (projectiles == null) projectiles = new com.magmaguy.magmacore.scripting.ScriptProjectiles(plugin);
+                        return LuaValue.valueOf(projectiles.launch(instance, player, this::isScriptOwnerActive, at,
+                                new org.bukkit.util.Vector(direction.get("x").checkdouble(), direction.get("y").checkdouble(), direction.get("z").checkdouble()),
+                                args.checkdouble(3), args.checkdouble(4), args.checkint(5), args.checkfunction(6),
+                                args.arg(7).isnil() ? null : args.checkfunction(7), args.optboolean(8, false)));
+                    }));
+                    table.set("attribute_projectile", LuaTableSupport.tableMethod(table, args -> {
+                        Entity entity = ownedEntities.get(UUID.fromString(args.checkjstring(1)));
+                        if (!(entity instanceof org.bukkit.entity.Projectile projectile) || !isScriptOwnerActive()) return LuaValue.FALSE;
+                        if (nativeProjectiles == null) nativeProjectiles = new com.magmaguy.magmacore.scripting.ScriptNativeProjectiles(plugin);
+                        return LuaValue.valueOf(nativeProjectiles.bind(projectile, instance, this::isScriptOwnerActive,
+                                args.checkfunction(2), args.optboolean(3, false)));
                     }));
                     table.set("replace_previous", LuaTableSupport.tableMethod(table, args -> {
                         for (Running previous : new ArrayList<>(active.values()))
@@ -392,8 +414,19 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
                             return LuaValue.FALSE;
                         var lease = OwnedEntityState.potion(living, new org.bukkit.potion.PotionEffect(type, ticks, amplifier), plugin);
                         if (lease == null) return LuaValue.FALSE;
-                        instance.ownCleanup(lease::close);
-                        instance.ownLater(expiry, lease::close);
+                        String potionKey = entity.getUniqueId() + ":" + type.getKey();
+                        potions.put(potionKey, lease);
+                        Runnable restore = () -> { potions.remove(potionKey, lease); lease.close(); };
+                        instance.ownCleanup(restore);
+                        instance.ownLater(expiry, restore);
+                        return LuaValue.TRUE;
+                    }));
+                    table.set("restore_potion", LuaTableSupport.tableMethod(table, args -> {
+                        var type = org.bukkit.potion.PotionEffectType.getByName(args.checkjstring(2));
+                        if (type == null) return LuaValue.FALSE;
+                        var lease = potions.remove(UUID.fromString(args.checkjstring(1)) + ":" + type.getKey());
+                        if (lease == null) return LuaValue.FALSE;
+                        lease.close();
                         return LuaValue.TRUE;
                     }));
                     yield table;

@@ -78,7 +78,7 @@ final class EnchantmentQueryExecutor {
         if (closed) return response(id, hookName, Status.UNAVAILABLE, null, 0, 0);
         var definition = catalog.definitions().get(id);
         var script = catalog.script(id).orElse(null);
-        if (definition == null || script == null || level < 1 || level > definition.maxLevel())
+        if (definition == null || script == null || level < 1)
             return response(id, hookName, Status.INVALID, null, 0, 0);
         if (!hooks.contains(hook) || !script.supportsHook(hook))
             return response(id, hookName, Status.OK, null, 0, 0);

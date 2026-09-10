@@ -43,6 +43,47 @@ public class LuaEntityTable {
 
         table.set("uuid", entity.getUniqueId().toString());
         table.set("entity_type", entity.getType().name().toLowerCase());
+        LuaTableSupport.lazyField(table, "is_on_ground", () -> LuaValue.valueOf(entity.isOnGround()));
+        LuaTableSupport.lazyField(table, "is_flying", () -> LuaValue.valueOf(entity instanceof Player player && player.isFlying()));
+        table.set("set_velocity", LuaTableSupport.tableMethod(table, args -> {
+            double x = args.checkdouble(1), y = args.checkdouble(2), z = args.checkdouble(3);
+            if (!Double.isFinite(x) || !Double.isFinite(y) || !Double.isFinite(z))
+                throw new IllegalArgumentException("Velocity must be finite");
+            entity.setVelocity(new org.bukkit.util.Vector(x, y, z));
+            return LuaValue.NIL;
+        }));
+        table.set("set_fall_distance", LuaTableSupport.tableMethod(table, args -> {
+            float distance = (float) args.checkdouble(1);
+            if (!Float.isFinite(distance) || distance < 0) throw new IllegalArgumentException("Invalid fall distance");
+            entity.setFallDistance(distance);
+            return LuaValue.NIL;
+        }));
+        if (entity instanceof org.bukkit.entity.Projectile projectile) {
+            table.set("set_shooter", LuaTableSupport.tableMethod(table, args -> {
+                var shooter = org.bukkit.Bukkit.getEntity(java.util.UUID.fromString(args.checkjstring(1)));
+                if (!(shooter instanceof org.bukkit.projectiles.ProjectileSource source)) return LuaValue.FALSE;
+                projectile.setShooter(source);
+                return LuaValue.TRUE;
+            }));
+        }
+        if (entity instanceof org.bukkit.entity.Fireball fireball) {
+            table.set("set_direction", LuaTableSupport.tableMethod(table, args -> {
+                var direction = new org.bukkit.util.Vector(args.checkdouble(1), args.checkdouble(2), args.checkdouble(3));
+                if (!Double.isFinite(direction.lengthSquared()) || direction.lengthSquared() == 0)
+                    throw new IllegalArgumentException("Invalid fireball direction");
+                fireball.setDirection(direction);
+                return LuaValue.NIL;
+            }));
+        }
+        if (entity instanceof org.bukkit.entity.AbstractArrow arrow) {
+            LuaTableSupport.lazyField(table, "in_block", () -> LuaValue.valueOf(arrow.isInBlock()));
+            LuaTableSupport.lazyField(table, "attachment_location", () -> arrow.getAttachedBlock() == null ? LuaValue.NIL
+                    : LuaTableSupport.locationToTable(arrow.getAttachedBlock().getRelative(arrow.getFacing()).getLocation().add(.5, .5, .5)));
+            table.set("set_pickup", LuaTableSupport.tableMethod(table, args -> {
+                arrow.setPickupStatus(org.bukkit.entity.AbstractArrow.PickupStatus.valueOf(args.checkjstring(1).toUpperCase(java.util.Locale.ROOT)));
+                return LuaValue.NIL;
+            }));
+        }
         table.set("can_receive_hostile_effect", LuaTableSupport.tableMethod(table, args -> {
             Entity actor = org.bukkit.Bukkit.getEntity(java.util.UUID.fromString(args.checkjstring(1)));
             return LuaValue.valueOf(actor instanceof Player player && isHostileEffectTarget(player, entity));

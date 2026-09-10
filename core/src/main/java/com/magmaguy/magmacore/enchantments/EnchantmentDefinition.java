@@ -54,9 +54,11 @@ public record EnchantmentDefinition(String id, String name, String description, 
     }
 
     public Map<String, Object> parametersAt(int level) {
-        if (level < 1 || level > maxLevel) throw new IllegalArgumentException("Level outside definition limits");
+        if (level < 1) throw new IllegalArgumentException("Level must be positive");
         Map<String, Object> selected = new LinkedHashMap<>();
-        parameters.forEach((key, value) -> selected.put(key, value instanceof List<?> values ? values.get(level - 1) : value));
+        // Configured items can exceed the enchanting cap. Scripts receive the actual level;
+        // finite per-level tables retain their last authored value above their final row.
+        parameters.forEach((key, value) -> selected.put(key, value instanceof List<?> values ? values.get(Math.min(level, values.size()) - 1) : value));
         return Map.copyOf(selected);
     }
 

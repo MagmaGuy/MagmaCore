@@ -42,6 +42,7 @@ public class MagicProjectileEngine<C extends MagicProjectileEngine.Source> imple
     public interface Source {
         Player owner();
         Traits traits();
+        default boolean active() { return true; }
     }
     public interface Traits {
         int missileCount();
@@ -120,6 +121,23 @@ public class MagicProjectileEngine<C extends MagicProjectileEngine.Source> imple
             launched++;
         }
         return launched > 0;
+    }
+
+    /** Authored origins use the same physical marker and impact ledger as wand flights. */
+    public boolean launchStraight(C cast, Location start, Vector direction) {
+        if (closed || !cast.active() || start == null || !cast.owner().getWorld().equals(start.getWorld())
+                || direction == null || !Double.isFinite(direction.lengthSquared()) || direction.lengthSquared() < 1.0E-9D)
+            return false;
+        Arrow marker = spawnMarker(cast.owner(), start, direction);
+        if (marker == null) return false;
+        marker.setVelocity(direction.clone().normalize().multiply(cast.traits().projectileSpeed()));
+        flights.register(marker.getUniqueId(), new StraightWandFlight(marker, cast, start, direction));
+        return true;
+    }
+
+    protected void renderStraightFlight(C cast, Location location) {
+        location.getWorld().spawnParticle(Particle.WITCH, location, 3, .06, .06, .06, .01);
+        location.getWorld().spawnParticle(Particle.END_ROD, location, 1, 0D, 0D, 0D, 0D);
     }
 
     public boolean launchStaff(C cast, Vector direction) {
@@ -244,6 +262,10 @@ public class MagicProjectileEngine<C extends MagicProjectileEngine.Source> imple
         for (Flight flight : flights.snapshot()) finish(flight);
     }
 
+    public void cancel(C cast) {
+        for (Flight flight : flights.snapshot()) if (flight.cast == cast) finish(flight);
+    }
+
     @Override
     public void close() {
         if (closed) return;
@@ -270,7 +292,7 @@ public class MagicProjectileEngine<C extends MagicProjectileEngine.Source> imple
 
         boolean valid() {
             Player owner = cast.owner();
-            return !closed && marker.isValid() && owner.isOnline() && owner.isValid() && !owner.isDead()
+            return !closed && cast.active() && marker.isValid() && owner.isOnline() && owner.isValid() && !owner.isDead()
                     && owner.getWorld().getUID().equals(worldId) && loaded(marker.getLocation());
         }
 
@@ -298,8 +320,7 @@ public class MagicProjectileEngine<C extends MagicProjectileEngine.Source> imple
             Traits traits = cast.traits();
             marker.setVelocity(direction.clone().multiply(traits.projectileSpeed()));
             Location location = marker.getLocation();
-            marker.getWorld().spawnParticle(Particle.WITCH, location, 3, .06, .06, .06, .01);
-            marker.getWorld().spawnParticle(Particle.END_ROD, location, 1, 0D, 0D, 0D, 0D);
+            renderStraightFlight(cast, location);
             if (location.distanceSquared(start) >= traits.range() * traits.range()
                     || elapsed >= traits.travelTicks()) {
                 marker.getWorld().spawnParticle(Particle.SMOKE, location, 5, .08, .08, .08, .01);

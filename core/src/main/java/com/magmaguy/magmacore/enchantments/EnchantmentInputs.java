@@ -22,8 +22,10 @@ public final class EnchantmentInputs implements Listener {
     public static final ScriptHook SHIFT_LEFT_CLICK = new ScriptHook("on_shift_left_click");
     public static final ScriptHook BREAK_BLOCK = new ScriptHook("on_break_block");
     public static final ScriptHook CHAT = new ScriptHook("on_chat");
+    public static final ScriptHook SNEAK = new ScriptHook("on_sneak");
+    public static final ScriptHook PROJECTILE_LAUNCH = new ScriptHook("on_projectile_launch");
     public static final Set<ScriptHook> HOOKS = Set.of(ATTACK, PROJECTILE_HIT, TAKE_DAMAGE,
-            RIGHT_CLICK, LEFT_CLICK, SHIFT_RIGHT_CLICK, SHIFT_LEFT_CLICK, BREAK_BLOCK, CHAT,
+            RIGHT_CLICK, LEFT_CLICK, SHIFT_RIGHT_CLICK, SHIFT_LEFT_CLICK, BREAK_BLOCK, CHAT, SNEAK, PROJECTILE_LAUNCH,
             ScriptHook.ON_TICK, ScriptHook.ON_ZONE_ENTER, ScriptHook.ON_ZONE_LEAVE);
     private static final String SHOT = "nightbreak_enchantment_shot";
     private static final String EXPLICIT_DAMAGE = "nightbreak_enchantment_explicit_damage";
@@ -111,13 +113,11 @@ public final class EnchantmentInputs implements Listener {
             var resolved = EnchantmentDefinitions.resolve(entry.getKey());
             if (resolved == null || !resolved.available()) throw new IllegalArgumentException("Unavailable enchantment " + entry.getKey());
             var definition = resolved.definition();
-            if (entry.getValue() < 1 || entry.getValue() > definition.maxLevel())
+            if (entry.getValue() < 1)
                 throw new IllegalArgumentException("Invalid level for " + entry.getKey());
             if (!definition.validSlots().isEmpty() && !definition.validSlots().contains(slot)) continue;
             if (!definition.itemTypes().isEmpty() && !definition.itemTypes().contains(profile.type())) continue;
             if (!definition.attackKinds().isEmpty() && !definition.attackKinds().contains(attackKind)) continue;
-            if (!Collections.disjoint(definition.conflicts(), levels.keySet()))
-                throw new IllegalArgumentException("Conflicting enchantments on source item");
             if (!resolved.provider().capabilities().contains(EnchantmentActions.CAPABILITY)) continue;
             effects.add(Map.of("id", definition.id(), "level", entry.getValue(),
                     "generation", resolved.provider().generation(), "revision", resolved.provider().revision()));
@@ -194,7 +194,55 @@ public final class EnchantmentInputs implements Listener {
             var captured = capture(player, event.getBow(), slot(hand), inventorySlot(player, hand),
                     event.shouldConsumeItem() ? event.getConsumable() : null, "", projectile.getUniqueId());
             projectile.setMetadata(SHOT, new FixedMetadataValue(plugin, captured));
+            if (event.shouldConsumeItem() && projectile instanceof AbstractArrow) {
+                var ammunition = capture(player, event.getConsumable(), slot(hand), inventorySlot(player, hand),
+                        event.getConsumable(), "", projectile.getUniqueId());
+                if (!ammunition.isEmpty()) {
+                    var source = new LinkedHashMap<String, Object>(ammunition);
+                    var facts = new LinkedHashMap<String, Object>(EnchantmentValues.copy((Map<?, ?>) ammunition.get("facts")));
+                    facts.remove("inventory_slot"); // Ammunition is consumed; it is not the item in the bow's slot.
+                    facts.put("projectile", projectile.getUniqueId());
+                    source.put("facts", facts);
+                    dispatch(plugin, source, PROJECTILE_LAUNCH, null, "launch");
+                }
+            }
         } catch (RuntimeException invalid) { warn(player, invalid); }
+    }
+
+    /** One activation per definition per physical input, with validated equipment contributions. */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void sneak(PlayerToggleSneakEvent event) {
+        if (!elected() || !event.isSneaking()) return;
+        Player actor = event.getPlayer();
+        UUID attack = UUID.randomUUID();
+        Map<String, Map<String, Object>> sources = new TreeMap<>();
+        Map<String, Map<?, ?>> effects = new TreeMap<>();
+        Map<String, Integer> totals = new TreeMap<>();
+        for (var slot : EnchantmentDefinition.Slot.values()) {
+            int index = switch (slot) {
+                case MAINHAND -> actor.getInventory().getHeldItemSlot(); case OFFHAND -> 40;
+                case HEAD -> 39; case CHEST -> 38; case LEGS -> 37; case FEET -> 36;
+            };
+            try {
+                var captured = capture(actor, actor.getInventory().getItem(index), slot, index, null, "", attack);
+                if (captured.isEmpty()) continue;
+                for (Object raw : (List<?>) captured.get("effects")) {
+                    var effect = (Map<?, ?>) raw;
+                    String id = (String) effect.get("id");
+                    sources.putIfAbsent(id, captured);
+                    effects.putIfAbsent(id, effect);
+                    totals.merge(id, (Integer) effect.get("level"), Math::addExact);
+                }
+            } catch (RuntimeException invalid) { warn(actor, invalid); }
+        }
+        for (var entry : sources.entrySet()) {
+            var source = new LinkedHashMap<String, Object>(entry.getValue());
+            var facts = new LinkedHashMap<String, Object>(EnchantmentValues.copy((Map<?, ?>) source.get("facts")));
+            facts.put("equipped_levels", totals);
+            source.put("facts", facts);
+            source.put("effects", List.of(effects.get(entry.getKey())));
+            dispatch(plugin, source, SNEAK, null, "sneak");
+        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = false)

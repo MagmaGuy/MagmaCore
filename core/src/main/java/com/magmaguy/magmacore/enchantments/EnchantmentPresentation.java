@@ -57,7 +57,7 @@ final class EnchantmentPresentation {
         for (var entry : new TreeMap<>(entries).entrySet()) {
             EnchantmentItems.Resolved resolved = resolver.apply(entry.getKey());
             EnchantmentDefinition definition = resolved == null ? null : resolved.definition();
-            boolean available = resolved != null && resolved.available() && entry.getValue() <= definition.maxLevel();
+            boolean available = resolved != null && resolved.available();
             NamespacedKey key = Objects.requireNonNull(NamespacedKey.fromString(entry.getKey()));
             PersistentDataContainer prior = oldLabels == null ? null : oldLabels.get(key, PersistentDataType.TAG_CONTAINER);
             String name = definition != null ? definition.name() : prior == null ? null : prior.get(NAME, PersistentDataType.STRING);

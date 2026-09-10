@@ -105,7 +105,26 @@ public final class LuaWorldTable {
     public static LuaTable build(World world) {
         LuaTable table = new LuaTable();
         if (world == null) return table;
-
+        table.set("get_entity", method(table, args -> {
+            Entity entity = Bukkit.getEntity(java.util.UUID.fromString(args.checkjstring(1)));
+            if (entity == null || !entity.isValid() || !entity.getWorld().equals(world)) return LuaValue.NIL;
+            return entity instanceof LivingEntity living ? LuaLivingEntityTable.build(living) : LuaEntityTable.build(entity);
+        }));
+        table.set("block_is_passable", method(table, args -> {
+            int x = args.checkint(1), y = args.checkint(2), z = args.checkint(3);
+            if (!world.isChunkLoaded(x >> 4, z >> 4) || y < world.getMinHeight() || y >= world.getMaxHeight()) return LuaValue.NIL;
+            return LuaValue.valueOf(world.getBlockAt(x, y, z).isPassable());
+        }));
+        table.set("location_is_protected", method(table, args -> LuaValue.valueOf(
+                com.magmaguy.magmacore.location.LocationQueryRegistry.isInAnyProtectedRegion(
+                        LuaTableSupport.tableToLocation(args.checktable(1), world)))));
+        table.set("spawn_dust", method(table, args -> {
+            Location at = LuaTableSupport.tableToLocation(args.checktable(1), world);
+            if (!world.isChunkLoaded(at.getBlockX() >> 4, at.getBlockZ() >> 4)) return LuaValue.NIL;
+            world.spawnParticle(Particle.DUST, at, args.checkint(2), .1, .1, .1, 1,
+                    new Particle.DustOptions(Color.fromRGB(args.checkint(3), args.checkint(4), args.checkint(5)), 1));
+            return LuaValue.NIL;
+        }));
         table.set("name", world.getName());
 
         // get_block_at(x, y, z) -> block material name (or "air" if the chunk is unloaded)
@@ -253,7 +272,7 @@ public final class LuaWorldTable {
             return result;
         }));
 
-        // raycast(from_x, from_y, from_z, dir_x, dir_y, dir_z, max_distance, fluid_mode?, blocks_only?)
+        // raycast(from_x, from_y, from_z, dir_x, dir_y, dir_z, max_distance, fluid_mode?, blocks_only?, loaded_only?)
         table.set("raycast", method(table, args -> {
             double fx = args.checkdouble(1);
             double fy = args.checkdouble(2);
@@ -267,6 +286,21 @@ public final class LuaWorldTable {
 
             Location start = new Location(world, fx, fy, fz);
             Vector direction = new Vector(dx, dy, dz).normalize();
+
+            // Supplied scripts opt into refusing rays that could synchronously load chunks.
+            // Check every crossed chunk using the segment's bounding rectangle. This may refuse
+            // a diagonal ray beside an unloaded chunk, but never invokes Bukkit's ray caster there.
+            if (args.optboolean(10, false)) {
+                if (!Double.isFinite(maxDist) || maxDist <= 0 || !Double.isFinite(direction.lengthSquared()))
+                    return LuaValue.NIL;
+                Location end = start.clone().add(direction.clone().multiply(maxDist));
+                int minX = Math.min(start.getBlockX(), end.getBlockX()) >> 4;
+                int maxX = Math.max(start.getBlockX(), end.getBlockX()) >> 4;
+                int minZ = Math.min(start.getBlockZ(), end.getBlockZ()) >> 4;
+                int maxZ = Math.max(start.getBlockZ(), end.getBlockZ()) >> 4;
+                for (int x = minX; x <= maxX; x++) for (int z = minZ; z <= maxZ; z++)
+                    if (!world.isChunkLoaded(x, z)) return LuaValue.NIL;
+            }
 
             RayTraceResult result = blocksOnly ? world.rayTraceBlocks(start, direction, maxDist, fluid)
                     : world.rayTrace(start, direction, maxDist, fluid, fluid == FluidCollisionMode.NEVER, 0.5, null);

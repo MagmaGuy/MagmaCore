@@ -66,7 +66,7 @@ public final class EnchantmentItems {
         return EnchantmentItemData.read(Objects.requireNonNull(meta, "item metadata"));
     }
 
-    /** Authored gear may deliberately carry native enchantments outside their ordinary material set. */
+    /** Administrator-authored items supersede acquisition limits and compatibility rules. */
     public Preview previewAuthored(ItemStack source, Map<String, Integer> proposed) {
         return preview(source, proposed, false, true);
     }
@@ -76,8 +76,13 @@ public final class EnchantmentItems {
         return preview(source, proposedCustom, true, false);
     }
 
+    /** Hosts with extended native storage author custom entries without rewriting native metadata. */
+    public Preview previewAuthoredCustom(ItemStack source, Map<String, Integer> proposedCustom) {
+        return preview(source, proposedCustom, true, true);
+    }
+
     private Preview preview(ItemStack source, Map<String, Integer> proposed, boolean preserveNative,
-                            boolean allowUnsupportedNativeMaterial) {
+                            boolean authored) {
         EnchantmentProviders.requireServerThread();
         ItemStack snapshot = source.clone();
         ItemMeta originalMeta = requireMeta(snapshot);
@@ -100,8 +105,8 @@ public final class EnchantmentItems {
             if (id.startsWith("minecraft:")) {
                 Enchantment enchantment = Registry.ENCHANTMENT.get(Objects.requireNonNull(NamespacedKey.fromString(id)));
                 if (enchantment == null) throw new IllegalArgumentException("Unknown native enchantment: " + id);
-                if (level > enchantment.getMaxLevel()) throw new IllegalArgumentException("Native level exceeds its limit: " + id);
-                if (!allowUnsupportedNativeMaterial && !isBook(snapshot) && !enchantment.canEnchantItem(snapshot))
+                if (!authored && level > enchantment.getMaxLevel()) throw new IllegalArgumentException("Native level exceeds its limit: " + id);
+                if (!authored && !isBook(snapshot) && !enchantment.canEnchantItem(snapshot))
                     throw new IllegalArgumentException("Native enchantment does not support this item: " + id);
                 vanilla.put(enchantment, level);
             } else {
@@ -112,11 +117,11 @@ public final class EnchantmentItems {
         if (custom.size() > EnchantmentItemData.MAX_ENTRIES) throw new IllegalArgumentException("Too many custom enchantments");
         Set<String> resultingIds = new java.util.HashSet<>(requested.keySet());
         if (preserveNative) resultingIds.addAll(nativeIds);
-        List<String> problems = validateCustom(profile, custom, resultingIds, pinned, isBook(snapshot));
+        List<String> problems = authored ? List.of() : validateCustom(profile, custom, resultingIds, pinned, isBook(snapshot));
         if (!problems.isEmpty()) throw new IllegalArgumentException(String.join("; ", problems));
         if (!preserveNative) {
             for (Enchantment first : vanilla.keySet()) for (Enchantment second : vanilla.keySet())
-                if (first != second && (first.conflictsWith(second) || second.conflictsWith(first)))
+                if (!authored && first != second && (first.conflictsWith(second) || second.conflictsWith(first)))
                     throw new IllegalArgumentException("Conflicting native enchantments: " + first.getKey() + " / " + second.getKey());
             for (Enchantment existing : nativeEnchantments(originalMeta).keySet())
                 if (!existing.getKey().getNamespace().equals("minecraft"))
@@ -128,11 +133,11 @@ public final class EnchantmentItems {
             if (meta instanceof EnchantmentStorageMeta book) {
                 for (Enchantment existing : List.copyOf(book.getStoredEnchants().keySet())) book.removeStoredEnchant(existing);
                 for (var entry : vanilla.entrySet())
-                    if (!book.addStoredEnchant(entry.getKey(), entry.getValue(), false)) throw new IllegalArgumentException("Native book enchantment rejected");
+                    if (!book.addStoredEnchant(entry.getKey(), entry.getValue(), authored)) throw new IllegalArgumentException("Native book enchantment rejected");
             } else {
                 meta.removeEnchantments();
                 for (var entry : vanilla.entrySet())
-                    if (!meta.addEnchant(entry.getKey(), entry.getValue(), false)) throw new IllegalArgumentException("Native enchantment rejected");
+                    if (!meta.addEnchant(entry.getKey(), entry.getValue(), authored)) throw new IllegalArgumentException("Native enchantment rejected");
             }
         }
         EnchantmentItemData.write(meta, custom);
