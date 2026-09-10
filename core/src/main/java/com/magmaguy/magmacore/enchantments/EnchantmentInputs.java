@@ -26,6 +26,7 @@ public final class EnchantmentInputs implements Listener {
     private static final String SHOT = "nightbreak_enchantment_shot";
     private static final String EXPLICIT_DAMAGE = "nightbreak_enchantment_explicit_damage";
     private static final String OWNED_DAMAGE_EVENTS = "nightbreak_enchantment_owned_damage_events";
+    private static final String DAMAGE_OBSERVER = "nightbreak_enchantment_damage_observer";
     private final Plugin plugin;
     private final String namespace;
     private final Set<UUID> warned = new HashSet<>();
@@ -61,6 +62,30 @@ public final class EnchantmentInputs implements Listener {
     private static boolean isExplicitDamage(EntityDamageByEntityEvent event) {
         return event.getDamager().getMetadata(OWNED_DAMAGE_EVENTS).stream()
                 .anyMatch(value -> value.value() instanceof Map<?, ?> events && events.containsKey(event));
+    }
+
+    /** Uses the elected native input observer; a cancelled or absent hit is not an applied effect. */
+    public static boolean applyExplicitDamage(Plugin owner, Player actor, LivingEntity target, Runnable damage) {
+        EnchantmentProviders.requireServerThread();
+        var existing = actor.getMetadata(DAMAGE_OBSERVER).stream()
+                .filter(value -> value.value() instanceof Deque<?>).findFirst().orElse(null);
+        @SuppressWarnings("unchecked")
+        Deque<java.util.function.Consumer<EntityDamageByEntityEvent>> observers = existing == null ? new ArrayDeque<>()
+                : (Deque<java.util.function.Consumer<EntityDamageByEntityEvent>>) existing.value();
+        Plugin registrationOwner = existing == null ? owner : existing.getOwningPlugin();
+        boolean[] observed = {false}, accepted = {false};
+        java.util.function.Consumer<EntityDamageByEntityEvent> observer = event -> {
+            if (observed[0] || event.getEntity() != target || event.getDamager() != actor) return;
+            observed[0] = true;
+            accepted[0] = !event.isCancelled() && event.getFinalDamage() > 0;
+        };
+        if (existing == null) actor.setMetadata(DAMAGE_OBSERVER, new FixedMetadataValue(owner, observers));
+        observers.addLast(observer);
+        try { runExplicitDamage(owner, actor, damage); return accepted[0]; }
+        finally {
+            observers.removeLastOccurrence(observer);
+            if (observers.isEmpty()) actor.removeMetadata(DAMAGE_OBSERVER, registrationOwner);
+        }
     }
 
     private boolean elected() {
@@ -168,13 +193,20 @@ public final class EnchantmentInputs implements Listener {
         } catch (RuntimeException invalid) { warn(player, invalid); }
     }
 
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = false)
     public void attack(EntityDamageByEntityEvent event) {
         // Model/proxy APIs subclass the Bukkit event for previews and forward a separate native
         // damage call. Only that final call is an automatic proc source; owners can dispatch explicitly.
         if (event.getClass() != EntityDamageByEntityEvent.class) return;
+        if (!elected()) return;
+        for (var value : event.getDamager().getMetadata(DAMAGE_OBSERVER))
+            if (value.value() instanceof Deque<?> observers
+                    && observers.peekLast() instanceof java.util.function.Consumer<?> observer) {
+                @SuppressWarnings("unchecked") var typed = (java.util.function.Consumer<EntityDamageByEntityEvent>) observer;
+                typed.accept(event);
+            }
         if (isExplicitDamage(event)) return;
-        if (!elected() || event.getFinalDamage() <= 0 || !(event.getEntity() instanceof LivingEntity target)) return;
+        if (event.isCancelled() || event.getFinalDamage() <= 0 || !(event.getEntity() instanceof LivingEntity target)) return;
         if (event.getDamager() instanceof Player player) {
             if (player.hasMetadata(EXPLICIT_DAMAGE)) return;
             fire(player, player.getInventory().getItemInMainHand(), EnchantmentDefinition.Slot.MAINHAND,

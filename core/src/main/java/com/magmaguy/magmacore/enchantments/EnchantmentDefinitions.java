@@ -56,7 +56,7 @@ public final class EnchantmentDefinitions {
             if (actionHooks != null) supported.addAll(actionHooks);
             queries = queryHooks == null ? null : new EnchantmentQueryExecutor(initial, queryHooks, supported,
                     publishedCapabilities, owner.getLogger()::warning);
-            actions = actionHooks == null ? null : new EnchantmentActionExecutor(owner, initial, actionHooks, publishedCapabilities);
+            actions = actionHooks == null ? null : new EnchantmentActionExecutor(owner, initial, actionHooks, publishedCapabilities, domainHandler);
             try {
             registration = EnchantmentProviders.register(owner, initial.namespace(), publishedCapabilities, (operation, request) -> {
                 if (actions != null && operation == EnchantmentProviders.Operation.EVALUATE

@@ -7,6 +7,37 @@ import java.util.UUID;
 
 /** Provider-owned Lua effects. Only copied facts and stable identities cross the shaded bridge. */
 public final class EnchantmentActions {
+    /** Provider-local view of copied action facts; only Bukkit/JDK values travel between owners. */
+    public record DamageInput(UUID attackId, org.bukkit.entity.Player actor,
+                              org.bukkit.entity.LivingEntity target, double amount,
+                              Map<String, org.bukkit.inventory.ItemStack> equipment) {
+        public static DamageInput read(Map<String, Object> request) {
+            EnchantmentProviders.requireServerThread();
+            if (!request.keySet().equals(java.util.Set.of("kind", "attack", "actor", "world", "target", "amount", "facts"))
+                    || !"attributed_damage".equals(request.get("kind"))
+                    || !(request.get("attack") instanceof UUID attack) || !(request.get("actor") instanceof UUID actorId)
+                    || !(request.get("world") instanceof UUID world) || !(request.get("target") instanceof UUID targetId)
+                    || !(request.get("amount") instanceof Double amount) || !Double.isFinite(amount) || amount <= 0
+                    || !(request.get("facts") instanceof Map<?, ?> facts))
+                throw new IllegalArgumentException("Invalid attributed damage request");
+            var actorEntity = org.bukkit.Bukkit.getEntity(actorId);
+            var targetEntity = org.bukkit.Bukkit.getEntity(targetId);
+            if (!(actorEntity instanceof org.bukkit.entity.Player actor) || !actor.isOnline() || !actor.isValid()
+                    || actor.isDead() || !(targetEntity instanceof org.bukkit.entity.LivingEntity target)
+                    || !target.isValid() || target.isDead() || !actor.getWorld().getUID().equals(world)
+                    || !target.getWorld().getUID().equals(world)) return null;
+            Map<String, org.bukkit.inventory.ItemStack> equipment = new java.util.LinkedHashMap<>();
+            if (facts.get("equipment") instanceof Map<?, ?> captured)
+                for (var entry : captured.entrySet()) {
+                    if (!(entry.getKey() instanceof String slot)
+                            || !(entry.getValue() instanceof org.bukkit.inventory.ItemStack item))
+                        throw new IllegalArgumentException("Invalid captured equipment");
+                    EnchantmentDefinition.Slot.valueOf(slot);
+                    equipment.put(slot, item.clone());
+                }
+            return new DamageInput(attack, actor, target, amount, Map.copyOf(equipment));
+        }
+    }
     public static final String CAPABILITY = "enchantment.actions.v1";
     private EnchantmentActions() { }
 

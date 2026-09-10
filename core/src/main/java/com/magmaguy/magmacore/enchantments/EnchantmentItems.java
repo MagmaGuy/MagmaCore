@@ -57,15 +57,21 @@ public final class EnchantmentItems {
 
     /** Produces a reviewable clone. proposed is the complete resulting native/custom enchantment set. */
     public Preview preview(ItemStack source, Map<String, Integer> proposed) {
-        return preview(source, proposed, false);
+        return preview(source, proposed, false, false);
+    }
+
+    /** Authored gear may deliberately carry native enchantments outside their ordinary material set. */
+    public Preview previewAuthored(ItemStack source, Map<String, Integer> proposed) {
+        return preview(source, proposed, false, true);
     }
 
     /** Updates the complete custom set while leaving the host's native enchantment data untouched. */
     public Preview previewCustom(ItemStack source, Map<String, Integer> proposedCustom) {
-        return preview(source, proposedCustom, true);
+        return preview(source, proposedCustom, true, false);
     }
 
-    private Preview preview(ItemStack source, Map<String, Integer> proposed, boolean preserveNative) {
+    private Preview preview(ItemStack source, Map<String, Integer> proposed, boolean preserveNative,
+                            boolean allowUnsupportedNativeMaterial) {
         EnchantmentProviders.requireServerThread();
         ItemStack snapshot = source.clone();
         ItemMeta originalMeta = requireMeta(snapshot);
@@ -89,7 +95,7 @@ public final class EnchantmentItems {
                 Enchantment enchantment = Registry.ENCHANTMENT.get(Objects.requireNonNull(NamespacedKey.fromString(id)));
                 if (enchantment == null) throw new IllegalArgumentException("Unknown native enchantment: " + id);
                 if (level > enchantment.getMaxLevel()) throw new IllegalArgumentException("Native level exceeds its limit: " + id);
-                if (!isBook(snapshot) && !enchantment.canEnchantItem(snapshot))
+                if (!allowUnsupportedNativeMaterial && !isBook(snapshot) && !enchantment.canEnchantItem(snapshot))
                     throw new IllegalArgumentException("Native enchantment does not support this item: " + id);
                 vanilla.put(enchantment, level);
             } else {

@@ -36,6 +36,7 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
     private final Set<ScriptHook> hooks;
     private final Set<String> capabilities;
     private final EnchantmentInputs inputs;
+    private final EnchantmentProviders.Handler domainHandler;
     private final Map<String, Running> active = new HashMap<>();
     // Activations are short lived; cooldowns belong to the player and authored effect.
     // Keep them through action completion, equipment swaps, world changes and valid reloads.
@@ -45,11 +46,12 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
     private boolean closed;
 
     EnchantmentActionExecutor(Plugin plugin, EnchantmentCatalog catalog, Set<ScriptHook> hooks,
-                              Set<String> capabilities) {
+                              Set<String> capabilities, EnchantmentProviders.Handler domainHandler) {
         this.plugin = plugin;
         this.catalog = catalog;
         this.hooks = Set.copyOf(hooks);
         this.capabilities = Set.copyOf(capabilities);
+        this.domainHandler = domainHandler;
         Bukkit.getPluginManager().registerEvents(this, plugin);
         inputs = new EnchantmentInputs(plugin, catalog.namespace());
         Bukkit.getPluginManager().registerEvents(inputs, plugin);
@@ -260,6 +262,16 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
                     table.set("stop", new ZeroArgFunction() {
                         @Override public LuaValue call() { instance.shutdown(); return LuaValue.NIL; }
                     });
+                    table.set("damage_target", LuaTableSupport.tableMethod(table, args -> {
+                        if (!isScriptOwnerActive()) return LuaValue.FALSE;
+                        double amount = args.checkdouble(2);
+                        if (!Double.isFinite(amount) || amount <= 0) throw new IllegalArgumentException("Invalid authored damage");
+                        UUID targetId = UUID.fromString(args.checkjstring(1));
+                        var result = domainHandler.handle(EnchantmentProviders.Operation.EVALUATE,
+                                Map.of("kind", "attributed_damage", "attack", source.attackId(), "actor", source.actor(),
+                                        "world", source.world(), "target", targetId, "amount", amount, "facts", source.facts()));
+                        return LuaValue.valueOf(Boolean.TRUE.equals(result.get("applied")));
+                    }));
                     table.set("replace_previous", LuaTableSupport.tableMethod(table, args -> {
                         for (Running previous : new ArrayList<>(active.values()))
                             if (previous != this && previous.definition.id().equals(definition.id())
