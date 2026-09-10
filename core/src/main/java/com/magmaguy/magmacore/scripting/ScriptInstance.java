@@ -196,7 +196,8 @@ public class ScriptInstance {
         LuaValue value = invocation.value();
         try {
             if (value.isnil()) return ScriptQueryResult.nil();
-            if (value.isstring()) return ScriptQueryResult.string(value.checkjstring());
+            // LuaJ's coercion predicates also consider numbers strings and numeric strings numbers.
+            if (value.type() == LuaValue.TSTRING) return ScriptQueryResult.string(value.checkjstring());
             if (value.isboolean()) return ScriptQueryResult.bool(value.checkboolean());
             if (value.isnumber()) return ScriptQueryResult.number(value.checkdouble());
             throw new IllegalArgumentException(
@@ -297,7 +298,7 @@ public class ScriptInstance {
 
     private LuaValue buildContext(Event event, LivingEntity directTarget, LivingEntity eventActor) {
         LuaTable context = new LuaTable();
-        context.set("state", stateTable);
+        if (entity.inheritsContextDefaults()) context.set("state", stateTable);
 
         LuaTable metatable = new LuaTable();
         metatable.set("__index", new VarArgFunction() {
@@ -332,6 +333,7 @@ public class ScriptInstance {
         if (custom != null && !custom.isnil()) {
             return custom;
         }
+        if (!entity.inheritsContextDefaults()) return LuaValue.NIL;
         // 3) Magmacore built-in defaults.
         return switch (key) {
             case "log" -> createLogTable();
@@ -708,6 +710,7 @@ public class ScriptInstance {
     // ── Error reporting ──────────────────────────────────────────────────
 
     private void logLuaError(String context, Exception exception) {
+        if (entity.handleScriptError(context, exception)) return;
         String fileName = definition.getFileName();
         String rawMessage = exception.getMessage() != null ? exception.getMessage() : exception.toString();
 
