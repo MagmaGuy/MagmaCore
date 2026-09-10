@@ -9,7 +9,6 @@ import org.reflections.Reflections;
 
 import java.io.File;
 import java.lang.reflect.Constructor;
-import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -94,7 +93,8 @@ public class CustomConfig {
         //Runs if the directory exists
         //Check if all the defaults exist
         if (inheritancePolicy == null)
-            directoryCrawler(MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getPath() + File.separatorChar + folderName);
+            for (File selected : ContentFileSelector.select(collectYamlFiles(file)))
+                fileInitializer(selected);
         else {
             initializeInheritanceAware(file);
             return;
@@ -121,14 +121,32 @@ public class CustomConfig {
         if (!candidate.startsWith(root))
             throw new IllegalArgumentException("Configuration file is outside " + root);
 
+        List<File> candidates = new ArrayList<>(collectYamlFiles(configurationDirectory()));
+        if (!candidates.contains(file)) candidates.add(file);
         if (inheritancePolicy == null) {
-            initialize(file);
-            return customConfigFieldsHashMap.get(file.getName());
+            File selected = ContentFileSelector.select(candidates).stream()
+                    .filter(source -> source.getName().equals(file.getName())).findFirst().orElseThrow();
+            if (candidate.equals(selected.toPath().toAbsolutePath().normalize())
+                    || !isLoadedFrom(selected))
+                initialize(selected);
+            return customConfigFieldsHashMap.get(selected.getName());
         }
 
-        InheritanceResolver resolver = new InheritanceResolver(collectYamlFiles(configurationDirectory()));
-        initializeResolved(file, null, resolver);
-        return customConfigFieldsHashMap.get(file.getName());
+        InheritanceResolver resolver = new InheritanceResolver(candidates);
+        File selected = resolver.fileFor(normalizeFilename(file.getName()));
+        customConfigFieldsHashMap.keySet().removeIf(name -> !name.equals(selected.getName())
+                && normalizeFilename(name).equals(normalizeFilename(selected.getName())));
+        if (candidate.equals(selected.toPath().toAbsolutePath().normalize())
+                || !isLoadedFrom(selected))
+            initializeResolved(selected, null, resolver);
+        return customConfigFieldsHashMap.get(selected.getName());
+    }
+
+    private boolean isLoadedFrom(File source) {
+        CustomConfigFields loaded = customConfigFieldsHashMap.get(source.getName());
+        return loaded != null && loaded.getFile() != null
+                && loaded.getFile().toPath().toAbsolutePath().normalize()
+                .equals(source.toPath().toAbsolutePath().normalize());
     }
 
     private void initializeInheritanceAware(File directory) {
@@ -235,13 +253,8 @@ public class CustomConfig {
         private final LinkedHashSet<String> resolving = new LinkedHashSet<>();
 
         private InheritanceResolver(List<File> sourceFiles) {
-            for (File sourceFile : sourceFiles) {
-                String key = normalizeFilename(sourceFile.getName());
-                File previous = files.putIfAbsent(key, sourceFile);
-                if (previous != null)
-                    Logger.warn("Duplicate custom configuration filename " + sourceFile.getName()
-                            + " in " + folderName + "; using " + previous.getAbsolutePath());
-            }
+            for (File sourceFile : ContentFileSelector.select(sourceFiles, CustomConfig::normalizeFilename))
+                files.put(normalizeFilename(sourceFile.getName()), sourceFile);
         }
 
         private File fileFor(String normalizedFilename) {
@@ -306,36 +319,21 @@ public class CustomConfig {
         }
     }
 
-    private void directoryCrawler(String path) {
-        for (File file : Objects.requireNonNull((new File(path)).listFiles())) {
-            if (file.isFile())
-                fileInitializer(file);
-            else if (file.isDirectory())
-                directoryCrawler(file.getPath());
-        }
-    }
-
     private void fileInitializer(File file) {
-
-        boolean isPremade = false;
-        for (Object object : customConfigFieldsArrayList) {
-            try {
-                Method getFilename = CustomConfigFields.class.getDeclaredMethod("getFilename");
-                if (file.getName().equalsIgnoreCase((String) getFilename.invoke(object))) {
-                    customConfigFieldsArrayList.remove(object);
-                    initialize((CustomConfigFields) object);
-                    isPremade = true;
-                    break;
+        for (Iterator<CustomConfigFields> iterator = customConfigFieldsArrayList.iterator(); iterator.hasNext();) {
+            CustomConfigFields premade = iterator.next();
+            if (file.getName().equalsIgnoreCase(premade.getFilename())) {
+                iterator.remove();
+                try {
+                    initialize(premade, file);
+                } catch (Exception exception) {
+                    Logger.warn("Failed to read plugin files for " + folderName + " ! This is very bad, warn the developer!");
+                    exception.printStackTrace();
                 }
-            } catch (Exception ex) {
-                Logger.warn("Failed to read plugin files for " + folderName + " ! This is very bad, warn the developer!");
-                isPremade = true;
-                ex.printStackTrace();
+                return;
             }
         }
-        if (!isPremade)
-            initialize(file);
-
+        initialize(file);
     }
 
     public HashMap<String, ? extends CustomConfigFields> getCustomConfigFieldsHashMap() {
@@ -366,6 +364,10 @@ public class CustomConfig {
     private void initialize(CustomConfigFields customConfigFields) {
         //Create configuration file from defaults if it does not exist
         File file = ConfigurationEngine.fileCreator(folderName, customConfigFields.getFilename());
+        initialize(customConfigFields, file);
+    }
+
+    private void initialize(CustomConfigFields customConfigFields, File file) {
         //Get config file
         FileConfiguration fileConfiguration = ConfigurationEngine.fileConfigurationCreator(file);
 
