@@ -16,6 +16,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.UnaryOperator;
 
 /** Shared item operations. Hosts retain inventory transactions, acquisition policy and effect dispatch. */
 public final class EnchantmentItems {
@@ -126,10 +127,19 @@ public final class EnchantmentItems {
 
     /** Redraws known/inactive entries without changing their identities or levels. */
     public ItemStack refreshPresentation(ItemStack source) {
+        return refreshPresentation(source, UnaryOperator.identity());
+    }
+
+    /**
+     * Rebuilds host lore beneath the validated shared prefix. The synchronous callback receives
+     * immutable host-only text and must return non-null lines. The source item is never mutated.
+     */
+    public ItemStack refreshPresentation(ItemStack source, UnaryOperator<List<String>> rebuildHostLore) {
         EnchantmentProviders.requireServerThread();
+        Objects.requireNonNull(rebuildHostLore, "host lore builder");
         ItemStack result = source.clone();
         ItemMeta meta = requireMeta(result);
-        EnchantmentPresentation.render(meta, EnchantmentItemData.read(meta), resolver);
+        EnchantmentPresentation.render(meta, EnchantmentItemData.read(meta), resolver, rebuildHostLore);
         if (!result.setItemMeta(meta)) throw new IllegalArgumentException("Item rejected its metadata");
         return result;
     }
