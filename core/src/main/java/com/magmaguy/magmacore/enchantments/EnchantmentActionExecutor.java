@@ -36,6 +36,10 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
     private final Set<ScriptHook> hooks;
     private final Set<String> capabilities;
     private final Map<String, Running> active = new HashMap<>();
+    // Activations are short lived; cooldowns belong to the player and authored effect.
+    // Keep them through action completion, equipment swaps, world changes and valid reloads.
+    private final Map<UUID, Map<String, Long>> globalCooldowns = new HashMap<>();
+    private final Map<UUID, Map<String, Map<String, Long>>> localCooldowns = new HashMap<>();
     private EnchantmentCatalog catalog;
     private boolean closed;
 
@@ -130,9 +134,16 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
         closed = true;
         HandlerList.unregisterAll(this);
         stopAll();
+        globalCooldowns.clear();
+        localCooldowns.clear();
     }
 
-    @EventHandler public void onQuit(PlayerQuitEvent event) { stopActor(event.getPlayer().getUniqueId()); }
+    @EventHandler public void onQuit(PlayerQuitEvent event) {
+        UUID actor = event.getPlayer().getUniqueId();
+        stopActor(actor);
+        globalCooldowns.remove(actor);
+        localCooldowns.remove(actor);
+    }
     @EventHandler public void onPluginDisable(org.bukkit.event.server.PluginDisableEvent event) {
         if (event.getPlugin() == plugin) close();
     }
@@ -177,6 +188,13 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
         }
         @Override public String getContextKey() { return "enchantment"; }
         @Override public Set<ScriptHook> getSupportedHooks() { return hooks; }
+        @Override public Map<String, Long> getGlobalCooldownStore() {
+            return globalCooldowns.computeIfAbsent(source.actor(), ignored -> new HashMap<>());
+        }
+        @Override public Map<String, Long> getLocalCooldownStore(com.magmaguy.magmacore.scripting.ScriptDefinition script) {
+            return localCooldowns.computeIfAbsent(source.actor(), ignored -> new HashMap<>())
+                    .computeIfAbsent(definition.id(), ignored -> new HashMap<>());
+        }
         @Override public LuaTable buildContextTable(ScriptInstance ignored) {
             return lua(Map.of("id", definition.id(), "level", level)).checktable();
         }

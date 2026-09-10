@@ -10,6 +10,26 @@ public final class EnchantmentActions {
     public static final String CAPABILITY = "enchantment.actions.v1";
     private EnchantmentActions() { }
 
+    /** Six equipped slots at acceptance/launch. Values are detached from the live inventory. */
+    public static Map<String, org.bukkit.inventory.ItemStack> captureEquipment(org.bukkit.entity.LivingEntity actor) {
+        EnchantmentProviders.requireServerThread();
+        var equipment = Objects.requireNonNull(actor.getEquipment(), "actor equipment");
+        Map<String, org.bukkit.inventory.ItemStack> captured = new java.util.LinkedHashMap<>();
+        for (var slot : EnchantmentDefinition.Slot.values()) {
+            org.bukkit.inventory.ItemStack item = switch (slot) {
+                case MAINHAND -> equipment.getItemInMainHand();
+                case OFFHAND -> equipment.getItemInOffHand();
+                case HEAD -> equipment.getHelmet();
+                case CHEST -> equipment.getChestplate();
+                case LEGS -> equipment.getLeggings();
+                case FEET -> equipment.getBoots();
+            };
+            if (item != null && !item.getType().isAir() && item.getAmount() > 0)
+                captured.put(slot.name(), item.clone());
+        }
+        return Map.copyOf(captured);
+    }
+
     /** The host chooses the lifetime from the authored effect, with no global gameplay quota. */
     public record Source(UUID attackId, UUID actor, UUID world, long lifetimeTicks, Map<String, Object> facts) {
         public Source {
