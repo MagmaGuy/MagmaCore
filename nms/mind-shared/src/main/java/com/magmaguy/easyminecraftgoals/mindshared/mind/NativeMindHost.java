@@ -225,6 +225,9 @@ public final class NativeMindHost implements MindHost {
         if (mob.getType() != carrierType) {
             throw new IllegalStateException("MagmaCore mind carrier type disagrees with its marker");
         }
+        NativeMindSession session = sessions.get(marker.logicalOwner());
+        // Repeated load notifications for the same live native object need no new controls or binding.
+        if (!mob.isRemoved() && session != null && session.hasBody(mob)) return Optional.empty();
         NativeMindBody body = new NativeMindBody(this, mob, marker.profile());
         carrier.setCollidable(marker.profile().entityCollidable());
 

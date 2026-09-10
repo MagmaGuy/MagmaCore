@@ -76,6 +76,10 @@ final class NativeMindSession implements MindHandle {
         return body != null && body.mob().getUUID().equals(bodyId);
     }
 
+    boolean hasBody(Mob candidate) {
+        return body != null && body.mob() == candidate;
+    }
+
     Optional<TransientMovementOverride> beginFlee(
             Location threatLocation,
             double speedModifier) {
@@ -131,6 +135,13 @@ final class NativeMindSession implements MindHandle {
         if (!(nextBody instanceof NativeMindBody nativeBody) || nativeBody.host() != host) {
             throw new IllegalArgumentException("Body was not created by this native mind host");
         }
+        // A serialized entity can load before the next host tick observes its old body's removal.
+        if (body != null && body.mob().isRemoved()) {
+            Entity.RemovalReason reason = body.removalReason();
+            bodyRemoved(body.mob(), reason == null ? Entity.RemovalReason.DISCARDED : reason);
+            requireOpen();
+        }
+        if (body == nativeBody && nativeBody.canAttach()) return;
         if (body != null) throw new IllegalStateException("Logical mind session already has a body");
         if (nativeBody.attached()) throw new IllegalStateException("Native mind body is already attached");
         if (!nativeBody.canAttach()) throw new IllegalArgumentException("Native mind body is not valid");
