@@ -24,7 +24,7 @@ import java.util.concurrent.TimeUnit;
  * fallback; the instruction ceiling remains active in either mode, so the fallback does not make
  * non-terminating scripts unbounded.
  */
-final class LuaExecutionBudget {
+public final class LuaExecutionBudget {
 
     static final long MAX_CPU_MILLIS = 50L;
     // Five times the CPU allowance avoids a hair-trigger fallback while remaining fail-closed.
@@ -37,6 +37,49 @@ final class LuaExecutionBudget {
     private static final ThreadLocal<Budget> ACTIVE_BUDGET = new ThreadLocal<>();
 
     private LuaExecutionBudget() {
+    }
+
+    /** Usage from one host-owned invocation; runtime objects never belong in a provider payload. */
+    public record Measurement<T>(T value, RuntimeException failure, long chargedNanos,
+                                 long instructions, boolean exhausted) { }
+
+    /**
+     * Runs source initialization and its hook under one existing VM watchdog. The caller may
+     * pass the remaining allowance of a cross-provider batch. Nested engine calls share it.
+     * Elapsed usage is charged at least at one fifth, matching the existing fallback allowance.
+     * This also bounds clocks whose CPU resolution is coarser than an individual invocation.
+     */
+    public static <T> Measurement<T> measure(java.util.function.Supplier<T> call,
+                                            long maxCpuNanos, long maxInstructions) {
+        if (maxCpuNanos <= 0 || maxCpuNanos > TimeUnit.MILLISECONDS.toNanos(MAX_CPU_MILLIS)
+                || maxInstructions <= 0 || maxInstructions > MAX_INSTRUCTIONS)
+            throw new IllegalArgumentException("Lua allowance exceeds the engine ceiling");
+        if (ACTIVE_BUDGET.get() != null)
+            throw new IllegalStateException("A measured Lua invocation cannot reenter its host");
+        Budget budget = new Budget(new LimitedExecutionClock(SYSTEM_CLOCK, maxCpuNanos, maxCpuNanos * 5), maxInstructions);
+        budget.enforceElapsedCeiling = true;
+        ACTIVE_BUDGET.set(budget);
+        T value = null;
+        RuntimeException failure = null;
+        try {
+            value = call.get();
+        } catch (RuntimeException exception) {
+            failure = exception;
+        } finally {
+            ACTIVE_BUDGET.remove();
+        }
+        try {
+            if (budget.instructions > budget.instructionLimit)
+                throw new RunawayLimitExceeded("Lua instruction budget exceeded");
+            checkTimeBudget(budget);
+        } catch (RunawayLimitExceeded limit) {
+            failure = limit;
+        }
+        long elapsed = Math.max(0L, budget.clock.nanoTime() - budget.clockStartNanos);
+        long wallCharge = (Math.max(0L, System.nanoTime() - budget.elapsedStartNanos) + 4L) / 5L;
+        long charged = budget.clock.kind() == ClockKind.THREAD_CPU_TIME ? Math.max(elapsed, wallCharge) : wallCharge;
+        boolean exhausted = failure instanceof RunawayLimitExceeded;
+        return new Measurement<>(failure == null ? value : null, failure, charged, budget.instructions, exhausted);
     }
 
     static <T> T run(BudgetedCall<T> call) {
@@ -102,6 +145,9 @@ final class LuaExecutionBudget {
     }
 
     private static void checkTimeBudget(Budget budget) {
+        if (budget.enforceElapsedCeiling
+                && System.nanoTime() - budget.elapsedStartNanos > budget.fallbackClock.limitNanos())
+            throw new RunawayLimitExceeded("Lua elapsed-time safety budget exceeded");
         long nowNanos = budget.clock.nanoTime();
         if (nowNanos < 0L) {
             budget.useElapsedFallback();
@@ -179,6 +225,7 @@ final class LuaExecutionBudget {
         private final long elapsedStartNanos;
         private final long instructionLimit;
         private long instructions;
+        private boolean enforceElapsedCeiling;
 
         private Budget(ExecutionClock requestedClock, long instructionLimit) {
             elapsedStartNanos = System.nanoTime();

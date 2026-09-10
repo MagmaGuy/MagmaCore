@@ -16,19 +16,34 @@ public final class EnchantmentDefinitions {
     public static HostedCatalog publish(Plugin owner, EnchantmentCatalog catalog, Set<String> capabilities,
                                        EnchantmentProviders.Handler domainHandler) {
         EnchantmentProviders.requireServerThread();
-        return new HostedCatalog(owner, catalog, capabilities, domainHandler);
+        return new HostedCatalog(owner, catalog, capabilities, domainHandler, null);
+    }
+
+    /** Publishes query execution through the same provider endpoint and revision as definitions. */
+    public static HostedCatalog publishQueries(Plugin owner, EnchantmentCatalog catalog, Set<String> capabilities,
+                                               Set<com.magmaguy.magmacore.scripting.ScriptHook> queryHooks,
+                                               EnchantmentProviders.Handler domainHandler) {
+        EnchantmentProviders.requireServerThread();
+        return new HostedCatalog(owner, catalog, capabilities, domainHandler, Set.copyOf(queryHooks));
     }
 
     public static final class HostedCatalog implements AutoCloseable {
         private EnchantmentCatalog catalog;
         private final EnchantmentProviders.Registration registration;
+        private final EnchantmentQueryExecutor queries;
         private boolean closed;
 
         private HostedCatalog(Plugin owner, EnchantmentCatalog initial, Set<String> capabilities,
-                              EnchantmentProviders.Handler domainHandler) {
+                              EnchantmentProviders.Handler domainHandler,
+                              Set<com.magmaguy.magmacore.scripting.ScriptHook> queryHooks) {
             catalog = Objects.requireNonNull(initial, "catalog");
             Objects.requireNonNull(domainHandler, "domainHandler");
-            registration = EnchantmentProviders.register(owner, initial.namespace(), capabilities, (operation, request) -> {
+            Set<String> publishedCapabilities = new LinkedHashSet<>(capabilities);
+            if (queryHooks != null) publishedCapabilities.add(EnchantmentQueries.CAPABILITY);
+            queries = queryHooks == null ? null : new EnchantmentQueryExecutor(initial, queryHooks, publishedCapabilities, owner.getLogger()::warning);
+            registration = EnchantmentProviders.register(owner, initial.namespace(), publishedCapabilities, (operation, request) -> {
+                if (queries != null && operation == EnchantmentProviders.Operation.EVALUATE
+                        && EnchantmentQueries.CAPABILITY.equals(request.get("kind"))) return queries.evaluate(request);
                 if (operation != EnchantmentProviders.Operation.RESOLVE) return domainHandler.handle(operation, request);
                 if (!request.keySet().equals(Set.of("id")) || !(request.get("id") instanceof String id))
                     throw new IllegalArgumentException("Expected one enchantment id");
@@ -45,8 +60,10 @@ public final class EnchantmentDefinitions {
             Objects.requireNonNull(candidate, "candidate");
             if (closed) throw new IllegalStateException("Enchantment catalog is closed");
             if (!catalog.namespace().equals(candidate.namespace())) throw new IllegalArgumentException("Cannot change catalog ownership");
+            if (queries != null) queries.validate(candidate);
             registration.advanceRevision();
             catalog = candidate;
+            if (queries != null) queries.reload(candidate);
         }
 
         public EnchantmentCatalog catalog() { EnchantmentProviders.requireServerThread(); return catalog; }
@@ -54,6 +71,7 @@ public final class EnchantmentDefinitions {
         @Override public void close() {
             EnchantmentProviders.requireServerThread();
             registration.close();
+            if (queries != null) queries.close();
             closed = true;
         }
     }
