@@ -250,15 +250,44 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
                     table.set("stop", new ZeroArgFunction() {
                         @Override public LuaValue call() { instance.shutdown(); return LuaValue.NIL; }
                     });
+                    table.set("break_block", LuaTableSupport.tableMethod(table, args -> {
+                        var world = Bukkit.getWorld(source.world());
+                        int x = args.checkint(1), y = args.checkint(2), z = args.checkint(3);
+                        if (!(getBukkitEntity() instanceof Player player) || world == null
+                                || !world.isChunkLoaded(x >> 4, z >> 4)
+                                || y < world.getMinHeight() || y >= world.getMaxHeight()) return LuaValue.FALSE;
+                        var expected = org.bukkit.Material.matchMaterial(args.checkjstring(4));
+                        org.bukkit.inventory.ItemStack drop = null;
+                        if (!args.arg(5).isnil()) {
+                            var material = org.bukkit.Material.matchMaterial(args.checkjstring(5));
+                            int amount = args.optint(6, 1);
+                            if (material == null || !material.isItem() || material.isAir() || amount < 1)
+                                throw new IllegalArgumentException("Invalid authored mining drop");
+                            drop = new org.bukkit.inventory.ItemStack(material, amount);
+                        }
+                        return LuaValue.valueOf(com.magmaguy.magmacore.scripting.ScriptBlockActions
+                                .breakBlock(player, world.getBlockAt(x, y, z), expected, drop));
+                    }));
                     table.set("temporary_block", LuaTableSupport.tableMethod(table, args -> {
                         var world = Bukkit.getWorld(source.world());
                         int x = args.checkint(1), y = args.checkint(2), z = args.checkint(3);
-                        if (world == null || !world.isChunkLoaded(x >> 4, z >> 4)) return LuaValue.FALSE;
+                        int ticks = args.optint(5, 0);
+                        if (ticks < 0) throw new IllegalArgumentException("Block duration must not be negative");
+                        if (world == null || !world.isChunkLoaded(x >> 4, z >> 4)
+                                || y < world.getMinHeight() || y >= world.getMaxHeight()) return LuaValue.FALSE;
                         var lease = TemporaryBlockManager.replaceOwned(world.getBlockAt(x, y, z),
                                 Bukkit.createBlockData(args.checkjstring(4)), plugin);
                         if (lease == null) return LuaValue.FALSE;
                         instance.ownCleanup(lease::close);
+                        if (ticks > 0) instance.ownLater(ticks, lease::close);
                         return LuaValue.TRUE;
+                    }));
+                    table.set("can_own_block", LuaTableSupport.tableMethod(table, args -> {
+                        var world = Bukkit.getWorld(source.world());
+                        int x = args.checkint(1), y = args.checkint(2), z = args.checkint(3);
+                        return LuaValue.valueOf(world != null && world.isChunkLoaded(x >> 4, z >> 4)
+                                && y >= world.getMinHeight() && y < world.getMaxHeight()
+                                && TemporaryBlockManager.canOwn(world.getBlockAt(x, y, z)));
                     }));
                     table.set("temporary_gravity", LuaTableSupport.tableMethod(table, args -> {
                         Entity entity = Bukkit.getEntity(UUID.fromString(args.checkjstring(1)));
