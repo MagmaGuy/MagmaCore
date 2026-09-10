@@ -274,6 +274,9 @@ final class NativeMindSession implements MindHandle {
             return;
         }
         ServerLevel level = tickingBody.level();
+        // The host scheduler also runs while native entity ticks are suspended.
+        // Even paused physics reads blocks and can reload a departing chunk.
+        if (!level.isPositionEntityTicking(mob.blockPosition())) return;
         if (inBrainTick) throw new IllegalStateException("Native mind Brain tick is reentrant");
 
         inBrainTick = true;
