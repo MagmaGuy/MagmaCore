@@ -50,6 +50,9 @@ public class LuaEntityTable {
         table.set("has_clear_movement_path", LuaTableSupport.tableMethod(table, args ->
                 LuaValue.valueOf(com.magmaguy.magmacore.util.EntityMovementPath.isClear(entity,
                         LuaTableSupport.tableToLocation(args.checktable(1), entity.getWorld())))));
+        table.set("movement_path_status", LuaTableSupport.tableMethod(table, args ->
+                LuaValue.valueOf(com.magmaguy.magmacore.util.EntityMovementPath.inspect(entity,
+                        LuaTableSupport.tableToLocation(args.checktable(1), entity.getWorld())).name().toLowerCase(java.util.Locale.ROOT))));
 
         LuaTableSupport.lazyField(table, "is_valid", () -> LuaValue.valueOf(entity.isValid()));
         LuaTableSupport.lazyField(table, "is_dead", () -> LuaValue.valueOf(entity.isDead()));

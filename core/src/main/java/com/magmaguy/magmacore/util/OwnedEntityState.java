@@ -52,12 +52,52 @@ public final class OwnedEntityState implements AutoCloseable {
         return lease;
     }
 
+    /** Restores only the still-owned active potion, retaining the original effect's elapsed game ticks. */
+    public static OwnedEntityState potion(LivingEntity entity, org.bukkit.potion.PotionEffect replacement, Plugin plugin) {
+        if (replacement.getDuration() < 1) throw new IllegalArgumentException("Owned potion duration must be positive");
+        String property = "potion_" + replacement.getType().getKey().getKey();
+        if (!available(entity, plugin, property)) return null;
+        var original = entity.getPotionEffect(replacement.getType());
+        int started = entity.getTicksLived();
+        OwnedEntityState lease = new OwnedEntityState(entity, plugin, property,
+                () -> samePotion(entity.getPotionEffect(replacement.getType()), replacement,
+                        Math.max(0, entity.getTicksLived() - started)),
+                () -> {
+                    entity.removePotionEffect(replacement.getType());
+                    if (original == null) return;
+                    int elapsed = Math.max(0, entity.getTicksLived() - started);
+                    int remaining = original.getDuration() < 0 ? original.getDuration() : original.getDuration() - elapsed;
+                    if (remaining > 0 || original.getDuration() < 0)
+                        entity.addPotionEffect(new org.bukkit.potion.PotionEffect(original.getType(), remaining,
+                                original.getAmplifier(), original.isAmbient(), original.hasParticles(), original.hasIcon()));
+                });
+        try {
+            if (!entity.addPotionEffect(replacement) || !samePotion(entity.getPotionEffect(replacement.getType()), replacement, 0)) {
+                lease.close(false);
+                return null;
+            }
+        } catch (RuntimeException failure) { lease.close(); throw failure; }
+        return lease;
+    }
+
+    private static boolean samePotion(org.bukkit.potion.PotionEffect current, org.bukkit.potion.PotionEffect applied, int elapsed) {
+        return current != null && current.getType().equals(applied.getType())
+                && current.getAmplifier() == applied.getAmplifier() && current.isAmbient() == applied.isAmbient()
+                && current.hasParticles() == applied.hasParticles() && current.hasIcon() == applied.hasIcon()
+                // Scheduler callbacks and entity potion ticks can straddle a tick boundary.
+                && Math.abs((long) current.getDuration() - ((long) applied.getDuration() - elapsed)) <= 1;
+    }
+
     private static boolean available(Entity entity, Plugin plugin, String property) {
         if (!Bukkit.isPrimaryThread()) throw new IllegalStateException("Entity ownership requires the server thread");
         return plugin.isEnabled() && entity != null && entity.isValid() && !entity.hasMetadata("nightbreak_owned_" + property);
     }
 
     @Override public void close() {
+        close(true);
+    }
+
+    private void close(boolean restoreState) {
         if (!Bukkit.isPrimaryThread()) throw new IllegalStateException("Entity restoration requires the server thread");
         if (closed) return;
         closed = true;
@@ -65,6 +105,6 @@ public final class OwnedEntityState implements AutoCloseable {
                 .anyMatch(value -> value.getOwningPlugin() == plugin && token.equals(value.asString()));
         if (!owned) return;
         entity.removeMetadata(key, plugin);
-        if (entity.isValid() && unchanged.getAsBoolean()) restore.run();
+        if (restoreState && entity.isValid() && unchanged.getAsBoolean()) restore.run();
     }
 }

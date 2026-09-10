@@ -250,6 +250,12 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
                     table.set("stop", new ZeroArgFunction() {
                         @Override public LuaValue call() { instance.shutdown(); return LuaValue.NIL; }
                     });
+                    table.set("replace_previous", LuaTableSupport.tableMethod(table, args -> {
+                        for (Running previous : new ArrayList<>(active.values()))
+                            if (previous != this && previous.definition.id().equals(definition.id())
+                                    && previous.source.actor().equals(source.actor())) previous.instance.shutdown();
+                        return LuaValue.NIL;
+                    }));
                     table.set("break_block", LuaTableSupport.tableMethod(table, args -> {
                         var world = Bukkit.getWorld(source.world());
                         int x = args.checkint(1), y = args.checkint(2), z = args.checkint(3);
@@ -310,6 +316,19 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
                         var lease = OwnedEntityState.scale(living, args.checkdouble(2), plugin);
                         if (lease == null) return LuaValue.FALSE;
                         instance.ownCleanup(lease::close);
+                        return LuaValue.TRUE;
+                    }));
+                    table.set("temporary_potion", LuaTableSupport.tableMethod(table, args -> {
+                        Entity entity = Bukkit.getEntity(UUID.fromString(args.checkjstring(1)));
+                        var type = org.bukkit.potion.PotionEffectType.getByName(args.checkjstring(2));
+                        int ticks = args.checkint(3), amplifier = args.checkint(4);
+                        int expiry = Math.addExact(ticks, 1);
+                        if (!(entity instanceof LivingEntity living) || type == null || ticks < 1 || amplifier < 0)
+                            return LuaValue.FALSE;
+                        var lease = OwnedEntityState.potion(living, new org.bukkit.potion.PotionEffect(type, ticks, amplifier), plugin);
+                        if (lease == null) return LuaValue.FALSE;
+                        instance.ownCleanup(lease::close);
+                        instance.ownLater(expiry, lease::close);
                         return LuaValue.TRUE;
                     }));
                     yield table;
