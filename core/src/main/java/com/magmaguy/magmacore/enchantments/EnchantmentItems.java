@@ -60,6 +60,12 @@ public final class EnchantmentItems {
         return preview(source, proposed, false, false);
     }
 
+    /** Read-only access for hosts that own metadata construction and native overflow separately. */
+    public static Map<String, Integer> inspectCustom(ItemMeta meta) {
+        EnchantmentProviders.requireServerThread();
+        return EnchantmentItemData.read(Objects.requireNonNull(meta, "item metadata"));
+    }
+
     /** Authored gear may deliberately carry native enchantments outside their ordinary material set. */
     public Preview previewAuthored(ItemStack source, Map<String, Integer> proposed) {
         return preview(source, proposed, false, true);

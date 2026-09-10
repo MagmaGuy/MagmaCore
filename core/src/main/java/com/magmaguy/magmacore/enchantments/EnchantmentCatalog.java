@@ -45,6 +45,12 @@ public final class EnchantmentCatalog {
     public Optional<ScriptDefinition> script(String id) { return Optional.ofNullable(scripts.get(id)); }
 
     public static EnchantmentCatalog load(String namespace, Path directory, Set<ScriptHook> supportedHooks) throws IOException {
+        return load(namespace, directory, supportedHooks, path -> true);
+    }
+
+    /** Selection runs after duplicate resolution, so hosts cannot load a rejected duplicate through another owner. */
+    public static EnchantmentCatalog load(String namespace, Path directory, Set<ScriptHook> supportedHooks,
+                                         java.util.function.Predicate<Path> ownsDefinition) throws IOException {
         EnchantmentDefinition.requireId(namespace + ":catalog");
         if (namespace.equals("minecraft")) throw new IllegalArgumentException("Custom catalogs cannot own minecraft");
         Path root = directory.toRealPath();
@@ -81,6 +87,7 @@ public final class EnchantmentCatalog {
         Map<String, ScriptDefinition> validatedScripts = new LinkedHashMap<>();
         for (var entry : selected.entrySet()) {
             if (entry.getKey().endsWith(".lua")) continue;
+            if (!ownsDefinition.test(entry.getValue())) continue;
             String filename = entry.getKey();
             String id = namespace + ":" + filename.substring(0, filename.lastIndexOf('.'));
             try {

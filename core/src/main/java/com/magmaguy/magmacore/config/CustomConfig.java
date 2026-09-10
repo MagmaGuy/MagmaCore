@@ -77,6 +77,7 @@ public class CustomConfig {
         } catch (Exception e) {
             //In some plugins the premades are empty which causes this error
         }
+        customConfigFieldsArrayList.removeIf(fields -> !ownsFilename(fields.getFilename()));
 
         //Check if the directory doesn't exist
         try {
@@ -114,6 +115,7 @@ public class CustomConfig {
     /** Adds or replaces one file at runtime, using the same inheritance resolver as startup. */
     public synchronized CustomConfigFields registerFile(File file) {
         Objects.requireNonNull(file, "file");
+        if (!ownsFilename(file.getName())) throw new IllegalArgumentException("Configuration belongs to another owner: " + file);
         if (!file.getName().toLowerCase(Locale.ROOT).endsWith(".yml"))
             throw new IllegalArgumentException("Custom configuration files must end in .yml");
         Path root = configurationDirectory().toPath().toAbsolutePath().normalize();
@@ -221,11 +223,12 @@ public class CustomConfig {
         return Path.of(MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getPath(), folderName).toFile();
     }
 
-    private static List<File> collectYamlFiles(File directory) {
+    private List<File> collectYamlFiles(File directory) {
         if (directory == null || !directory.isDirectory()) return List.of();
         try (var paths = Files.walk(directory.toPath())) {
             return paths.filter(Files::isRegularFile)
                     .map(Path::toFile)
+                    .filter(file -> ownsFilename(file.getName()))
                     .filter(file -> file.getName().toLowerCase(Locale.ROOT).endsWith(".yml"))
                     .sorted(Comparator.comparing(File::getAbsolutePath, String.CASE_INSENSITIVE_ORDER))
                     .toList();
@@ -320,6 +323,7 @@ public class CustomConfig {
     }
 
     private void fileInitializer(File file) {
+        if (!ownsFilename(file.getName())) return;
         for (Iterator<CustomConfigFields> iterator = customConfigFieldsArrayList.iterator(); iterator.hasNext();) {
             CustomConfigFields premade = iterator.next();
             if (file.getName().equalsIgnoreCase(premade.getFilename())) {
@@ -366,6 +370,9 @@ public class CustomConfig {
         File file = ConfigurationEngine.fileCreator(folderName, customConfigFields.getFilename());
         initialize(customConfigFields, file);
     }
+
+    /** Allows a host to partition existing configuration owners in a shared directory. */
+    protected boolean ownsFilename(String filename) { return true; }
 
     private void initialize(CustomConfigFields customConfigFields, File file) {
         //Get config file
