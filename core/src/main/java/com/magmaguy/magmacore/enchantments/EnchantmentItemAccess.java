@@ -56,7 +56,12 @@ final class EnchantmentItemAccess {
         if (changed == null) return false;
         Player player = (Player) Bukkit.getEntity(actor);
         // No callbacks or scheduled turn intervene between validation and this commit.
-        player.getInventory().setItem(slot, changed);
+        // Bukkit can still be processing this same stack (for example, melee wear
+        // follows the damage event). Keep its native identity so that later vanilla
+        // updates reach the equipped item instead of an abandoned replacement.
+        ItemStack live = player.getInventory().getItem(slot);
+        live.setAmount(changed.getAmount());
+        if (changed.getAmount() > 0) live.setItemMeta(changed.getItemMeta());
         return true;
     }
 
