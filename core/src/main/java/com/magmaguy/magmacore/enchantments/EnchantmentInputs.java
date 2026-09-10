@@ -25,6 +25,7 @@ public final class EnchantmentInputs implements Listener {
             ScriptHook.ON_TICK, ScriptHook.ON_ZONE_ENTER, ScriptHook.ON_ZONE_LEAVE);
     private static final String SHOT = "nightbreak_enchantment_shot";
     private static final String EXPLICIT_DAMAGE = "nightbreak_enchantment_explicit_damage";
+    private static final String OWNED_DAMAGE_EVENTS = "nightbreak_enchantment_owned_damage_events";
     private final Plugin plugin;
     private final String namespace;
     private final Set<UUID> warned = new HashSet<>();
@@ -38,6 +39,29 @@ public final class EnchantmentInputs implements Listener {
     }
 
     public static Map<String,Object> copySnapshot(Map<String,Object> snapshot) { return EnchantmentValues.copy(snapshot); }
+
+    /** Marks only this programmatic event, including nested events, across shaded input owners. */
+    public static void markExplicitDamage(Plugin owner, EntityDamageByEntityEvent event) {
+        EnchantmentProviders.requireServerThread();
+        Map<Object, Boolean> events = null;
+        for (var value : event.getDamager().getMetadata(OWNED_DAMAGE_EVENTS)) {
+            if (value.getOwningPlugin() == owner && value.value() instanceof Map<?, ?> existing) {
+                @SuppressWarnings("unchecked") Map<Object, Boolean> owned = (Map<Object, Boolean>) existing;
+                events = owned;
+                break;
+            }
+        }
+        if (events == null) {
+            events = new WeakHashMap<>();
+            event.getDamager().setMetadata(OWNED_DAMAGE_EVENTS, new FixedMetadataValue(owner, events));
+        }
+        events.put(event, Boolean.TRUE);
+    }
+
+    private static boolean isExplicitDamage(EntityDamageByEntityEvent event) {
+        return event.getDamager().getMetadata(OWNED_DAMAGE_EVENTS).stream()
+                .anyMatch(value -> value.value() instanceof Map<?, ?> events && events.containsKey(event));
+    }
 
     private boolean elected() {
         return EnchantmentProviders.providers().stream().filter(provider -> provider.compatible()
@@ -149,6 +173,7 @@ public final class EnchantmentInputs implements Listener {
         // Model/proxy APIs subclass the Bukkit event for previews and forward a separate native
         // damage call. Only that final call is an automatic proc source; owners can dispatch explicitly.
         if (event.getClass() != EntityDamageByEntityEvent.class) return;
+        if (isExplicitDamage(event)) return;
         if (!elected() || event.getFinalDamage() <= 0 || !(event.getEntity() instanceof LivingEntity target)) return;
         if (event.getDamager() instanceof Player player) {
             if (player.hasMetadata(EXPLICIT_DAMAGE)) return;
