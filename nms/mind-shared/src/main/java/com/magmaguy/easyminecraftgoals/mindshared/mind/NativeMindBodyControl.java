@@ -32,11 +32,13 @@ final class NativeMindBodyControl {
 
     private final Mob mob;
     private final MindBodyProfile profile;
+    private final Field squidMovementVector;
     private Vec3 flightVelocity;
 
     NativeMindBodyControl(Mob mob, MindBodyProfile profile) {
         this.mob = mob;
         this.profile = profile;
+        squidMovementVector = squidMovementVector(mob, profile);
         applyProfile();
     }
 
@@ -51,6 +53,7 @@ final class NativeMindBodyControl {
             mob.setAirSupply(mob.getMaxAirSupply());
         }
         if (profile.locomotion() == MindBodyLocomotion.FLYING) mob.setNoGravity(true);
+        if (squidMovementVector != null && !mob.isInWater()) setSquidMovement(Vec3.ZERO);
         if (profile.locomotion() == MindBodyLocomotion.STATIONARY) stopMovement();
     }
 
@@ -80,6 +83,15 @@ final class NativeMindBodyControl {
         mob.getMoveControl().tick();
         mob.getLookControl().tick();
         mob.getJumpControl().tick();
+        if (squidMovementVector != null && mob.isInWater()) {
+            // Swimming control emits local steering scaled by the movement attribute and
+            // navigation speed. Squid.travel ignores that input and consumes delta instead.
+            // Preserve the native squid's 0.2 swim speed at its default movement attribute.
+            Vec3 movement = new Vec3(mob.xxa, mob.yya, mob.zza)
+                    .yRot((float) Math.toRadians(-mob.getYRot()))
+                    .scale(0.2D / Attributes.MOVEMENT_SPEED.value().getDefaultValue());
+            setSquidMovement(movement);
+        }
         // LivingEntity.aiStep skips travel when NoAI makes isEffectiveAi false. Advance the
         // native collision/friction/gravity step here too, or a fresh body never even lands
         // and GroundPathNavigation cannot start. The version bridge handles older travel guards
@@ -92,6 +104,7 @@ final class NativeMindBodyControl {
         mob.getNavigation().stop();
         NativeMindVersion.stopControl(mob.getMoveControl());
         mob.stopInPlace();
+        if (squidMovementVector != null) setSquidMovement(Vec3.ZERO);
     }
 
     void steerFlight(Vec3 velocity) { flightVelocity = velocity; }
@@ -103,6 +116,7 @@ final class NativeMindBodyControl {
         mob.setXxa(0);
         mob.setYya(0);
         mob.setZza(0);
+        if (squidMovementVector != null) setSquidMovement(Vec3.ZERO);
         if (profile.locomotion() != MindBodyLocomotion.STATIONARY) NativeMindVersion.advancePhysics(mob, Vec3.ZERO);
     }
 
@@ -133,6 +147,32 @@ final class NativeMindBodyControl {
         ensureAttribute(Attributes.ATTACK_DAMAGE, 2D);
         ensureAttribute(Attributes.ATTACK_KNOCKBACK, 0D);
         if (profile.locomotion() == MindBodyLocomotion.STATIONARY) stopMovement();
+    }
+
+    private void setSquidMovement(Vec3 movement) {
+        set(squidMovementVector, movement);
+        // Squid.aiStep restores this vector during its swim animation, even with NoAI.
+        // Update both values so entity-tick ordering cannot restore stale steering. On
+        // land only clear the steering, leaving native gravity/levitation velocity intact.
+        if (mob.isInWater()) mob.setDeltaMovement(movement);
+    }
+
+    private static Field squidMovementVector(Mob mob, MindBodyProfile profile) {
+        if (profile.locomotion() != MindBodyLocomotion.AQUATIC
+                || !(mob.getBukkitEntity() instanceof org.bukkit.entity.Squid)) return null;
+        // Squid's package and this field's visibility vary across adapters. Its one native
+        // Vec3 field is the swim vector; resolve once per body, including GlowSquid's parent.
+        Field movement = null;
+        for (Class<?> type = mob.getClass(); type != Mob.class; type = type.getSuperclass()) {
+            for (Field field : type.getDeclaredFields()) {
+                if (field.getType() != Vec3.class || java.lang.reflect.Modifier.isStatic(field.getModifiers())) continue;
+                if (movement != null) throw new IllegalStateException("Native squid swim vector is ambiguous");
+                movement = field;
+            }
+        }
+        if (movement == null) throw new IllegalStateException("Native squid swim vector is unavailable");
+        movement.setAccessible(true);
+        return movement;
     }
 
     private PathNavigation navigation() {
