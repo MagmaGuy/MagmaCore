@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
 import java.util.function.Function;
+import java.util.function.UnaryOperator;
 
 /** Owns only its generated lore prefix and glint override, preserving the host's other item data. */
 final class EnchantmentPresentation {
@@ -26,6 +27,12 @@ final class EnchantmentPresentation {
 
     static void render(ItemMeta meta, Map<String, Integer> entries,
                        Function<String, EnchantmentItems.Resolved> resolver) {
+        render(meta, entries, resolver, UnaryOperator.identity());
+    }
+
+    static void render(ItemMeta meta, Map<String, Integer> entries,
+                       Function<String, EnchantmentItems.Resolved> resolver,
+                       UnaryOperator<List<String>> rebuildHostLore) {
         PersistentDataContainer data = meta.getPersistentDataContainer();
         PersistentDataContainer old = data.get(ROOT, PersistentDataType.TAG_CONTAINER);
         if (data.has(ROOT) && old == null) throw new IllegalArgumentException("Malformed enchantment presentation record");
@@ -44,6 +51,7 @@ final class EnchantmentPresentation {
             if (Objects.equals(originalGlint, applied)) originalGlint = decodeGlint(old.get(ORIGINAL_GLINT, PersistentDataType.INTEGER));
             oldLabels = old.get(LABELS, PersistentDataType.TAG_CONTAINER);
         }
+        lore = List.copyOf(rebuildHostLore.apply(List.copyOf(lore)));
         PersistentDataContainer labels = data.getAdapterContext().newPersistentDataContainer();
         List<String> lines = new ArrayList<>();
         for (var entry : new TreeMap<>(entries).entrySet()) {
