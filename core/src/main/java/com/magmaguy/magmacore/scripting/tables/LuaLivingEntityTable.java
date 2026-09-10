@@ -34,6 +34,14 @@ public class LuaLivingEntityTable {
             entity.setAI(args.checkboolean(1));
             return LuaValue.NIL;
         }));
+        table.set("set_owner", LuaTableSupport.tableMethod(table, args -> {
+            if (!(entity instanceof org.bukkit.entity.Tameable tameable)) return LuaValue.FALSE;
+            Player owner = Bukkit.getPlayer(java.util.UUID.fromString(args.checkjstring(1)));
+            if (owner == null) return LuaValue.FALSE;
+            tameable.setOwner(owner);
+            if (entity instanceof org.bukkit.entity.Wolf wolf) wolf.setAngry(false);
+            return LuaValue.TRUE;
+        }));
 
         table.set("damage", LuaTableSupport.tableMethod(table, args -> {
             entity.damage(args.checkdouble(1));
@@ -52,6 +60,10 @@ public class LuaLivingEntityTable {
             return LuaValue.NIL;
         }));
 
+        table.set("has_potion_effect", LuaTableSupport.tableMethod(table, args -> {
+            PotionEffectType type = PotionEffectType.getByName(args.checkjstring(1));
+            return LuaValue.valueOf(type != null && entity.hasPotionEffect(type));
+        }));
         table.set("add_potion_effect", LuaTableSupport.tableMethod(table, args -> {
             PotionEffectType type = PotionEffectType.getByName(args.checkjstring(1));
             if (type != null)
@@ -79,6 +91,10 @@ public class LuaLivingEntityTable {
         }));
 
         if (entity instanceof Player player) {
+            table.set("chat", LuaTableSupport.tableMethod(table, args -> {
+                player.chat(ChatColorConverter.convert(args.checkjstring(1)));
+                return LuaValue.NIL;
+            }));
             table.set("send_message", LuaTableSupport.tableMethod(table, args -> {
                 player.sendMessage(ChatColorConverter.convert(args.checkjstring(1)));
                 return LuaValue.NIL;

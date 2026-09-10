@@ -10,7 +10,8 @@ public final class EnchantmentActions {
     /** Provider-local view of copied action facts; only Bukkit/JDK values travel between owners. */
     public record DamageInput(UUID attackId, org.bukkit.entity.Player actor,
                               org.bukkit.entity.LivingEntity target, double amount,
-                              Map<String, org.bukkit.inventory.ItemStack> equipment) {
+                              Map<String, org.bukkit.inventory.ItemStack> equipment,
+                              Map<String, Object> providerFacts) {
         public static DamageInput read(Map<String, Object> request) {
             EnchantmentProviders.requireServerThread();
             if (!request.keySet().equals(java.util.Set.of("kind", "attack", "actor", "world", "target", "amount", "facts"))
@@ -35,11 +36,29 @@ public final class EnchantmentActions {
                     EnchantmentDefinition.Slot.valueOf(slot);
                     equipment.put(slot, item.clone());
                 }
-            return new DamageInput(attack, actor, target, amount, Map.copyOf(equipment));
+            Map<String, Object> providerFacts = facts.get("providers") instanceof Map<?, ?> values
+                    ? EnchantmentValues.copy(values) : Map.of();
+            return new DamageInput(attack, actor, target, amount, Map.copyOf(equipment), providerFacts);
         }
     }
     public static final String CAPABILITY = "enchantment.actions.v1";
+    public static final String SOURCE_FACTS = "enchantment.source_facts.v1";
     private EnchantmentActions() { }
+
+    /** Provider combat facts are evaluated at input/launch, never again at delayed impact. */
+    public static Map<String, Object> captureProviderFacts(UUID actor, Map<String, org.bukkit.inventory.ItemStack> equipment) {
+        EnchantmentProviders.requireServerThread();
+        Map<String, Object> facts = new java.util.LinkedHashMap<>();
+        for (var provider : EnchantmentProviders.providers()) {
+            if (!provider.compatible() || !provider.capabilities().contains(SOURCE_FACTS)) continue;
+            var result = EnchantmentProviders.call(provider, EnchantmentProviders.Operation.EVALUATE,
+                    Map.of("kind", SOURCE_FACTS, "actor", actor, "equipment", equipment));
+            if (result.status() != EnchantmentProviders.Status.OK)
+                throw new IllegalArgumentException("Cannot capture source facts for " + provider.namespace());
+            facts.put(provider.namespace(), result.payload());
+        }
+        return EnchantmentValues.copy(facts);
+    }
 
     /** Six equipped slots at acceptance/launch. Values are detached from the live inventory. */
     public static Map<String, org.bukkit.inventory.ItemStack> captureEquipment(org.bukkit.entity.LivingEntity actor) {

@@ -21,8 +21,9 @@ public final class EnchantmentInputs implements Listener {
     public static final ScriptHook SHIFT_RIGHT_CLICK = new ScriptHook("on_shift_right_click");
     public static final ScriptHook SHIFT_LEFT_CLICK = new ScriptHook("on_shift_left_click");
     public static final ScriptHook BREAK_BLOCK = new ScriptHook("on_break_block");
+    public static final ScriptHook CHAT = new ScriptHook("on_chat");
     public static final Set<ScriptHook> HOOKS = Set.of(ATTACK, PROJECTILE_HIT, TAKE_DAMAGE,
-            RIGHT_CLICK, LEFT_CLICK, SHIFT_RIGHT_CLICK, SHIFT_LEFT_CLICK, BREAK_BLOCK,
+            RIGHT_CLICK, LEFT_CLICK, SHIFT_RIGHT_CLICK, SHIFT_LEFT_CLICK, BREAK_BLOCK, CHAT,
             ScriptHook.ON_TICK, ScriptHook.ON_ZONE_ENTER, ScriptHook.ON_ZONE_LEAVE);
     private static final String SHOT = "nightbreak_enchantment_shot";
     private static final String EXPLICIT_DAMAGE = "nightbreak_enchantment_explicit_damage";
@@ -124,7 +125,9 @@ public final class EnchantmentInputs implements Listener {
         if (effects.isEmpty()) return Map.of();
         Map<String,Object> facts = new LinkedHashMap<>();
         facts.put("item", item.clone()); facts.put("inventory_slot", inventorySlot); facts.put("slot", slot.name());
-        facts.put("equipment", EnchantmentActions.captureEquipment(actor)); facts.put("attack_kind", attackKind);
+        var equipment = EnchantmentActions.captureEquipment(actor);
+        facts.put("equipment", equipment); facts.put("attack_kind", attackKind);
+        facts.put("providers", EnchantmentActions.captureProviderFacts(actor.getUniqueId(), equipment));
         if (ammunition != null && !ammunition.getType().isAir()) facts.put("ammunition", ammunition.clone());
         return EnchantmentValues.copy(Map.of("attack", attackId, "actor", actor.getUniqueId(),
                 "world", actor.getWorld().getUID(), "facts", facts, "effects", effects));
@@ -261,6 +264,36 @@ public final class EnchantmentInputs implements Listener {
     }
 
     @EventHandler public void quit(PlayerQuitEvent event) { warned.remove(event.getPlayer().getUniqueId()); }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void chat(AsyncPlayerChatEvent event) {
+        UUID actorId = event.getPlayer().getUniqueId();
+        String message = event.getMessage();
+        // Only immutable input crosses the asynchronous boundary. Election, inventory and Lua
+        // belong to the server thread, including synchronous player.chat invocations.
+        org.bukkit.Bukkit.getScheduler().runTask(plugin, () -> {
+            if (!elected()) return;
+            Player actor = org.bukkit.Bukkit.getPlayer(actorId);
+            if (actor == null || !actor.isOnline() || actor.isDead()) return;
+            for (var slot : EnchantmentDefinition.Slot.values()) {
+                int index = switch (slot) {
+                    case MAINHAND -> actor.getInventory().getHeldItemSlot(); case OFFHAND -> 40;
+                    case HEAD -> 39; case CHEST -> 38; case LEGS -> 37; case FEET -> 36;
+                };
+                try {
+                    UUID id = UUID.randomUUID();
+                    var captured = capture(actor, actor.getInventory().getItem(index), slot, index, null, "", id);
+                    if (captured.isEmpty()) continue;
+                    Map<String, Object> source = new LinkedHashMap<>(captured);
+                    @SuppressWarnings("unchecked") var original = (Map<String, Object>) captured.get("facts");
+                    Map<String, Object> facts = new LinkedHashMap<>(original);
+                    facts.put("message", message);
+                    source.put("facts", facts);
+                    dispatch(plugin, source, CHAT, null, id.toString());
+                } catch (RuntimeException invalid) { warn(actor, invalid); }
+            }
+        });
+    }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void mine(org.bukkit.event.block.BlockBreakEvent event) {

@@ -25,6 +25,16 @@ final class EnchantmentItemAccess {
     LuaTable table() {
         LuaTable table = new LuaTable();
         LuaItemDurabilityTable.attach(table, this::read, this::update);
+        table.set("consume", com.magmaguy.magmacore.scripting.tables.LuaTableSupport.tableMethod(table, args -> {
+            int amount = args.checkint(1);
+            if (amount < 1) throw new IllegalArgumentException("Consumption must be positive");
+            return org.luaj.vm2.LuaValue.valueOf(update(stack -> {
+                if (stack.getAmount() < amount) return null;
+                ItemStack changed = stack.clone();
+                changed.setAmount(changed.getAmount() - amount);
+                return changed;
+            }));
+        }));
         return table;
     }
 
