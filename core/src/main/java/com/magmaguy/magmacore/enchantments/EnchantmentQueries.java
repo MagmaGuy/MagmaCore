@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 
 /** Captured, synchronous contributions. Gameplay owners validate and apply the returned numbers. */
 public final class EnchantmentQueries {
@@ -21,8 +22,13 @@ public final class EnchantmentQueries {
         }
     }
 
+    /** Entity identities supply the ordinary Lua gameplay context in the executing provider. */
     public record Query(EnchantmentProviders.Provider provider, String id, ScriptHook hook,
-                        int level, Map<String, Object> input) {
+                        int level, Map<String, Object> input, UUID actor, UUID target) {
+        public Query(EnchantmentProviders.Provider provider, String id, ScriptHook hook,
+                     int level, Map<String, Object> input) {
+            this(provider, id, hook, level, input, null, null);
+        }
         public Query {
             Objects.requireNonNull(provider, "provider");
             EnchantmentDefinition.requireId(id);
@@ -35,7 +41,7 @@ public final class EnchantmentQueries {
 
     public enum Status { OK, UNAVAILABLE, STALE, INVALID, FAILED, QUARANTINED, BUDGET_EXHAUSTED }
     public record Contribution(String id, String hook, Double value) { }
-    /** A failed batch exposes no partial contributions. completedQueries is diagnostic only. */
+    /** A failed batch exposes no partial contributions. Authored Lua mutations are not rolled back. */
     public record Batch(Status status, List<Contribution> contributions, int completedQueries,
                         long chargedNanos, long instructions) {
         public Batch { contributions = List.copyOf(contributions); }
@@ -56,7 +62,9 @@ public final class EnchantmentQueries {
                 return failed(Status.UNAVAILABLE, values.size(), nanos, instructions);
             var result = EnchantmentProviders.call(query.provider(), EnchantmentProviders.Operation.EVALUATE, Map.of(
                     "kind", CAPABILITY, "id", query.id(), "hook", query.hook().getKey(), "level", query.level(),
-                    "input", query.input(), "cpuNanos", limits.cpuNanos() - nanos, "instructions", limits.instructions() - instructions));
+                    "input", query.input(), "actor", query.actor() == null ? "" : query.actor().toString(),
+                    "target", query.target() == null ? "" : query.target().toString(),
+                    "cpuNanos", limits.cpuNanos() - nanos, "instructions", limits.instructions() - instructions));
             if (result.status() != EnchantmentProviders.Status.OK) {
                 Status status = switch (result.status()) {
                     case STALE -> Status.STALE;
