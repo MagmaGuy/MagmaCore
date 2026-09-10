@@ -298,7 +298,7 @@ public class ScriptInstance {
 
     private LuaValue buildContext(Event event, LivingEntity directTarget, LivingEntity eventActor) {
         LuaTable context = new LuaTable();
-        if (entity.inheritsContextDefaults()) context.set("state", stateTable);
+        context.set("state", stateTable);
 
         LuaTable metatable = new LuaTable();
         metatable.set("__index", new VarArgFunction() {
@@ -333,7 +333,6 @@ public class ScriptInstance {
         if (custom != null && !custom.isnil()) {
             return custom;
         }
-        if (!entity.inheritsContextDefaults()) return LuaValue.NIL;
         // 3) Magmacore built-in defaults.
         return switch (key) {
             case "log" -> createLogTable();

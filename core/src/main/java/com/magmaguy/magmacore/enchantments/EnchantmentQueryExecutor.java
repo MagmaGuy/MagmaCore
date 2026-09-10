@@ -1,17 +1,22 @@
 package com.magmaguy.magmacore.enchantments;
 
 import com.magmaguy.magmacore.scripting.*;
+import com.magmaguy.magmacore.scripting.tables.LuaEntityTable;
+import com.magmaguy.magmacore.scripting.tables.LuaLivingEntityTable;
 import org.bukkit.Location;
+import org.bukkit.Bukkit;
 import org.bukkit.entity.Entity;
+import org.bukkit.entity.LivingEntity;
 import org.luaj.vm2.LuaTable;
 import org.luaj.vm2.LuaValue;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.function.Consumer;
 import static com.magmaguy.magmacore.enchantments.EnchantmentQueries.Status;
 
-/** One provider's query lifecycle. Invocations never retain a player, VM, task or mutable item. */
+/** Provider-owned numeric hooks use ordinary Lua capabilities and close their VM after returning. */
 final class EnchantmentQueryExecutor {
     private EnchantmentCatalog catalog;
     private final Set<ScriptHook> hooks;
@@ -47,10 +52,11 @@ final class EnchantmentQueryExecutor {
     void close() { closed = true; quarantined.clear(); warned.clear(); }
 
     Map<String, Object> evaluate(Map<String, Object> request) {
-        if (!request.keySet().equals(Set.of("kind", "id", "hook", "level", "input", "cpuNanos", "instructions"))
+        if (!request.keySet().equals(Set.of("kind", "id", "hook", "level", "input", "actor", "target", "cpuNanos", "instructions"))
                 || !EnchantmentQueries.CAPABILITY.equals(request.get("kind"))
                 || !(request.get("id") instanceof String id) || !(request.get("hook") instanceof String hookName)
                 || !(request.get("level") instanceof Integer level) || !(request.get("input") instanceof Map<?, ?> rawInput)
+                || !(request.get("actor") instanceof String actorId) || !(request.get("target") instanceof String targetId)
                 || !(request.get("cpuNanos") instanceof Long nanos) || !(request.get("instructions") instanceof Long instructions))
             throw new IllegalArgumentException("Invalid numeric query payload");
         new EnchantmentQueries.Limits(1, nanos, instructions);
@@ -58,6 +64,10 @@ final class EnchantmentQueryExecutor {
         ScriptHook hook = new ScriptHook(hookName);
         EnchantmentQueries.requireHook(hook);
         Map<String, Object> input = EnchantmentQueries.copyInput(rawInput);
+        Entity actor = resolveEntity(actorId);
+        Entity target = resolveEntity(targetId);
+        if ((!actorId.isEmpty() && actor == null) || (!targetId.isEmpty() && target == null))
+            return response(id, hookName, Status.UNAVAILABLE, null, 0, 0);
         if (closed) return response(id, hookName, Status.UNAVAILABLE, null, 0, 0);
         var definition = catalog.definitions().get(id);
         var script = catalog.script(id).orElse(null);
@@ -68,9 +78,11 @@ final class EnchantmentQueryExecutor {
         if (!capabilities.containsAll(definition.requires())) return response(id, hookName, Status.UNAVAILABLE, null, 0, 0);
 
         var measured = LuaExecutionBudget.measure(() -> {
-            var owner = new QueryOwner(id, level, definition.parametersAt(level), input, hooks);
+            var owner = new QueryOwner(id, level, definition.parametersAt(level), input, hooks, actor, target);
             ScriptInstance instance = new ScriptInstance(script, owner);
-            try { return new Invocation(instance.handleQuery(hook, null, null, null), owner.problem); }
+            try { return new Invocation(instance.handleQuery(hook, null,
+                    target instanceof LivingEntity living ? living : null,
+                    actor instanceof LivingEntity living ? living : null), owner.problem); }
             finally { instance.shutdown(); }
         }, nanos, instructions);
         ScriptQueryResult result = measured.value() == null ? null : measured.value().result();
@@ -98,6 +110,10 @@ final class EnchantmentQueryExecutor {
 
     private record Invocation(ScriptQueryResult result, String problem) { }
 
+    private static Entity resolveEntity(String id) {
+        return id.isEmpty() ? null : Bukkit.getEntity(UUID.fromString(id));
+    }
+
     private static Map<String, Object> response(String id, String hook, Status status, Double value, long nanos, long instructions) {
         return Map.of("kind", EnchantmentQueries.CAPABILITY, "id", id, "hook", hook, "status", status.name(),
                 "hasValue", value != null, "value", value == null ? 0D : value, "chargedNanos", nanos, "instructions", instructions);
@@ -108,14 +124,18 @@ final class EnchantmentQueryExecutor {
         private final LuaTable parameters;
         private final LuaTable input;
         private final Set<ScriptHook> hooks;
+        private final Entity actor;
+        private final Entity target;
         private String problem;
-        QueryOwner(String id, int level, Map<String, Object> parameters, Map<String, Object> input, Set<ScriptHook> hooks) {
+        QueryOwner(String id, int level, Map<String, Object> parameters, Map<String, Object> input,
+                   Set<ScriptHook> hooks, Entity actor, Entity target) {
             enchantment = table(Map.of("id", id, "level", level));
             this.parameters = table(parameters);
             this.input = table(input);
             this.hooks = hooks;
+            this.actor = actor;
+            this.target = target;
         }
-        @Override public boolean inheritsContextDefaults() { return false; }
         @Override public boolean handleScriptError(String context, Exception failure) {
             problem = failure.getMessage();
             return true;
@@ -123,10 +143,16 @@ final class EnchantmentQueryExecutor {
         @Override public LuaTable buildContextTable(ScriptInstance instance) { return enchantment; }
         @Override public String getContextKey() { return "enchantment"; }
         @Override public Set<ScriptHook> getSupportedHooks() { return hooks; }
-        @Override public Entity getBukkitEntity() { return null; }
-        @Override public Location getLocation() { return null; }
+        @Override public Entity getBukkitEntity() { return actor; }
+        @Override public Location getLocation() { return actor == null ? null : actor.getLocation(); }
         @Override public LuaValue resolveExtraContext(String key, ScriptInstance instance) {
-            return switch (key) { case "parameters" -> parameters; case "input" -> input; default -> LuaValue.NIL; };
+            return switch (key) {
+                case "parameters" -> parameters;
+                case "input" -> input;
+                case "target" -> target instanceof LivingEntity living ? LuaLivingEntityTable.build(living)
+                        : target == null ? LuaValue.NIL : LuaEntityTable.build(target);
+                default -> LuaValue.NIL;
+            };
         }
         private static LuaTable table(Map<String, Object> values) {
             LuaTable table = new LuaTable();

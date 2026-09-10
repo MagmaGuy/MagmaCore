@@ -15,11 +15,6 @@ import java.util.Set;
  */
 public abstract class ScriptableEntity {
 
-    /** Closed hosts supply their entire context and do not inherit mutable engine services. */
-    public boolean inheritsContextDefaults() {
-        return true;
-    }
-
     /** Return true when the host owns error reporting, for example revision-scoped suppression. */
     public boolean handleScriptError(String context, Exception failure) {
         return false;
