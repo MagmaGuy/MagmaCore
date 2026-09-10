@@ -79,7 +79,7 @@ public final class EnchantmentInputs implements Listener {
         Plugin registrationOwner = existing == null ? owner : existing.getOwningPlugin();
         boolean[] observed = {false}, accepted = {false};
         java.util.function.Consumer<EntityDamageByEntityEvent> observer = event -> {
-            if (observed[0] || event.getEntity() != target || event.getDamager() != actor) return;
+            if (observed[0] || event.getEntity() != target || damageActor(event) != actor) return;
             observed[0] = true;
             accepted[0] = !event.isCancelled() && event.getFinalDamage() > 0;
         };
@@ -251,16 +251,17 @@ public final class EnchantmentInputs implements Listener {
         // damage call. Only that final call is an automatic proc source; owners can dispatch explicitly.
         if (event.getClass() != EntityDamageByEntityEvent.class) return;
         if (!elected()) return;
-        for (var value : event.getDamager().getMetadata(DAMAGE_OBSERVER))
+        Player actor = damageActor(event);
+        if (actor == null) return;
+        for (var value : actor.getMetadata(DAMAGE_OBSERVER))
             if (value.value() instanceof Deque<?> observers
                     && observers.peekLast() instanceof java.util.function.Consumer<?> observer) {
                 @SuppressWarnings("unchecked") var typed = (java.util.function.Consumer<EntityDamageByEntityEvent>) observer;
                 typed.accept(event);
             }
-        if (isExplicitDamage(event)) return;
+        if (isExplicitDamage(event) || actor.hasMetadata(EXPLICIT_DAMAGE)) return;
         if (event.isCancelled() || event.getFinalDamage() <= 0 || !(event.getEntity() instanceof LivingEntity target)) return;
         if (event.getDamager() instanceof Player player) {
-            if (player.hasMetadata(EXPLICIT_DAMAGE)) return;
             fire(player, player.getInventory().getItemInMainHand(), EnchantmentDefinition.Slot.MAINHAND,
                     player.getInventory().getHeldItemSlot(), ATTACK, target);
         } else if (event.getDamager() instanceof Projectile projectile && projectile.getShooter() instanceof Player player) {
@@ -276,6 +277,13 @@ public final class EnchantmentInputs implements Listener {
                 }
             }
         }
+    }
+
+    private static Player damageActor(EntityDamageByEntityEvent event) {
+        if (event.getDamager() instanceof Player player) return player;
+        if (event.getDamager() instanceof Projectile projectile && projectile.getShooter() instanceof Player player)
+            return player;
+        return null;
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)

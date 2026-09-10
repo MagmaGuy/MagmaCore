@@ -12,6 +12,11 @@ public final class EnchantmentActions {
                               org.bukkit.entity.LivingEntity target, double amount,
                               Map<String, org.bukkit.inventory.ItemStack> equipment,
                               Map<String, Object> providerFacts) {
+        /** Called inside the provider's combat attribution scope, including native projectile impacts. */
+        public void applyDamage() {
+            com.magmaguy.magmacore.scripting.ScriptNativeProjectiles.applyAttributedDamage(target, amount, actor);
+        }
+
         public static DamageInput read(Map<String, Object> request) {
             EnchantmentProviders.requireServerThread();
             if (!request.keySet().equals(java.util.Set.of("kind", "attack", "actor", "world", "target", "amount", "facts"))
