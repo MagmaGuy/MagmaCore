@@ -49,6 +49,7 @@ public final class EnchantmentActions {
         private final EnchantmentProviders.Provider provider;
         private final String token;
         private boolean closed;
+        private boolean cancelledInput;
 
         private Action(EnchantmentProviders.Provider provider, String token) {
             this.provider = provider;
@@ -65,14 +66,19 @@ public final class EnchantmentActions {
             return dispatch(stage, hook, target, true);
         }
 
+        /** Cancellation requested synchronously by the most recently dispatched input. */
+        public boolean cancelledInput() { return cancelledInput; }
+
         private Status dispatch(String stage, ScriptHook hook, UUID target, boolean finalStage) {
             EnchantmentProviders.requireServerThread();
+            cancelledInput = false;
             if (closed) return Status.UNAVAILABLE;
             Objects.requireNonNull(hook, "hook");
             if (stage == null || stage.isBlank()) throw new IllegalArgumentException("Missing stage identity");
             var result = EnchantmentProviders.call(provider, EnchantmentProviders.Operation.EVALUATE,
                     Map.of("kind", CAPABILITY, "operation", "dispatch", "token", token,
                             "stage", stage, "hook", hook.getKey(), "target", target == null ? "" : target.toString(), "final", finalStage));
+            cancelledInput = Boolean.TRUE.equals(result.payload().get("cancelled"));
             return status(result);
         }
 

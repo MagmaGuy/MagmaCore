@@ -119,6 +119,12 @@ final class ConfigurationImportRegistry {
         // not recognized" warning.
         registerGlobal("scripts", importer -> importer.getFreeMinecraftModelsPath().resolve("scripts"));
 
+        // Definitions and their local Lua belong to the pack's enchantment provider.
+        registerPlatformFolder(ConfigurationImporter.PluginPlatform.ELITEMOBS,
+                "enchantments", importer -> importer.getEliteMobsPath().resolve("enchantments"));
+        registerPlatformFolder(ConfigurationImporter.PluginPlatform.FREEMINECRAFTMODELS,
+                "enchantments", importer -> importer.getFreeMinecraftModelsPath().resolve("enchantments"));
+
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.ELITEMOBS, "custombosses", importer -> importer.getEliteMobsPath().resolve("custombosses"));
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.ELITEMOBS, "customitems", importer -> importer.getEliteMobsPath().resolve("customitems"));
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.ELITEMOBS, "customtreasurechests", importer -> importer.getEliteMobsPath().resolve("customtreasurechests"));

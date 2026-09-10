@@ -47,6 +47,9 @@ public class LuaEntityTable {
             Entity actor = org.bukkit.Bukkit.getEntity(java.util.UUID.fromString(args.checkjstring(1)));
             return LuaValue.valueOf(actor instanceof Player player && isHostileEffectTarget(player, entity));
         }));
+        table.set("has_clear_movement_path", LuaTableSupport.tableMethod(table, args ->
+                LuaValue.valueOf(com.magmaguy.magmacore.util.EntityMovementPath.isClear(entity,
+                        LuaTableSupport.tableToLocation(args.checktable(1), entity.getWorld())))));
 
         LuaTableSupport.lazyField(table, "is_valid", () -> LuaValue.valueOf(entity.isValid()));
         LuaTableSupport.lazyField(table, "is_dead", () -> LuaValue.valueOf(entity.isDead()));

@@ -32,6 +32,11 @@ public final class EnchantmentInputs implements Listener {
     EnchantmentInputs(Plugin plugin, String namespace) { this.plugin = plugin; this.namespace = namespace; }
     void clearWarnings() { warned.clear(); }
 
+    static boolean isInteraction(ScriptHook hook) {
+        return hook.equals(RIGHT_CLICK) || hook.equals(LEFT_CLICK)
+                || hook.equals(SHIFT_RIGHT_CLICK) || hook.equals(SHIFT_LEFT_CLICK);
+    }
+
     public static Map<String,Object> copySnapshot(Map<String,Object> snapshot) { return EnchantmentValues.copy(snapshot); }
 
     private boolean elected() {
@@ -76,9 +81,10 @@ public final class EnchantmentInputs implements Listener {
     }
 
     /** Called after the base action succeeds. A stale or failed optional effect cannot replay the base action. */
-    public static void dispatch(Plugin owner, Map<String,Object> captured, ScriptHook hook, LivingEntity target, String stage) {
+    public static boolean dispatch(Plugin owner, Map<String,Object> captured, ScriptHook hook, LivingEntity target, String stage) {
         EnchantmentProviders.requireServerThread();
-        if (captured.isEmpty()) return;
+        if (captured.isEmpty()) return false;
+        boolean cancelled = false;
         Map<String,Object> snapshot = EnchantmentValues.copy(captured);
         for (Object raw : (List<?>) snapshot.get("effects")) {
             Map<?,?> effect = (Map<?,?>) raw;
@@ -95,12 +101,16 @@ public final class EnchantmentInputs implements Listener {
                 var source = new EnchantmentActions.Source((UUID) snapshot.get("attack"), (UUID) snapshot.get("actor"),
                         (UUID) snapshot.get("world"), lifetime, EnchantmentValues.copy((Map<?,?>) snapshot.get("facts")));
                 var action = EnchantmentActions.begin(resolved, level, source, hook);
-                if (action != null) action.dispatchFinal(stage, hook, target == null ? null : target.getUniqueId());
+                if (action != null) {
+                    action.dispatchFinal(stage, hook, target == null ? null : target.getUniqueId());
+                    cancelled |= action.cancelledInput();
+                }
             } catch (RuntimeException failure) {
                 owner.getLogger().warning("Optional enchantment " + id + " failed for attack "
                         + snapshot.get("attack") + ": " + failure.getMessage());
             }
         }
+        return cancelled;
     }
 
     private static long lifetime(Object authored) {
@@ -174,7 +184,7 @@ public final class EnchantmentInputs implements Listener {
         }
     }
 
-    @EventHandler(priority = EventPriority.MONITOR)
+    @EventHandler(priority = EventPriority.HIGHEST)
     public void interact(PlayerInteractEvent event) {
         // Bukkit denies the absent block side of ordinary air interactions. Both sides denied
         // is the same explicit protection/cancellation rule used by the existing FMM input owner.
@@ -186,16 +196,20 @@ public final class EnchantmentInputs implements Listener {
         Player player = event.getPlayer();
         ScriptHook hook = right ? (player.isSneaking() ? SHIFT_RIGHT_CLICK : RIGHT_CLICK)
                 : (player.isSneaking() ? SHIFT_LEFT_CLICK : LEFT_CLICK);
-        fire(player, event.getItem(), slot(event.getHand()), inventorySlot(player, event.getHand()), hook, null);
+        if (fire(player, event.getItem(), slot(event.getHand()), inventorySlot(player, event.getHand()), hook, null)) {
+            event.setUseItemInHand(Event.Result.DENY);
+            event.setUseInteractedBlock(Event.Result.DENY);
+        }
     }
 
     @EventHandler public void quit(PlayerQuitEvent event) { warned.remove(event.getPlayer().getUniqueId()); }
 
-    private void fire(Player actor, ItemStack item, EnchantmentDefinition.Slot slot, int index, ScriptHook hook, LivingEntity target) {
+    private boolean fire(Player actor, ItemStack item, EnchantmentDefinition.Slot slot, int index, ScriptHook hook, LivingEntity target) {
         try {
             UUID id = UUID.randomUUID();
-            dispatch(plugin, capture(actor, item, slot, index, null, "", id), hook, target, id.toString());
+            return dispatch(plugin, capture(actor, item, slot, index, null, "", id), hook, target, id.toString());
         } catch (RuntimeException invalid) { warn(actor, invalid); }
+        return false;
     }
     private void warn(Player player, RuntimeException failure) {
         if (warned.add(player.getUniqueId())) plugin.getLogger().warning("Enchantment input rejected for " + player.getName() + ": " + failure.getMessage());

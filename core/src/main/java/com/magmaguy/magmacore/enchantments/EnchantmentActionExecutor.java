@@ -128,9 +128,20 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
         if (!running.delivered.add(stage + "/" + hook.getKey())) return response(EnchantmentActions.Status.DUPLICATE);
         running.finalStage = finalStage;
         running.target = entity instanceof LivingEntity living ? living : null;
-        running.instance.handleEvent(hook, null, running.target, (LivingEntity) running.getBukkitEntity());
+        InputEvent input = EnchantmentInputs.isInteraction(hook) ? new InputEvent() : null;
+        running.instance.handleEvent(hook, input, running.target, (LivingEntity) running.getBukkitEntity());
         if (running.finalStage && !running.instance.hasOwnedWorkExcept(running.guardTask)) running.instance.shutdown();
-        return response(running.failed ? EnchantmentActions.Status.FAILED : EnchantmentActions.Status.OK);
+        return Map.of("status", (running.failed ? EnchantmentActions.Status.FAILED : EnchantmentActions.Status.OK).name(),
+                "cancelled", input != null && input.isCancelled());
+    }
+
+    /** Local event table; only its synchronous cancellation result crosses the provider boundary. */
+    private static final class InputEvent extends org.bukkit.event.Event implements org.bukkit.event.Cancellable {
+        private static final HandlerList HANDLERS = new HandlerList();
+        private boolean cancelled;
+        @Override public boolean isCancelled() { return cancelled; }
+        @Override public void setCancelled(boolean value) { cancelled = value; }
+        @Override public HandlerList getHandlers() { return HANDLERS; }
     }
 
     void reload(EnchantmentCatalog candidate) {
