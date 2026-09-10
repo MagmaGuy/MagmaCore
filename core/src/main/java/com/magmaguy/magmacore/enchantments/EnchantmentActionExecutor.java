@@ -328,6 +328,17 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
                         return LuaValue.valueOf(com.magmaguy.magmacore.scripting.ScriptBlockActions
                                 .breakBlock(player, world.getBlockAt(x, y, z), expected, drop));
                     }));
+                    table.set("break_naturally", LuaTableSupport.tableMethod(table, args -> {
+                        var world = Bukkit.getWorld(source.world());
+                        int x = args.checkint(1), y = args.checkint(2), z = args.checkint(3);
+                        if (!(getBukkitEntity() instanceof Player player) || !isScriptOwnerActive() || world == null
+                                || !world.isChunkLoaded(x >> 4, z >> 4)
+                                || y < world.getMinHeight() || y >= world.getMaxHeight()
+                                || !(source.facts().get("item") instanceof org.bukkit.inventory.ItemStack tool)) return LuaValue.FALSE;
+                        return LuaValue.valueOf(com.magmaguy.magmacore.scripting.ScriptBlockActions.breakNaturally(
+                                player, world.getBlockAt(x, y, z), org.bukkit.Material.matchMaterial(args.checkjstring(4)), tool,
+                                !Boolean.FALSE.equals(source.facts().get("drop_items"))));
+                    }));
                     table.set("temporary_block", LuaTableSupport.tableMethod(table, args -> {
                         var world = Bukkit.getWorld(source.world());
                         int x = args.checkint(1), y = args.checkint(2), z = args.checkint(3);

@@ -253,7 +253,7 @@ public final class LuaWorldTable {
             return result;
         }));
 
-        // raycast(from_x, from_y, from_z, dir_x, dir_y, dir_z, max_distance)
+        // raycast(from_x, from_y, from_z, dir_x, dir_y, dir_z, max_distance, fluid_mode?, blocks_only?)
         table.set("raycast", method(table, args -> {
             double fx = args.checkdouble(1);
             double fy = args.checkdouble(2);
@@ -262,12 +262,14 @@ public final class LuaWorldTable {
             double dy = args.checkdouble(5);
             double dz = args.checkdouble(6);
             double maxDist = args.optdouble(7, 50);
+            FluidCollisionMode fluid = FluidCollisionMode.valueOf(args.optjstring(8, "NEVER").toUpperCase(Locale.ROOT));
+            boolean blocksOnly = args.optboolean(9, false);
 
             Location start = new Location(world, fx, fy, fz);
             Vector direction = new Vector(dx, dy, dz).normalize();
 
-            RayTraceResult result = world.rayTrace(start, direction, maxDist,
-                    FluidCollisionMode.NEVER, true, 0.5, null);
+            RayTraceResult result = blocksOnly ? world.rayTraceBlocks(start, direction, maxDist, fluid)
+                    : world.rayTrace(start, direction, maxDist, fluid, fluid == FluidCollisionMode.NEVER, 0.5, null);
 
             LuaTable resultTable = new LuaTable();
             if (result == null) {

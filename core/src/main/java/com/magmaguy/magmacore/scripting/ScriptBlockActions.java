@@ -60,6 +60,16 @@ public final class ScriptBlockActions {
      * Null means intentional no drops. The child event can cancel or suppress drops.
      */
     public static boolean breakBlock(Player player, Block block, Material expected, ItemStack drop) {
+        return breakBlock(player, block, expected, drop, null, true);
+    }
+
+    /** Natural loot uses the captured tool, after the same cancellable authorization as authored drops. */
+    public static boolean breakNaturally(Player player, Block block, Material expected, ItemStack tool, boolean dropItems) {
+        return breakBlock(player, block, expected, null, java.util.Objects.requireNonNull(tool, "tool").clone(), dropItems);
+    }
+
+    private static boolean breakBlock(Player player, Block block, Material expected, ItemStack drop,
+                                      ItemStack tool, boolean dropItems) {
         if (!Bukkit.isPrimaryThread()) throw new IllegalStateException("Script mining requires the server thread");
         if (player == null || !player.isOnline() || !player.isValid() || player.isDead() || block == null
                 || !player.getWorld().equals(block.getWorld()) || expected == null || expected.isAir()
@@ -72,17 +82,20 @@ public final class ScriptBlockActions {
                 || !capturedDrop.getType().isItem())) throw new IllegalArgumentException("Invalid authored mining drop");
         String original = block.getBlockData().getAsString();
         BlockBreakEvent event = new ScriptBreakEvent(block, player);
-        event.setDropItems(capturedDrop != null);
+        event.setDropItems(dropItems && (capturedDrop != null || tool != null));
         Bukkit.getPluginManager().callEvent(event);
         if (event.isCancelled() || !player.isOnline() || !player.isValid() || player.isDead()
                 || !player.getWorld().equals(block.getWorld())
                 || !block.getWorld().isChunkLoaded(block.getX() >> 4, block.getZ() >> 4)
                 || !original.equals(block.getBlockData().getAsString())
                 || !LocationQueryRegistry.canBuild(player, block.getLocation())) return false;
+        var drops = dropItems && event.isDropItems() ? tool != null ? block.getDrops(tool, player).stream().map(ItemStack::clone).toList()
+                : capturedDrop == null ? java.util.List.<ItemStack>of() : java.util.List.of(capturedDrop)
+                : java.util.List.<ItemStack>of();
         block.setType(Material.AIR);
         if (block.getType() != Material.AIR) return false;
-        if (capturedDrop != null && event.isDropItems())
-            block.getWorld().dropItemNaturally(block.getLocation().add(.5, .5, .5), capturedDrop);
+        for (ItemStack result : drops)
+            block.getWorld().dropItemNaturally(block.getLocation().add(.5, .5, .5), result);
         return true;
     }
 

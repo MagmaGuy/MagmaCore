@@ -20,8 +20,9 @@ public final class EnchantmentInputs implements Listener {
     public static final ScriptHook LEFT_CLICK = new ScriptHook("on_left_click");
     public static final ScriptHook SHIFT_RIGHT_CLICK = new ScriptHook("on_shift_right_click");
     public static final ScriptHook SHIFT_LEFT_CLICK = new ScriptHook("on_shift_left_click");
+    public static final ScriptHook BREAK_BLOCK = new ScriptHook("on_break_block");
     public static final Set<ScriptHook> HOOKS = Set.of(ATTACK, PROJECTILE_HIT, TAKE_DAMAGE,
-            RIGHT_CLICK, LEFT_CLICK, SHIFT_RIGHT_CLICK, SHIFT_LEFT_CLICK,
+            RIGHT_CLICK, LEFT_CLICK, SHIFT_RIGHT_CLICK, SHIFT_LEFT_CLICK, BREAK_BLOCK,
             ScriptHook.ON_TICK, ScriptHook.ON_ZONE_ENTER, ScriptHook.ON_ZONE_LEAVE);
     private static final String SHOT = "nightbreak_enchantment_shot";
     private static final String EXPLICIT_DAMAGE = "nightbreak_enchantment_explicit_damage";
@@ -260,6 +261,28 @@ public final class EnchantmentInputs implements Listener {
     }
 
     @EventHandler public void quit(PlayerQuitEvent event) { warned.remove(event.getPlayer().getUniqueId()); }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void mine(org.bukkit.event.block.BlockBreakEvent event) {
+        if (!elected() || event.getClass() != org.bukkit.event.block.BlockBreakEvent.class) return;
+        Player actor = event.getPlayer();
+        try {
+            UUID id = UUID.randomUUID();
+            var captured = capture(actor, actor.getInventory().getItemInMainHand(), EnchantmentDefinition.Slot.MAINHAND,
+                    actor.getInventory().getHeldItemSlot(), null, "", id);
+            if (captured.isEmpty()) return;
+            Map<String, Object> source = new LinkedHashMap<>(captured);
+            @SuppressWarnings("unchecked") Map<String, Object> originalFacts = (Map<String, Object>) captured.get("facts");
+            Map<String, Object> facts = new LinkedHashMap<>(originalFacts);
+            var block = event.getBlock();
+            facts.put("block", Map.of("x", block.getX(), "y", block.getY(), "z", block.getZ(),
+                    "material", block.getType().name().toLowerCase(Locale.ROOT)));
+            facts.put("drop_items", event.isDropItems());
+            facts.put("sneaking", actor.isSneaking());
+            source.put("facts", facts);
+            dispatch(plugin, source, BREAK_BLOCK, null, id.toString());
+        } catch (RuntimeException invalid) { warn(actor, invalid); }
+    }
 
     private boolean fire(Player actor, ItemStack item, EnchantmentDefinition.Slot slot, int index, ScriptHook hook, LivingEntity target) {
         try {
