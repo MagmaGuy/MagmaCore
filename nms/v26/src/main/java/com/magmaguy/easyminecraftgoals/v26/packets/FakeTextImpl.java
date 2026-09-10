@@ -108,6 +108,9 @@ public class FakeTextImpl implements FakeText, TrackedPacketEntity {
             entity = createTextDisplayEntity(location);
         }
 
+        // Set the native pose before spawning to the viewer. The wrapper's cached
+        // location alone leaves stationary text at the world's origin.
+        entity.teleport(location);
         playerEntities.put(uuid, entity);
         entity.displayTo(uuid);
 

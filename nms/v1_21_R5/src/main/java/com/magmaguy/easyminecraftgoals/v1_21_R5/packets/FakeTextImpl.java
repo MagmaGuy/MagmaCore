@@ -75,6 +75,9 @@ public class FakeTextImpl implements FakeText, TrackedPacketEntity {
         boolean isBedrock = BedrockChecker.isBedrock(player);
         PacketEntityInterface entity = isBedrock ? createArmorStandEntity(location) : createTextDisplayEntity(location);
         if (isBedrock) bedrockPlayers.add(uuid);
+        // Set the native pose before spawning to the viewer. The wrapper's cached
+        // location alone leaves stationary text at the world's origin.
+        entity.teleport(location);
         playerEntities.put(uuid, entity);
         entity.displayTo(uuid);
         if (currentVehicleId != -1) entity.mountTo(currentVehicleId);
