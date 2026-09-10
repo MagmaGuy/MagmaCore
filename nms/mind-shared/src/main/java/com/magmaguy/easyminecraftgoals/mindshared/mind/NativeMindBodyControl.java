@@ -84,11 +84,17 @@ final class NativeMindBodyControl {
         mob.getLookControl().tick();
         mob.getJumpControl().tick();
         if (squidMovementVector != null && mob.isInWater()) {
+            // MoveControl emits 0..360 yaw, but Squid.aiStep blends body yaw toward
+            // atan2's -180..180 result without wrapping. Keep equivalent angles in
+            // the same range or native animation fights turns across 180 degrees.
+            float yaw = net.minecraft.util.Mth.wrapDegrees(mob.getYRot());
+            mob.setYRot(yaw);
+            mob.setYBodyRot(yaw);
             // Swimming control emits local steering scaled by the movement attribute and
             // navigation speed. Squid.travel ignores that input and consumes delta instead.
             // Preserve the native squid's 0.2 swim speed at its default movement attribute.
             Vec3 movement = new Vec3(mob.xxa, mob.yya, mob.zza)
-                    .yRot((float) Math.toRadians(-mob.getYRot()))
+                    .yRot((float) Math.toRadians(-yaw))
                     .scale(0.2D / Attributes.MOVEMENT_SPEED.value().getDefaultValue());
             setSquidMovement(movement);
         }
