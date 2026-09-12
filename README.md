@@ -4,9 +4,9 @@ Shared library and framework that backs the MagmaGuy plugin ecosystem
 (EliteMobs, FreeMinecraftModels, ResourcePackManager, BetterStructures, and
 others). It bundles two things consumers would otherwise each reimplement:
 
-- **Cross-version NMS abstraction** — a single API over many Minecraft server
+- **Cross-version NMS abstraction**: a single API over many Minecraft server
   internals, with one reobfuscated adapter compiled per server revision.
-- **EasyMinecraftGoals** — a packet-based fake/"client-side" entity API
+- **EasyMinecraftGoals**: a packet-based fake/"client-side" entity API
   (`com.magmaguy.easyminecraftgoals`) for spawning model, text, item and
   interaction entities that exist only as packets, plus pathfinding/goal helpers
   (wander-back-to-point, move, hitboxes, mass block edits).
@@ -18,17 +18,17 @@ into each consuming plugin's jar.
 
 This is a multi-module Gradle build (`settings.gradle.kts`):
 
-- `core` — version-independent code: the `MagmaCore` entry point, config helpers
+- `core`: version-independent code: the `MagmaCore` entry point, config helpers
   (`ConfigurationFile`, `CustomConfig`, `ConfigurationEngine`), menus, commands,
   the match/instance system, world/region protection queries
   (`LocationQueryRegistry` with WorldGuard + GriefPrevention adapters), custom
   biome compatibility (`CustomBiomeCompatibility`), Lua scripting, the Nightbreak
   DLC/content pipeline, and shared utilities.
-- `nms:core` — the version-independent EasyMinecraftGoals API and the
+- `nms:core`: the version-independent EasyMinecraftGoals API and the
   `NMSManager`/`NMSAdapter` contract that runtime adapters implement.
-- `nms:v1_21_R3` … `nms:v1_21_R7_*`, `nms:v26` — one adapter per supported server
+- `nms:v1_21_R3` … `nms:v1_21_R7_*`, `nms:v26`: one adapter per supported server
   revision (see range below).
-- `dist` — the shaded distribution module. Its `shadowJar` task assembles `core`,
+- `dist`: the shaded distribution module. Its `shadowJar` task assembles `core`,
   `nms:core` and every per-version adapter into a single `MagmaCore` jar
   (relocating `org.luaj` and `org.reflections` under `com.magmaguy.shaded`).
 
@@ -36,7 +36,7 @@ This is a multi-module Gradle build (`settings.gradle.kts`):
 
 `NMSManager` selects an adapter at runtime from the bundled per-version modules,
 spanning **Minecraft 1.21.4 through the rest of the 1.21.x line and the new
-year.drop versioning (26.x)**. **1.21.4 is the support floor** — servers older
+year.drop versioning (26.x)**. **1.21.4 is the support floor**: servers older
 than that get a clear "unsupported Minecraft version" log line and NMS features
 stay disabled.
 
@@ -49,14 +49,17 @@ stay disabled.
 | `v1_21_R7_spigot` / `v1_21_R7_paper` | 1.21.11 (Paper hard-forked, so Spigot and Paper get separate adapters) |
 | `v26`                 | 26.1+ (fully unobfuscated, single unified adapter) |
 
-The authoritative mapping lives in
-`nms/core/.../NMSManager#getInternalsFromRevision`.
+The adapter mapping lives in [NMSManager](nms/core/src/main/java/com/magmaguy/easyminecraftgoals/NMSManager.java). A matching adapter is not a claim that every feature has been tested on every server version.
 
 The pre-1.21.4 adapter modules (`v1_19_R3`, `v1_20_R1`–`v1_20_R4`, `v1_21_R1`,
 `v1_21_R2`) have been removed from the working tree and from
 `settings.gradle.kts` / `dist/build.gradle.kts`. Recover their sources from git
 history as well as restoring their Gradle entries if support below 1.21.4 is
 ever required again.
+
+## Shared plugin services
+
+The `core` module also owns shared custom enchantments and item actions, Nightbreak account and update handling, content catalogs and setup menus, text displays, and cross-plugin protection queries. Consumers should use these existing owners rather than create a second implementation of the same behavior.
 
 ## Native Mind adapters
 
@@ -121,7 +124,7 @@ dependencies {
 Consumers shade the artifact into their final jar. Some relocate it under their
 own namespace (e.g. FreeMinecraftModels shades it to
 `com.magmaguy.freeminecraftmodels.magmacore`), while others ship it at its
-original package — both are supported, since shared registries discover providers
+original package: both are supported, since shared registries discover providers
 across classloaders at runtime.
 
 In your plugin, obtain the singleton via `MagmaCore.createInstance(yourPlugin)`
@@ -130,7 +133,7 @@ and, where you need packet entities/NMS, call
 
 ## Building and publishing locally
 
-JDK 21 is required. Use the Gradle wrapper.
+Build with JDK 21 and the Gradle wrapper. On Windows, replace `./gradlew` below with `.\gradlew.bat`. A server running a consuming plugin must also meet that server release's Java requirements.
 
 Build the shaded distribution jar:
 
@@ -147,8 +150,7 @@ changes from their local build, install it to your local Maven repository:
 ./gradlew publishToMavenLocal
 ```
 
-Consuming plugins resolve `mavenLocal()` first, so after a `publishToMavenLocal`
-their next build shades in your local changes. (Some consumers pin a specific
+Consumers configured to resolve Maven Local can pick up the locally published artifact. Check their repository order and dependency version, then rebuild each consuming plugin to shade the changed library. (Some consumers pin a specific
 MagmaCore version in their build files and must be bumped explicitly to pick up a
 new one.)
 
@@ -165,6 +167,7 @@ Plugins that depend on and shade MagmaCore include:
 - Extractioncraft
 - MegaBlock Survivors
 - ResurrectionChest
+- BetterFood
 
 ## License
 
