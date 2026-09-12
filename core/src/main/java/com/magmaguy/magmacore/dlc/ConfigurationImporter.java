@@ -73,7 +73,9 @@ public class ConfigurationImporter {
             return;
         }
         pluginPlatform = getPluginPlatform(this.ownerPlugin.getName());
+        archiveOutdatedConfigurations();
         processImportsFolder();
+        archiveOutdatedConfigurations();
         if (Bukkit.getPluginManager().isPluginEnabled("FreeMinecraftModels") && modelsInstalled
                 && !this.ownerPlugin.getName().equals("FreeMinecraftModels")) {
             if (Bukkit.isPrimaryThread()) {
@@ -97,6 +99,14 @@ public class ConfigurationImporter {
         }
         Logger.info("Cleaning up " + file.getPath());
         file.delete();
+    }
+
+    private void archiveOutdatedConfigurations() {
+        // One pack can target several plugins. Read each target's bundled policy
+        // through Bukkit, rather than relying on another shaded copy's static state.
+        for (var plugin : Bukkit.getPluginManager().getPlugins())
+            if (plugin instanceof JavaPlugin target && (target.isEnabled() || target == ownerPlugin))
+                com.magmaguy.magmacore.config.OutdatedConfigurationArchive.archive(target);
     }
 
     private void moveWorlds(

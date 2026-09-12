@@ -29,6 +29,7 @@ public final class ContentFileSelector {
                 String.CASE_INSENSITIVE_ORDER).thenComparing(ContentFileSelector::absolutePath);
         Map<String, File> selected = new LinkedHashMap<>();
         for (File file : candidates.stream().sorted(order).toList()) {
+            if (OutdatedConfigurationArchive.isArchivePath(file.toPath())) continue;
             File previous = selected.putIfAbsent(filenameKey.apply(file.getName()), file);
             if (previous != null && !absolutePath(previous).equals(absolutePath(file)))
                 Logger.warn("Duplicate content filename '" + file.getName() + "': selected "

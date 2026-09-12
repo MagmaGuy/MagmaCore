@@ -13,6 +13,9 @@ covers dependency setup, shading, classloaders, initialization, shutdown,
 protection queries and NMS adapters. The [Java API index](https://wiki.nightbreak.io/developers)
 links the individual plugin APIs.
 
+[Outdated configuration archival](OUTDATED_CONFIGURATIONS.md) describes bundled
+retired-key rules and the shared initialization/import behavior.
+
 Coordinate: `com.magmaguy:MagmaCore:2.2.0-SNAPSHOT`, available from
 [MagmaGuy's snapshots repository](https://repo.magmaguy.com/#/snapshots).
 Consumers include the library in their shaded output.

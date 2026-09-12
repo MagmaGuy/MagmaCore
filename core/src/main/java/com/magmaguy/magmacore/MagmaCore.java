@@ -211,7 +211,10 @@ public final class MagmaCore {
                                            Consumer<PluginInitializationContext> syncInitialization,
                                            Runnable onSuccess,
                                            Consumer<Throwable> onFailure) {
-        PluginInitializationManager.run(plugin, config, asyncInitialization, syncInitialization, onSuccess, onFailure);
+        PluginInitializationManager.run(plugin, config, context -> {
+            com.magmaguy.magmacore.config.OutdatedConfigurationArchive.archive(plugin);
+            asyncInitialization.accept(context);
+        }, syncInitialization, onSuccess, onFailure);
     }
 
     public static PluginInitializationState getInitializationState(String pluginName) {

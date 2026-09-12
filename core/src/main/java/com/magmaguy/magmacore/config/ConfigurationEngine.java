@@ -42,6 +42,8 @@ public class ConfigurationEngine {
     }
 
     public static FileConfiguration fileConfigurationCreator(File file) {
+        if (OutdatedConfigurationArchive.isArchivePath(file.toPath()))
+            throw new IllegalArgumentException("Archived configurations cannot be loaded: " + file);
         try {
             return YamlConfiguration.loadConfiguration(new InputStreamReader(Files.newInputStream(file.toPath().normalize().toAbsolutePath()), StandardCharsets.UTF_8));
         } catch (Exception exception) {
