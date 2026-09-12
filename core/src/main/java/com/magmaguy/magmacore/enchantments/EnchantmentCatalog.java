@@ -63,25 +63,7 @@ public final class EnchantmentCatalog {
             public Path getScriptDirectory() { return root; }
             public ScriptHook resolveHook(String key) { return hooks.get(key); }
         };
-        List<File> candidates = new ArrayList<>();
-        Files.walkFileTree(root, new SimpleFileVisitor<>() {
-            @Override public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
-                requireContained(root, dir);
-                return FileVisitResult.CONTINUE;
-            }
-            @Override public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                String name = file.getFileName().toString().toLowerCase(Locale.ROOT);
-                if (name.endsWith(".yml") || name.endsWith(".yaml") || name.endsWith(".lua")) {
-                    requireContained(root, file);
-                    if (!Files.isRegularFile(file)) throw new IOException("Not a regular content file: " + file);
-                    candidates.add(file.toFile());
-                }
-                return FileVisitResult.CONTINUE;
-            }
-        });
-        Map<String, Path> selected = new LinkedHashMap<>();
-        for (File file : ContentFileSelector.select(candidates, name -> name.toLowerCase(Locale.ROOT)))
-            selected.put(file.getName().toLowerCase(Locale.ROOT), file.toPath());
+        Map<String, Path> selected = selectSources(root);
         Map<String, EnchantmentDefinition> definitions = new LinkedHashMap<>();
         Map<String, ScriptDefinition> scripts = new LinkedHashMap<>();
         Map<String, ScriptDefinition> validatedScripts = new LinkedHashMap<>();
@@ -122,6 +104,65 @@ public final class EnchantmentCatalog {
 
     private static void requireContained(Path root, Path path) throws IOException {
         if (!path.toRealPath().startsWith(root)) throw new IOException("Enchantment content escapes its root: " + path);
+    }
+
+    /** Uses the same per-file selection and additive defaults policy as CustomConfig. */
+    public static void initializeDefaults(org.bukkit.plugin.java.JavaPlugin plugin, Path directory,
+                                          java.util.Collection<String> names) throws IOException {
+        Files.createDirectories(directory);
+        Path root = directory.toRealPath();
+        Map<String, Path> selected = selectSources(root);
+        for (String name : names) {
+            String yamlName = name + ".yml";
+            Path yamlPath = selected.getOrDefault(yamlName, selected.get(name + ".yaml"));
+            if (yamlPath == null) {
+                plugin.saveResource("enchantments/" + yamlName, false);
+            } else {
+                YamlConfiguration current = new YamlConfiguration();
+                YamlConfiguration defaults = new YamlConfiguration();
+                try (var input = plugin.getResource("enchantments/" + yamlName)) {
+                    if (input == null) throw new IOException("Missing bundled enchantment " + yamlName);
+                    current.loadFromString(readSource(root, yamlPath));
+                    defaults.load(new java.io.InputStreamReader(input, StandardCharsets.UTF_8));
+                    // Retired files are operator-owned. Clearing them allows normal default regeneration.
+                    if (!current.contains("script") && current.contains("maxLevelV2")) continue;
+                    boolean missing = defaults.getKeys(true).stream()
+                            .anyMatch(key -> !defaults.isConfigurationSection(key) && !current.contains(key));
+                    if (missing) {
+                        current.setDefaults(defaults);
+                        current.options().copyDefaults(true);
+                        current.save(yamlPath.toFile());
+                    }
+                } catch (InvalidConfigurationException failure) {
+                    throw new IOException("Invalid enchantment configuration " + yamlPath, failure);
+                }
+            }
+            if (!selected.containsKey(name + ".lua"))
+                plugin.saveResource("enchantments/" + name + ".lua", false);
+        }
+    }
+
+    private static Map<String, Path> selectSources(Path root) throws IOException {
+        List<File> candidates = new ArrayList<>();
+        Files.walkFileTree(root, new SimpleFileVisitor<>() {
+            @Override public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
+                requireContained(root, dir);
+                return FileVisitResult.CONTINUE;
+            }
+            @Override public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                String name = file.getFileName().toString().toLowerCase(Locale.ROOT);
+                if (name.endsWith(".yml") || name.endsWith(".yaml") || name.endsWith(".lua")) {
+                    requireContained(root, file);
+                    if (!Files.isRegularFile(file)) throw new IOException("Not a regular content file: " + file);
+                    candidates.add(file.toFile());
+                }
+                return FileVisitResult.CONTINUE;
+            }
+        });
+        Map<String, Path> selected = new LinkedHashMap<>();
+        for (File file : ContentFileSelector.select(candidates, name -> name.toLowerCase(Locale.ROOT)))
+            selected.put(file.getName().toLowerCase(Locale.ROOT), file.toPath());
+        return selected;
     }
 
     private static String readSource(Path root, Path path) throws IOException {

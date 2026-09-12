@@ -199,7 +199,7 @@ public final class EnchantmentAnvil {
             } finally { committing.remove(inventory); }
         }
         @EventHandler public void closed(InventoryCloseEvent event) { prepared.remove(event.getInventory()); denied.remove(event.getInventory()); }
-        private boolean hasCustom(ItemStack item) { return items.inspect(item).keySet().stream().anyMatch(id -> !id.startsWith("minecraft:")); }
+        private boolean hasCustom(ItemStack item) { return !EnchantmentItems.inspectCustom(item.getItemMeta()).isEmpty(); }
     }
 
     private static int priorWork(ItemStack item) {

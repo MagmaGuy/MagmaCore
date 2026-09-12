@@ -69,7 +69,8 @@ public class CommandManager implements CommandExecutor, TabCompleter {
                     return true;
                 }
             }
-            commands.forEach(command -> sender.sendMessage(command.getUsage()));
+            commands.stream().filter(command -> canSuggest(sender, command))
+                    .forEach(command -> sender.sendMessage(command.getUsage()));
             return true;
         }
 
@@ -93,7 +94,8 @@ public class CommandManager implements CommandExecutor, TabCompleter {
         }
 
         // If no matching subcommand was found, provide suggestions:
-        List<AdvancedCommand> suggestions = findAliasSuggestions(commands, args[0]);
+        List<AdvancedCommand> suggestions = findAliasSuggestions(commands, args[0]).stream()
+                .filter(suggestion -> canSuggest(sender, suggestion)).toList();
 
         if (!suggestions.isEmpty()) {
             Logger.sendMessage(sender, "Unknown command! Did you mean one of the following?");
@@ -167,13 +169,13 @@ public class CommandManager implements CommandExecutor, TabCompleter {
     }
 
     private List<String> tabCompleteRestOfArguments(CommandSender sender, String[] args) {
-        if (args[0] == null) return List.of();
+        if (args.length == 0 || args[0] == null) return List.of();
 
         List<String> completions = new ArrayList<>();
 
         if (args.length == 1) {
             for (AdvancedCommand command : commands) {
-                if (command.aliasStartMatches(args[0]))
+                if (canSuggest(sender, command) && command.aliasStartMatches(args[0]))
                     completions.addAll(command.getAliases());
             }
             return completions;
@@ -181,7 +183,7 @@ public class CommandManager implements CommandExecutor, TabCompleter {
 
         for (AdvancedCommand command : commands) {
             if (!command.aliasMatches(args[0])) continue;
-            if (!command.isEnabled() || !permissionCheck(sender, command)) continue;
+            if (!canSuggest(sender, command)) continue;
 
             int currentArgumentIndex = args.length - 2;
             String currentArgument = args[args.length - 1];
@@ -208,6 +210,12 @@ public class CommandManager implements CommandExecutor, TabCompleter {
         }
 
         return completions;
+    }
+
+    private boolean canSuggest(CommandSender sender, AdvancedCommand command) {
+        return command.isEnabled()
+                && (command.getSenderType() != SenderType.PLAYER || sender instanceof Player)
+                && permissionCheck(sender, command);
     }
 
     private boolean permissionCheck(CommandSender commandSender, AdvancedCommand command) {

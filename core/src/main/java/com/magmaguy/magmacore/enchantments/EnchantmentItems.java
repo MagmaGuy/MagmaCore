@@ -226,7 +226,22 @@ public final class EnchantmentItems {
         return List.copyOf(problems);
     }
 
-    private static Map<Enchantment, Integer> nativeEnchantments(ItemMeta meta) {
+    static void validateAnvilNatives(ItemStack item) {
+        var natives = nativeEnchantments(requireMeta(item));
+        for (var entry : natives.entrySet()) {
+            Enchantment enchantment = entry.getKey();
+            if (!enchantment.getKey().getNamespace().equals("minecraft")) continue;
+            if (entry.getValue() < 1 || entry.getValue() > enchantment.getMaxLevel())
+                throw new IllegalArgumentException("Native level exceeds its limit: " + enchantment.getKey());
+            if (!isBook(item) && !enchantment.canEnchantItem(item))
+                throw new IllegalArgumentException("Native enchantment does not support this item: " + enchantment.getKey());
+            for (Enchantment other : natives.keySet())
+                if (other != enchantment && (enchantment.conflictsWith(other) || other.conflictsWith(enchantment)))
+                    throw new IllegalArgumentException("Conflicting native enchantments: " + enchantment.getKey() + " / " + other.getKey());
+        }
+    }
+
+    static Map<Enchantment, Integer> nativeEnchantments(ItemMeta meta) {
         if (meta instanceof EnchantmentStorageMeta book) {
             if (!meta.getEnchants().isEmpty()) throw new IllegalArgumentException("Book has conflicting native storage forms");
             return book.getStoredEnchants();

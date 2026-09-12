@@ -12,18 +12,19 @@ public final class EnchantmentAnvilMerge {
     public Preview prepare(ItemStack source, ItemStack book, ItemStack nativeResult, int baseCost) {
         if (source == null || book == null || book.getType() != Material.ENCHANTED_BOOK || baseCost < 0)
             throw new IllegalArgumentException("Expected an item, actual enchanted book and nonnegative native cost");
-        var original = items.inspect(source);
-        var additions = items.inspect(book);
-        var sourceValidation = items.preview(source, original);
-        var bookValidation = items.preview(book, additions);
-        if (additions.isEmpty()) throw new IllegalArgumentException("Book has no transferable enchantments");
-        var custom = new LinkedHashMap<String,Integer>();
-        original.forEach((id, level) -> { if (!id.startsWith("minecraft:")) custom.put(id, level); });
-        boolean containsCustom = !custom.isEmpty() || additions.keySet().stream().anyMatch(id -> !id.startsWith("minecraft:"));
+        var original = EnchantmentItems.inspectCustom(source.getItemMeta());
+        var additions = EnchantmentItems.inspectCustom(book.getItemMeta());
+        EnchantmentItems.validateAnvilNatives(source);
+        EnchantmentItems.validateAnvilNatives(book);
+        var sourceValidation = items.previewCustom(source, original);
+        var bookValidation = items.previewCustom(book, additions);
+        var nativeAdditions = EnchantmentItems.nativeEnchantments(book.getItemMeta());
+        if (additions.isEmpty() && nativeAdditions.isEmpty()) throw new IllegalArgumentException("Book has no transferable enchantments");
+        var custom = new LinkedHashMap<String,Integer>(original);
+        boolean containsCustom = !custom.isEmpty() || !additions.isEmpty();
         if (!containsCustom) throw new IllegalArgumentException("Native-only operation belongs to the server");
         int additionalCost = 0;
         for (var entry : additions.entrySet()) {
-            if (entry.getKey().startsWith("minecraft:")) continue;
             int previous = custom.getOrDefault(entry.getKey(), 0);
             int next = previous == entry.getValue() ? Math.addExact(previous, 1) : Math.max(previous, entry.getValue());
             custom.put(entry.getKey(), next);
@@ -31,23 +32,22 @@ public final class EnchantmentAnvilMerge {
         }
         ItemStack draft = nativeResult == null ? source.clone() : nativeResult.clone();
         draft.setAmount(1);
-        var resultNatives = items.inspect(draft);
+        var resultNatives = EnchantmentItems.nativeEnchantments(draft.getItemMeta());
+        var sourceNatives = EnchantmentItems.nativeEnchantments(source.getItemMeta());
         // A mixed book must not silently lose a native entry the server refused to apply.
-        for (var entry : additions.entrySet()) {
-            if (!entry.getKey().startsWith("minecraft:")) continue;
-            int old = original.getOrDefault(entry.getKey(), 0);
+        for (var entry : nativeAdditions.entrySet()) {
+            int old = sourceNatives.getOrDefault(entry.getKey(), 0);
             int expected = old == entry.getValue() ? Math.addExact(old, 1) : Math.max(old, entry.getValue());
-            var nativeEnchantment = org.bukkit.Registry.ENCHANTMENT.get(org.bukkit.NamespacedKey.fromString(entry.getKey()));
-            if (nativeEnchantment == null) throw new IllegalArgumentException("Unknown native enchantment");
+            var nativeEnchantment = entry.getKey();
             expected = Math.min(expected, nativeEnchantment.getMaxLevel());
-            if (nativeResult == null || resultNatives.getOrDefault(entry.getKey(), 0) != expected)
+            int actual = resultNatives.getOrDefault(entry.getKey(), 0);
+            boolean accepted = nativeEnchantment.getKey().getNamespace().equals("minecraft")
+                    ? actual == expected
+                    : actual >= Math.min(Math.max(old, entry.getValue()), nativeEnchantment.getMaxLevel());
+            if (nativeResult == null || !accepted)
                 throw new IllegalArgumentException("The server rejected a native book entry: " + entry.getKey());
         }
-        var complete = new LinkedHashMap<String,Integer>();
-        resultNatives.forEach((id, level) -> { if (id.startsWith("minecraft:")) complete.put(id, level); });
-        complete.putAll(custom);
-        // Validate all resulting native conflicts and item restrictions as well as the custom set.
-        items.preview(draft, complete);
+        EnchantmentItems.validateAnvilNatives(draft);
         var result = items.previewCustom(draft, custom);
         if (additionalCost == 0 && nativeResult == null)
             throw new IllegalArgumentException("Book makes no transferable change");
