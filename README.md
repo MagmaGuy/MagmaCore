@@ -6,13 +6,15 @@ shaded into each consumer's JAR and is not a standalone Minecraft plugin.
 
 ## Developer documentation
 
+[Java class and method reference](https://wiki.nightbreak.io/javadoc/magmacore/index.html).
+
 The [MagmaCore developer guide](https://wiki.nightbreak.io/developers/magmacore)
 covers dependency setup, shading, classloaders, initialization, shutdown,
 protection queries and NMS adapters. The [Java API index](https://wiki.nightbreak.io/developers)
 links the individual plugin APIs.
 
 Coordinate: `com.magmaguy:MagmaCore:2.2.0-SNAPSHOT`, available from
-[MagmaGuy's snapshots repository](https://repo.magmaguy.com/snapshots).
+[MagmaGuy's snapshots repository](https://repo.magmaguy.com/#/snapshots).
 Consumers include the library in their shaded output.
 
 ## Source structure
