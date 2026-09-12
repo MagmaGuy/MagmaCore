@@ -81,8 +81,19 @@ public class ConfigurationImporter {
             if (Bukkit.isPrimaryThread()) {
                 Bukkit.getPluginManager().callEvent(new ModelInstallationEvent());
             } else {
-                Bukkit.getScheduler().runTask(this.ownerPlugin,
-                        () -> Bukkit.getPluginManager().callEvent(new ModelInstallationEvent()));
+                try {
+                    // Return only after FMM has accepted the reload and published its
+                    // initialization state. Consumers can then await actual readiness.
+                    Bukkit.getScheduler().callSyncMethod(this.ownerPlugin, () -> {
+                        Bukkit.getPluginManager().callEvent(new ModelInstallationEvent());
+                        return null;
+                    }).get(30, java.util.concurrent.TimeUnit.SECONDS);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("Interrupted while starting imported model reload", interrupted);
+                } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException failure) {
+                    throw new IllegalStateException("Could not start imported model reload", failure);
+                }
             }
         }
     }
