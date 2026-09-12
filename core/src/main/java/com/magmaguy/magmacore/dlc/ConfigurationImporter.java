@@ -9,6 +9,8 @@ import com.magmaguy.magmacore.util.WorldFolderResolver;
 import com.magmaguy.magmacore.util.ZipFile;
 import org.apache.commons.io.FileUtils;
 import org.bukkit.Bukkit;
+import org.bukkit.World;
+import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.File;
@@ -134,14 +136,12 @@ public class ConfigurationImporter {
                 if (Bukkit.getWorld(file.getName()) != null) {
                     boolean unloaded;
                     if (Bukkit.isPrimaryThread()) {
-                        unloaded = Bukkit.unloadWorld(file.getName(), false);
+                        unloaded = unloadWorldForImport(file.getName());
                     } else {
                         Future<Boolean> unloadFuture =
                                 Bukkit.getScheduler().callSyncMethod(
                                         ownerPlugin,
-                                        () -> Bukkit.unloadWorld(
-                                                file.getName(),
-                                                false));
+                                        () -> unloadWorldForImport(file.getName()));
                         unloaded = awaitWorldUnload(
                                 unloadFuture,
                                 () -> MagmaCore.isShutdownRequested(ownerPlugin),
@@ -165,6 +165,28 @@ public class ConfigurationImporter {
             }
             moveDirectory(file, destinationPath, transaction);
         }
+    }
+
+    /**
+     * Move connected players out of a world before asking Bukkit to unload it.
+     * Paper rejects unload requests while a player is still in the target world;
+     * imports are commonly triggered from an in-game update command while the
+     * administrator is standing in that world.
+     */
+    private static boolean unloadWorldForImport(String worldName) {
+        World world = Bukkit.getWorld(worldName);
+        if (world == null) return true;
+
+        World fallback = Bukkit.getWorlds().stream()
+                .filter(candidate -> candidate != world)
+                .findFirst()
+                .orElse(null);
+        if (fallback == null) return false;
+
+        for (Player player : List.copyOf(world.getPlayers())) {
+            if (!player.teleport(fallback.getSpawnLocation())) return false;
+        }
+        return Bukkit.unloadWorld(world, false);
     }
 
     /**
