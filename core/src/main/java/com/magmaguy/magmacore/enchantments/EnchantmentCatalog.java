@@ -124,8 +124,6 @@ public final class EnchantmentCatalog {
                     if (input == null) throw new IOException("Missing bundled enchantment " + yamlName);
                     current.loadFromString(readSource(root, yamlPath));
                     defaults.load(new java.io.InputStreamReader(input, StandardCharsets.UTF_8));
-                    // Retired files are operator-owned. Clearing them allows normal default regeneration.
-                    if (!current.contains("script") && current.contains("maxLevelV2")) continue;
                     boolean missing = defaults.getKeys(true).stream()
                             .anyMatch(key -> !defaults.isConfigurationSection(key) && !current.contains(key));
                     if (missing) {
