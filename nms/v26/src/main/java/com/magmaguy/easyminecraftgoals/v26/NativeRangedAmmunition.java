@@ -49,7 +49,7 @@ public final class NativeRangedAmmunition extends RangedAmmunition {
             ServerLevel.class, LivingEntity.class, InteractionHand.class, ItemStack.class, List.class,
             float.class, float.class, boolean.class, LivingEntity.class);
     private static final MethodHandle CHARGING_SOUNDS = nativeMethod(CrossbowItem.class, CrossbowItem.ChargingSounds.class,
-            true, ItemStack.class);
+            ItemStack.class);
 
     public NativeRangedAmmunition(Plugin plugin, Predicate<Player> eligible) { super(plugin, eligible); }
 
@@ -144,7 +144,9 @@ public final class NativeRangedAmmunition extends RangedAmmunition {
             if (arrows.isEmpty()) return;
             weapon.set(DataComponents.CHARGED_PROJECTILES, ChargedProjectiles.ofNonEmpty(arrows));
             try {
-                CrossbowItem.ChargingSounds sounds = (CrossbowItem.ChargingSounds) CHARGING_SOUNDS.invoke(weapon);
+                CrossbowItem.ChargingSounds sounds = (CrossbowItem.ChargingSounds) (CHARGING_SOUNDS.type().parameterCount() == 1
+                        ? CHARGING_SOUNDS.invoke(weapon)
+                        : CHARGING_SOUNDS.invoke(weapon.getItem(), weapon));
                 sounds.end().ifPresent(sound -> player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
                         sound.value(), SoundSource.PLAYERS, 1F, 1F));
             } catch (Throwable failure) { throw new IllegalStateException("Native crossbow loading failed", failure); }

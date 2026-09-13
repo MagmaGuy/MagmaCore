@@ -230,6 +230,13 @@ public abstract class RangedAmmunition implements Listener, AutoCloseable {
         return method;
     }
 
+    /** Resolves APIs whose static/instance ownership changed between supported server mappings. */
+    protected static MethodHandle nativeMethod(Class<?> owner, Class<?> result, Class<?>... arguments) {
+        MethodHandle method = findNativeMethod(owner, result, true, arguments);
+        if (method != null) return method;
+        return nativeMethod(owner, result, false, arguments);
+    }
+
     /** Paper exposes bow force separately for its shoot event; Spigot has no separate argument. */
     protected static MethodHandle nativeShootMethod(Class<?> owner, Class<?>... arguments) {
         Class<?>[] withForce = Arrays.copyOf(arguments, arguments.length + 1);
