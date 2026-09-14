@@ -22,6 +22,12 @@ class OutdatedConfigurationArchiveTest {
                 key: enchantments
                 listEntryNames: [repair]
             """;
+    private static final String QUEST_RULE = """
+            customquests:
+              - files: [ag_welcome_quest_1.yml]
+                key: customObjectives.Objective13.filename
+                value: scroll_applier_config.yml
+            """;
     @TempDir Path temporary;
     private Path data() { return temporary.resolve("plugins/ExamplePlugin"); }
     private Path storage() { return temporary.resolve("plugins/MagmaCore/outdated files"); }
@@ -177,6 +183,57 @@ class OutdatedConfigurationArchiveTest {
             assertTrue(OutdatedConfigurationArchive.archive(data(), storage(), selected).isEmpty());
             assertEquals(yaml, Files.readString(source));
         }
+    }
+
+    @Test void nestedValueRuleArchivesOnlyTheSelectedQuestAndPreservesOriginalBytes() throws Exception {
+        String original = "# customized\r\ncustomObjectives:\r\n  Objective13:\r\n    filename: scroll_applier_config.yml\r\n";
+        Path retired = write("customquests/guild/ag_welcome_quest_1.yml", original);
+        Path unrelated = write("customquests/my_quest.yml", original);
+        Path otherCategory = write("custombosses/ag_welcome_quest_1.yml", original);
+        var selected = OutdatedConfigurationArchive.readRules(QUEST_RULE.getBytes(StandardCharsets.UTF_8));
+        List<Path> archived = OutdatedConfigurationArchive.archive(data(), storage(), selected);
+        assertEquals(1, archived.size());
+        assertEquals(original, Files.readString(archived.getFirst()));
+        assertFalse(Files.exists(retired));
+        assertTrue(Files.exists(unrelated) && Files.exists(otherCategory));
+        write("customquests/guild/ag_welcome_quest_1.yml", "customObjectives: {Objective14: {filename: wood_league_arena_master.yml}}\n");
+        assertTrue(OutdatedConfigurationArchive.archive(data(), storage(), selected).isEmpty());
+        write("customquests/guild/ag_welcome_quest_1.yml", original);
+        Path reimported = OutdatedConfigurationArchive.archive(data(), storage(), selected).getFirst();
+        assertNotEquals(archived.getFirst(), reimported);
+        assertEquals(original, Files.readString(reimported));
+    }
+
+    @Test void nestedValueRuleRequiresAnExactStringAtTheExactMappingPath() throws Exception {
+        var selected = OutdatedConfigurationArchive.readRules(QUEST_RULE.getBytes(StandardCharsets.UTF_8));
+        for (String yaml : List.of(
+                "# customObjectives.Objective13.filename: scroll_applier_config.yml\nname: scroll_applier_config.yml\n",
+                "customObjectives.Objective13.filename: scroll_applier_config.yml\n",
+                "customObjectives: {Objective12: {filename: scroll_applier_config.yml}}\n",
+                "customObjectives: {Objective13: {filename: other.yml}}\n",
+                "customObjectives: {Objective13: {filename: SCROLL_APPLIER_CONFIG.YML}}\n",
+                "customObjectives: {Objective13: {filename: null}}\n",
+                "customObjectives: {Objective13: {filename: [scroll_applier_config.yml]}}\n",
+                "customObjectives: {Objective13: scroll_applier_config.yml}\n",
+                "customObjectives: [{Objective13: {filename: scroll_applier_config.yml}}]\n")) {
+            Path source = write("customquests/ag_welcome_quest_1.yml", yaml);
+            assertTrue(OutdatedConfigurationArchive.archive(data(), storage(), selected).isEmpty(), yaml);
+            assertEquals(yaml, Files.readString(source));
+        }
+        assertFalse(Files.exists(storage()));
+    }
+
+    @Test void rejectsUnboundedOrMalformedValueRules() {
+        for (String rule : List.of("{key: a.b, value: old}",
+                "{files: ['*.yml'], key: a.b, value: old}",
+                "{files: [quest.yml], key: a..b, value: old}",
+                "{files: [quest.yml], key: a.*.b, value: old}",
+                "{files: [quest.yml], key: a.b, value: null}",
+                "{files: [quest.yml], key: a.b, value: 1}",
+                "{files: [quest.yml], key: a.b, value: ''}",
+                "{files: [quest.yml], key: a.b, value: old, typo: true}"))
+            assertThrows(IOException.class, () -> OutdatedConfigurationArchive.readRules(
+                    ("customquests:\n  - " + rule + "\n").getBytes(StandardCharsets.UTF_8)), rule);
     }
 
     @Test void rejectsUnboundedOrMisspelledListEntryRules() {

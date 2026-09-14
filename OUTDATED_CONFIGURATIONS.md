@@ -1,7 +1,7 @@
 # Archiving outdated configurations
 
-MagmaCore owns detection and archival. A plugin declares exact retired top-level
-YAML keys by content directory in a bundled resource named
+MagmaCore owns detection and archival. A plugin declares retirement rules by
+content directory in a bundled resource named
 `outdated-config-keys.yml`. This resource stays inside the plugin JAR; it is not
 copied into the administrator's configuration or inferred from filenames.
 
@@ -21,11 +21,33 @@ a key requires updating the current reader, generated defaults, exporters and
 affected DLC before activating its retirement. A key still used by a supported
 configuration in the same directory cannot be retired there.
 
+## Filename-scoped value rules
+
+A `files`/`key`/`value` rule matches an exact string at a dot-separated mapping
+path. For example:
+
+```yaml
+customquests:
+  - files: [ag_welcome_quest_1.yml]
+    key: customObjectives.Objective13.filename
+    value: scroll_applier_config.yml
+```
+
+This archives only that filename in `customquests` or its subdirectories when
+the specified objective still references Scotty. The replacement default must
+omit that objective so it does not match on subsequent starts. Filenames are
+explicit, with no wildcards. Paths traverse mappings only, with no list indexes,
+wildcards, or literal dotted keys. Values must be nonempty strings and match
+exactly, including case. Missing paths and values of other types do not match.
+The original top-level key rules and `listEntryNames` rules keep their existing
+semantics.
+
 ## Behavior
 
-- A matching key archives the whole `.yml` or `.yaml` file, including customized
-  contents. Null, false and empty values still count as key presence. Comments,
-  string values and identically named keys nested under another key do not.
+- A matching rule archives the whole `.yml` or `.yaml` file, including customized
+  contents. For top-level key rules, null, false and empty values still count as
+  key presence. Comments, string values and identically named keys nested under
+  another key do not.
 - Original bytes are moved without YAML reserialization. No content merge,
   historical hash inventory, customized-file exemption or automatic conversion
   is involved.

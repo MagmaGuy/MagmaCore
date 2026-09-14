@@ -47,13 +47,30 @@ public final class OutdatedConfigurationArchive {
         }
     }
 
-    sealed interface Rule permits KeyRule, ListEntryRule {
+    sealed interface Rule permits KeyRule, ListEntryRule, ValueRule {
         boolean matches(String filename, Map<?, ?> yaml);
     }
 
     record KeyRule(String key) implements Rule {
         @Override public boolean matches(String filename, Map<?, ?> yaml) {
             return yaml.containsKey(key);
+        }
+    }
+
+    record ValueRule(Set<String> files, List<String> path, String value) implements Rule {
+        ValueRule {
+            files = Set.copyOf(files);
+            path = List.copyOf(path);
+        }
+
+        @Override public boolean matches(String filename, Map<?, ?> yaml) {
+            if (!files.contains(filename)) return false;
+            Object current = yaml;
+            for (String key : path) {
+                if (!(current instanceof Map<?, ?> mapping)) return false;
+                current = mapping.get(key);
+            }
+            return value.equals(current);
         }
     }
 
@@ -93,6 +110,13 @@ public final class OutdatedConfigurationArchive {
                     Set<String> files = readNames(fields.get("files"), "files", "[A-Za-z0-9_-]+\\.ya?ml");
                     Set<String> names = readNames(fields.get("listEntryNames"), "listEntryNames", "[a-z0-9_.:-]+");
                     selected.add(new ListEntryRule(files, key, names));
+                } else if (rule instanceof Map<?, ?> fields
+                        && fields.keySet().equals(Set.of("files", "key", "value"))
+                        && fields.get("key") instanceof String key
+                        && key.matches("[A-Za-z0-9_-]+(?:\\.[A-Za-z0-9_-]+)*")
+                        && fields.get("value") instanceof String value && !value.isBlank()) {
+                    Set<String> files = readNames(fields.get("files"), "files", "[A-Za-z0-9_-]+\\.ya?ml");
+                    selected.add(new ValueRule(files, List.of(key.split("\\.")), value));
                 } else throw new IOException("Invalid outdated configuration rule in " + category);
             }
             result.put(category, Set.copyOf(selected));
@@ -137,7 +161,7 @@ public final class OutdatedConfigurationArchive {
                     byte[] original;
                     try (InputStream input = Files.newInputStream(path)) { original = readBounded(input); }
                     Map<?, ?> yaml = readMapping(original);
-                    // Rules inspect parsed top-level fields only, never comments or unrelated string contents.
+                    // Rules inspect explicit parsed fields, never comments or unrelated string contents.
                     if (rule.getValue().stream().anyMatch(selected -> selected.matches(name, yaml)))
                         matches.put(path, original);
                 }
