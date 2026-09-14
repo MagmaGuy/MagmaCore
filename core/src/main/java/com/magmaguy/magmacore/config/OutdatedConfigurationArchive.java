@@ -1,5 +1,8 @@
 package com.magmaguy.magmacore.config;
 
+import com.magmaguy.magmacore.scripting.ScriptDefinition;
+import com.magmaguy.magmacore.scripting.ScriptHook;
+import com.magmaguy.magmacore.scripting.ScriptProvider;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -10,6 +13,8 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -26,11 +31,11 @@ import java.util.LinkedHashSet;
 import java.util.UUID;
 import java.util.IdentityHashMap;
 
-/** Retires whole YAML files by explicit category/key rules, without rewriting their contents. */
+/** Preserves whole retired configuration files using the owning plugin's explicit format rules. */
 public final class OutdatedConfigurationArchive {
     public static final String RULES_RESOURCE = "outdated-config-keys.yml";
     public static final String DIRECTORY = "outdated files";
-    private static final int MAX_YAML_BYTES = 4 * 1024 * 1024;
+    private static final int MAX_SOURCE_BYTES = 4 * 1024 * 1024;
     private static final Map<JavaPlugin, OutdatedConfigurationArchiveOwner> owners = new IdentityHashMap<>();
 
     private OutdatedConfigurationArchive() { }
@@ -112,8 +117,39 @@ public final class OutdatedConfigurationArchive {
         }
     }
 
-    sealed interface Rule permits KeyRule, ListEntryRule, ValueRule {
+    sealed interface Rule permits KeyRule, ListEntryRule, ValueRule, LuaScriptRule {
         boolean matches(String filename, Map<?, ?> yaml);
+    }
+
+    /** A frozen script contract, not a runtime provider or a list of retired filenames. */
+    record LuaScriptRule(Set<String> supportedHooks, Set<String> retiredHooks) implements Rule {
+        LuaScriptRule {
+            supportedHooks = Set.copyOf(supportedHooks);
+            retiredHooks = Set.copyOf(retiredHooks);
+        }
+
+        @Override public boolean matches(String filename, Map<?, ?> yaml) { return false; }
+
+        boolean matchesScript(Path path, byte[] source) {
+            ScriptProvider contract = new ScriptProvider() {
+                @Override public String getNamespace() { return "archive"; }
+                @Override public Path getScriptDirectory() { return path.getParent(); }
+                @Override public ScriptHook resolveHook(String key) {
+                    return supportedHooks.contains(key) || retiredHooks.contains(key) ? new ScriptHook(key) : null;
+                }
+            };
+            try {
+                // Reuse the sandbox and execution budget used by normal script validation.
+                // No handlers are called and this provider is never registered for dispatch.
+                ScriptDefinition definition = ScriptDefinition.validate(path.getFileName().toString(), path.toFile(),
+                        StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(source)).toString().replace("\r", ""), contract);
+                return definition.getHooks().stream().anyMatch(hook -> retiredHooks.contains(hook.getKey()));
+            } catch (RuntimeException | CharacterCodingException ambiguous) {
+                // Syntax errors, unknown fields, bad handlers and evaluation/budget failures
+                // are not evidence of a retired format. Leave them for the normal loader.
+                return false;
+            }
+        }
     }
 
     record KeyRule(String key) implements Rule {
@@ -182,6 +218,16 @@ public final class OutdatedConfigurationArchive {
                         && fields.get("value") instanceof String value && !value.isBlank()) {
                     Set<String> files = readNames(fields.get("files"), "files", "[A-Za-z0-9_-]+\\.ya?ml");
                     selected.add(new ValueRule(files, List.of(key.split("\\.")), value));
+                } else if (rule instanceof Map<?, ?> fields && fields.keySet().equals(Set.of("lua"))
+                        && fields.get("lua") instanceof Map<?, ?> lua
+                        && lua.keySet().equals(Set.of("supportedHooks", "retiredHooks"))) {
+                    if (category.endsWith(".yml") || category.endsWith(".yaml"))
+                        throw new IOException("A Lua retirement rule requires a script directory: " + category);
+                    Set<String> supported = readNames(lua.get("supportedHooks"), "supportedHooks", "on_[a-z_]+");
+                    Set<String> retired = readNames(lua.get("retiredHooks"), "retiredHooks", "on_[a-z_]+");
+                    if (supported.stream().anyMatch(retired::contains))
+                        throw new IOException("Supported and retired Lua hooks must not overlap: " + category);
+                    selected.add(new LuaScriptRule(supported, retired));
                 } else throw new IOException("Invalid outdated configuration rule in " + category);
             }
             result.put(category, Set.copyOf(selected));
@@ -210,7 +256,8 @@ public final class OutdatedConfigurationArchive {
         if (!Files.exists(data, LinkOption.NOFOLLOW_LINKS) || rules.isEmpty()) return List.of();
         requireNoLinks(data);
         Map<Path, byte[]> matches = new LinkedHashMap<>();
-        // Finish parsing before any move. Invalid YAML cannot cause a partial scan to become an archive.
+        // Finish classification before any move. Invalid YAML still aborts the batch;
+        // unclassifiable Lua stays in place for the script loader's normal diagnostics.
         for (var rule : rules.entrySet()) {
             Path category = data.resolve(rule.getKey()).normalize();
             if (!category.startsWith(data) || category.equals(data)) throw new IOException("Invalid content category");
@@ -219,19 +266,32 @@ public final class OutdatedConfigurationArchive {
             if ((rule.getKey().endsWith(".yml") || rule.getKey().endsWith(".yaml"))
                     && !Files.isRegularFile(category, LinkOption.NOFOLLOW_LINKS))
                 throw new IOException("Not a regular YAML file: " + category);
+            List<LuaScriptRule> luaRules = rule.getValue().stream().filter(LuaScriptRule.class::isInstance)
+                    .map(LuaScriptRule.class::cast).toList();
+            List<Rule> yamlRules = rule.getValue().stream().filter(selected -> !(selected instanceof LuaScriptRule)).toList();
             try (var paths = Files.walk(category)) {
                 for (Path path : paths.sorted().toList()) {
                     requireNoLinks(path);
                     String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
-                    if (Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)
-                            || !(name.endsWith(".yml") || name.endsWith(".yaml"))) continue;
-                    if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) throw new IOException("Not a regular YAML file: " + path);
+                    if (Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) continue;
+                    boolean lua = name.endsWith(".lua") && !luaRules.isEmpty();
+                    boolean yaml = (name.endsWith(".yml") || name.endsWith(".yaml")) && !yamlRules.isEmpty();
+                    if (!lua && !yaml) continue;
+                    if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) throw new IOException("Not a regular configuration file: " + path);
                     byte[] original;
-                    try (InputStream input = Files.newInputStream(path)) { original = readBounded(input); }
-                    Map<?, ?> yaml = readMapping(original);
-                    // Rules inspect explicit parsed fields, never comments or unrelated string contents.
-                    if (rule.getValue().stream().anyMatch(selected -> selected.matches(name, yaml)))
+                    try (InputStream input = Files.newInputStream(path)) {
+                        original = readBounded(input);
+                    } catch (IOException unreadable) {
+                        if (lua) continue;
+                        throw unreadable;
+                    }
+                    // Classify actual parsed definitions, never comments or text fragments.
+                    if (lua) {
+                        if (luaRules.stream().anyMatch(selected -> selected.matchesScript(path, original)))
+                            matches.put(path, original);
+                    } else if (matchesYaml(name, original, yamlRules)) {
                         matches.put(path, original);
+                    }
                 }
             }
         }
@@ -262,6 +322,11 @@ public final class OutdatedConfigurationArchive {
         return List.copyOf(archived);
     }
 
+    private static boolean matchesYaml(String name, byte[] source, List<Rule> rules) throws IOException {
+        Map<?, ?> yaml = readMapping(source);
+        return rules.stream().anyMatch(rule -> rule.matches(name, yaml));
+    }
+
     public static boolean isArchivePath(Path path) {
         Path absolute = path.toAbsolutePath().normalize();
         for (int index = 1; index < absolute.getNameCount(); index++)
@@ -281,15 +346,15 @@ public final class OutdatedConfigurationArchive {
     }
 
     private static byte[] readBounded(InputStream input) throws IOException {
-        byte[] bytes = input.readNBytes(MAX_YAML_BYTES + 1);
-        if (bytes.length > MAX_YAML_BYTES) throw new IOException("YAML exceeds the archival inspection limit");
+        byte[] bytes = input.readNBytes(MAX_SOURCE_BYTES + 1);
+        if (bytes.length > MAX_SOURCE_BYTES) throw new IOException("Configuration exceeds the archival inspection limit");
         return bytes;
     }
 
     private static Map<?, ?> readMapping(byte[] bytes) throws IOException {
         LoaderOptions options = new LoaderOptions();
         options.setAllowDuplicateKeys(false);
-        options.setCodePointLimit(MAX_YAML_BYTES);
+        options.setCodePointLimit(MAX_SOURCE_BYTES);
         try {
             Object value = new Yaml(new SafeConstructor(options)).load(new String(bytes, StandardCharsets.UTF_8));
             if (value == null) return Map.of();
