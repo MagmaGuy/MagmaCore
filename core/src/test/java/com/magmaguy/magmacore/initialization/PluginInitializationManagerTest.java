@@ -30,6 +30,7 @@ import java.util.logging.Logger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTimeout;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -231,16 +232,19 @@ class PluginInitializationManagerTest {
 
     @Test
     void repeatedShutdownAndManualOverrideRemainBounded() {
-        assertTimeoutPreemptively(Duration.ofSeconds(2), () -> {
+        // Cold Mockito instrumentation is fixture setup, not shutdown work.
+        assertTimeoutPreemptively(Duration.ofSeconds(10), () -> {
             try (Harness harness = new Harness(false)) {
-                harness.runBasic(() -> {
-                }, () -> {
+                assertTimeout(Duration.ofSeconds(2), () -> {
+                    harness.runBasic(() -> {
+                    }, () -> {
+                    });
+                    PluginInitializationManager.setState(
+                            harness.plugin,
+                            PluginInitializationState.FAILED);
+                    PluginInitializationManager.shutdown(harness.plugin);
+                    PluginInitializationManager.shutdown(harness.plugin);
                 });
-                PluginInitializationManager.setState(
-                        harness.plugin,
-                        PluginInitializationState.FAILED);
-                PluginInitializationManager.shutdown(harness.plugin);
-                PluginInitializationManager.shutdown(harness.plugin);
             }
         });
     }
