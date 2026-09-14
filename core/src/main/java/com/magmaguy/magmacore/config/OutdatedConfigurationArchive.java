@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.LinkedHashSet;
 import java.util.UUID;
 
 /** Retires whole YAML files by explicit category/key rules, without rewriting their contents. */
@@ -34,7 +35,7 @@ public final class OutdatedConfigurationArchive {
     public static void archive(JavaPlugin plugin) {
         try (InputStream resource = plugin.getResource(RULES_RESOURCE)) {
             if (resource == null) return;
-            Map<String, Set<String>> rules = readRules(readBounded(resource));
+            Map<String, Set<Rule>> rules = readRules(readBounded(resource));
             Path data = plugin.getDataFolder().toPath().toAbsolutePath().normalize();
             Path storage = data.getParent().resolve("MagmaCore").resolve(DIRECTORY);
             List<Path> archived = archive(data, storage, rules);
@@ -46,24 +47,74 @@ public final class OutdatedConfigurationArchive {
         }
     }
 
-    static Map<String, Set<String>> readRules(byte[] bytes) throws IOException {
+    sealed interface Rule permits KeyRule, ListEntryRule {
+        boolean matches(String filename, Map<?, ?> yaml);
+    }
+
+    record KeyRule(String key) implements Rule {
+        @Override public boolean matches(String filename, Map<?, ?> yaml) {
+            return yaml.containsKey(key);
+        }
+    }
+
+    record ListEntryRule(Set<String> files, String key, Set<String> names) implements Rule {
+        ListEntryRule {
+            files = Set.copyOf(files);
+            names = Set.copyOf(names);
+        }
+
+        @Override public boolean matches(String filename, Map<?, ?> yaml) {
+            if (!files.contains(filename) || !(yaml.get(key) instanceof List<?> entries)) return false;
+            for (Object entry : entries) {
+                if (!(entry instanceof String text)) continue;
+                int comma = text.indexOf(',');
+                if (comma < 0) continue;
+                if (names.contains(text.substring(0, comma).toLowerCase(Locale.ROOT))) return true;
+            }
+            return false;
+        }
+    }
+
+    static Map<String, Set<Rule>> readRules(byte[] bytes) throws IOException {
         Map<?, ?> yaml = readMapping(bytes);
-        Map<String, Set<String>> result = new LinkedHashMap<>();
+        Map<String, Set<Rule>> result = new LinkedHashMap<>();
         for (var entry : yaml.entrySet()) {
             if (!(entry.getKey() instanceof String category)
                     || !category.matches("[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*"))
                 throw new IOException("An outdated configuration category must be a relative content directory");
-            if (!(entry.getValue() instanceof List<?> keys) || keys.isEmpty()
-                    || keys.stream().anyMatch(key -> !(key instanceof String text) || text.isBlank()))
-                throw new IOException("An outdated configuration category requires nonempty YAML keys: " + category);
-            result.put(category, Set.copyOf(keys.stream().map(String.class::cast).toList()));
+            if (!(entry.getValue() instanceof List<?> rules) || rules.isEmpty())
+                throw new IOException("An outdated configuration category requires nonempty rules: " + category);
+            Set<Rule> selected = new LinkedHashSet<>();
+            for (Object rule : rules) {
+                if (rule instanceof String key && !key.isBlank()) selected.add(new KeyRule(key));
+                else if (rule instanceof Map<?, ?> fields
+                        && fields.keySet().equals(Set.of("files", "key", "listEntryNames"))
+                        && fields.get("key") instanceof String key && !key.isBlank()) {
+                    Set<String> files = readNames(fields.get("files"), "files", "[A-Za-z0-9_-]+\\.ya?ml");
+                    Set<String> names = readNames(fields.get("listEntryNames"), "listEntryNames", "[a-z0-9_.:-]+");
+                    selected.add(new ListEntryRule(files, key, names));
+                } else throw new IOException("Invalid outdated configuration rule in " + category);
+            }
+            result.put(category, Set.copyOf(selected));
         }
         return Map.copyOf(result);
     }
 
+    private static Set<String> readNames(Object value, String field, String pattern) throws IOException {
+        if (!(value instanceof List<?> entries) || entries.isEmpty())
+            throw new IOException("An outdated configuration rule requires nonempty " + field);
+        Set<String> names = new LinkedHashSet<>();
+        for (Object entry : entries) {
+            if (!(entry instanceof String name) || !name.matches(pattern))
+                throw new IOException("Invalid outdated configuration " + field + " entry: " + entry);
+            names.add(name);
+        }
+        return Set.copyOf(names);
+    }
+
     /** Package-private filesystem seam also used by focused upgrade tests. */
     static List<Path> archive(Path dataDirectory, Path archiveDirectory,
-                              Map<String, Set<String>> rules) throws IOException {
+                              Map<String, Set<Rule>> rules) throws IOException {
         Path data = dataDirectory.toAbsolutePath().normalize();
         Path storage = archiveDirectory.toAbsolutePath().normalize();
         if (storage.startsWith(data)) throw new IOException("Archive storage must be outside the content root");
@@ -86,8 +137,9 @@ public final class OutdatedConfigurationArchive {
                     byte[] original;
                     try (InputStream input = Files.newInputStream(path)) { original = readBounded(input); }
                     Map<?, ?> yaml = readMapping(original);
-                    // Exact top-level keys, including explicit null/false/empty values. Never search comments or strings.
-                    if (rule.getValue().stream().anyMatch(yaml::containsKey)) matches.put(path, original);
+                    // Rules inspect parsed top-level fields only, never comments or unrelated string contents.
+                    if (rule.getValue().stream().anyMatch(selected -> selected.matches(name, yaml)))
+                        matches.put(path, original);
                 }
             }
         }

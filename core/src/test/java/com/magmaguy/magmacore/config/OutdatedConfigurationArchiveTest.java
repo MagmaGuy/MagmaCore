@@ -16,10 +16,18 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class OutdatedConfigurationArchiveTest {
+    private static final String SCRAP_RULE = """
+            customitems:
+              - files: [elite_scrap_tiny.yml, elite_scrap_small.yml]
+                key: enchantments
+                listEntryNames: [repair]
+            """;
     @TempDir Path temporary;
     private Path data() { return temporary.resolve("plugins/ExamplePlugin"); }
     private Path storage() { return temporary.resolve("plugins/MagmaCore/outdated files"); }
-    private Map<String, Set<String>> rules() { return Map.of("customitems", Set.of("enchantmentsV2")); }
+    private Map<String, Set<OutdatedConfigurationArchive.Rule>> rules() {
+        return Map.of("customitems", Set.of(new OutdatedConfigurationArchive.KeyRule("enchantmentsV2")));
+    }
     private Path write(String path, String yaml) throws IOException {
         Path file = data().resolve(path);
         Files.createDirectories(file.getParent());
@@ -92,7 +100,7 @@ class OutdatedConfigurationArchiveTest {
     @Test void doesNotCreateArchiveWithNoMatchesOrMissingCategory() throws Exception {
         write("customitems/current.yml", "enchantmentsV3: []\n");
         assertTrue(OutdatedConfigurationArchive.archive(data(), storage(), rules()).isEmpty());
-        assertTrue(OutdatedConfigurationArchive.archive(data(), storage(), Map.of("missing", Set.of("old"))).isEmpty());
+        assertTrue(OutdatedConfigurationArchive.archive(data(), storage(), Map.of("missing", Set.of(new OutdatedConfigurationArchive.KeyRule("old")))).isEmpty());
         assertFalse(Files.exists(storage()));
     }
 
@@ -112,7 +120,8 @@ class OutdatedConfigurationArchiveTest {
     }
 
     @Test void parsesRulesWithoutPluginSpecificBehavior() throws Exception {
-        assertEquals(Map.of("customitems", Set.of("enchantmentsV2"), "powers/nested", Set.of("oldKey", "olderKey")),
+        assertEquals(Map.of("customitems", Set.of(new OutdatedConfigurationArchive.KeyRule("enchantmentsV2")),
+                        "powers/nested", Set.of(new OutdatedConfigurationArchive.KeyRule("oldKey"), new OutdatedConfigurationArchive.KeyRule("olderKey"))),
                 OutdatedConfigurationArchive.readRules("customitems: [enchantmentsV2]\npowers/nested: [oldKey, olderKey]\n".getBytes(StandardCharsets.UTF_8)));
     }
 
@@ -141,5 +150,42 @@ class OutdatedConfigurationArchiveTest {
         OutdatedConfigurationArchive.archive(plugin);
         assertFalse(Files.exists(storage()));
         verify(plugin, never()).getDataFolder();
+    }
+
+    @Test void archivesOnlySelectedFilesWithRetiredListEntries() throws Exception {
+        String original = "# customized\r\nname: My scrap\r\nenchantments: [RePaIr, 'REPAIR,1']\r\nconsumable: {type: repair_scrap, tier: 1}\r\n";
+        Path retired = write("customitems/nested/elite_scrap_tiny.yml", original);
+        Path current = write("customitems/elite_scrap_small.yml", "enchantments: ['other:repair,2']\n");
+        Path unrelated = write("customitems/sword.yml", "enchantments: ['repair,1']\n");
+        Path otherCategory = write("custombosses/elite_scrap_tiny.yml", "enchantments: ['repair,1']\n");
+        var selected = OutdatedConfigurationArchive.readRules(SCRAP_RULE.getBytes(StandardCharsets.UTF_8));
+        List<Path> archived = OutdatedConfigurationArchive.archive(data(), storage(), selected);
+        assertEquals(1, archived.size());
+        assertEquals(original, Files.readString(archived.getFirst()));
+        assertFalse(Files.exists(retired));
+        assertTrue(Files.exists(current) && Files.exists(unrelated) && Files.exists(otherCategory));
+        write("customitems/nested/elite_scrap_tiny.yml", "consumable: {type: repair_scrap, tier: 1}\n");
+        assertTrue(OutdatedConfigurationArchive.archive(data(), storage(), selected).isEmpty());
+    }
+
+    @Test void listEntryRulesIgnoreCommentsNestedKeysAndNonListValues() throws Exception {
+        var selected = OutdatedConfigurationArchive.readRules(SCRAP_RULE.getBytes(StandardCharsets.UTF_8));
+        for (String yaml : List.of("# enchantments: ['repair,1']\nname: repair\n",
+                "other: {enchantments: ['repair,1']}\n", "enchantments: 'repair,1'\n",
+                "enchantments: [null, 1, {repair: 1}, 'repairing,1']\n")) {
+            Path source = write("customitems/elite_scrap_tiny.yml", yaml);
+            assertTrue(OutdatedConfigurationArchive.archive(data(), storage(), selected).isEmpty());
+            assertEquals(yaml, Files.readString(source));
+        }
+    }
+
+    @Test void rejectsUnboundedOrMisspelledListEntryRules() {
+        for (String rule : List.of("{key: enchantments, listEntryNames: [repair]}",
+                "{files: ['../tiny.yml'], key: enchantments, listEntryNames: [repair]}",
+                "{files: ['*.yml'], key: enchantments, listEntryNames: [repair]}",
+                "{files: [tiny.yml], key: enchantments, listEntryNames: []}",
+                "{files: [tiny.yml], key: enchantments, listEntryNames: [repair], typo: true}"))
+            assertThrows(IOException.class, () -> OutdatedConfigurationArchive.readRules(
+                    ("customitems:\n  - " + rule + "\n").getBytes(StandardCharsets.UTF_8)));
     }
 }
