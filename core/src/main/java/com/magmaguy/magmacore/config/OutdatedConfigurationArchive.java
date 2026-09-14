@@ -1,5 +1,7 @@
 package com.magmaguy.magmacore.config;
 
+import org.bukkit.Bukkit;
+import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
@@ -22,17 +24,80 @@ import java.util.Map;
 import java.util.Set;
 import java.util.LinkedHashSet;
 import java.util.UUID;
+import java.util.IdentityHashMap;
 
 /** Retires whole YAML files by explicit category/key rules, without rewriting their contents. */
 public final class OutdatedConfigurationArchive {
     public static final String RULES_RESOURCE = "outdated-config-keys.yml";
     public static final String DIRECTORY = "outdated files";
     private static final int MAX_YAML_BYTES = 4 * 1024 * 1024;
+    private static final Map<JavaPlugin, OutdatedConfigurationArchiveOwner> owners = new IdentityHashMap<>();
 
     private OutdatedConfigurationArchive() { }
 
-    /** The resource is bundled in the plugin JAR, not an administrator configuration. */
-    public static void archive(JavaPlugin plugin) {
+    /** Register from the owner's MagmaCore during onLoad, before any importer can start. */
+    public static void register(JavaPlugin plugin) {
+        if (owners.containsKey(plugin)) return;
+        var owner = new OutdatedConfigurationArchiveOwner(plugin);
+        Bukkit.getServicesManager().register(Runnable.class, owner, plugin, ServicePriority.Normal);
+        owners.put(plugin, owner);
+    }
+
+    public static void unregister(JavaPlugin plugin) {
+        var owner = owners.remove(plugin);
+        if (owner == null) return;
+        owner.active = false;
+        Bukkit.getServicesManager().unregister(Runnable.class, owner);
+    }
+
+    /**
+     * Request archival through the target's shaded implementation. Only a JDK Runnable crosses
+     * class loaders; the target's YAML, rule types and parser never leave their owning copy.
+     * Runs synchronously on the caller's import worker, preserving pre/post-import ordering.
+     */
+    public static void archiveFor(JavaPlugin plugin) {
+        Runnable selected = null;
+        for (var service : Bukkit.getServicesManager().getRegistrations(Runnable.class)) {
+            if (service.getPlugin() != plugin || !service.getProvider().getClass().getSimpleName()
+                    .equals("OutdatedConfigurationArchiveOwner")) continue;
+            if (selected != null)
+                throw new IllegalStateException("Multiple configuration archive owners for " + plugin.getName());
+            selected = service.getProvider();
+        }
+        if (selected != null) {
+            selected.run();
+            return;
+        }
+        // Presence is safe to check across versions; interpreting another plugin's policy is not.
+        // Never silently overwrite retired files when an older target lacks the owner callback.
+        try (InputStream resource = plugin.getResource(RULES_RESOURCE)) {
+            if (resource != null)
+                throw new IOException("Configuration archive owner is unavailable for " + plugin.getName()
+                        + ". Update that plugin before importing content; its policy was not read.");
+        } catch (IOException failure) {
+            throw new UncheckedIOException("Cannot safely archive outdated " + plugin.getName() + " configuration", failure);
+        }
+    }
+
+    /**
+     * Stable service identity across relocation. Registration is tied to Bukkit's plugin object,
+     * and retained callbacks are revoked at shutdown. Concurrent importers share the owner's lock.
+     */
+    private static final class OutdatedConfigurationArchiveOwner implements Runnable {
+        private final JavaPlugin plugin;
+        private volatile boolean active = true;
+
+        private OutdatedConfigurationArchiveOwner(JavaPlugin plugin) { this.plugin = plugin; }
+
+        @Override public synchronized void run() {
+            if (!active || !plugin.isEnabled())
+                throw new IllegalStateException("Configuration archive owner is disabled: " + plugin.getName());
+            archive(plugin);
+        }
+    }
+
+    /** Owner-local implementation. The resource is bundled in this plugin's JAR. */
+    static void archive(JavaPlugin plugin) {
         try (InputStream resource = plugin.getResource(RULES_RESOURCE)) {
             if (resource == null) return;
             Map<String, Set<Rule>> rules = readRules(readBounded(resource));

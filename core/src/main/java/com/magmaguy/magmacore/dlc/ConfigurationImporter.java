@@ -115,11 +115,11 @@ public class ConfigurationImporter {
     }
 
     private void archiveOutdatedConfigurations() {
-        // One pack can target several plugins. Read each target's bundled policy
-        // through Bukkit, rather than relying on another shaded copy's static state.
+        // One pack can target several plugins. Each target must interpret its own policy
+        // through its registered owner, never through this importer's shaded parser.
         for (var plugin : Bukkit.getPluginManager().getPlugins())
             if (plugin instanceof JavaPlugin target && (target.isEnabled() || target == ownerPlugin))
-                com.magmaguy.magmacore.config.OutdatedConfigurationArchive.archive(target);
+                com.magmaguy.magmacore.config.OutdatedConfigurationArchive.archiveFor(target);
     }
 
     private void moveWorlds(

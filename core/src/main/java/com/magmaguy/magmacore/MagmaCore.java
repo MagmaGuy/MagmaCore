@@ -6,6 +6,7 @@ import com.magmaguy.magmacore.command.LogifyCommand;
 import com.magmaguy.magmacore.command.NightbreakCommand;
 import com.magmaguy.magmacore.command.NightbreakLoginCommand;
 import com.magmaguy.magmacore.command.NightbreakLogoutCommand;
+import com.magmaguy.magmacore.config.OutdatedConfigurationArchive;
 import com.magmaguy.magmacore.dlc.ConfigurationImporter;
 import com.magmaguy.magmacore.initialization.PluginInitializationConfig;
 import com.magmaguy.magmacore.initialization.PluginInitializationContext;
@@ -143,6 +144,7 @@ public final class MagmaCore {
      */
     public static MagmaCore createInstance(JavaPlugin requestingPlugin,
                                            NightbreakPluginSpec pluginSpec) {
+        OutdatedConfigurationArchive.register(requestingPlugin);
         registeredPlugins.put(requestingPlugin.getName(), requestingPlugin);
         if (instance == null) {
             return new MagmaCore(requestingPlugin, pluginSpec);
@@ -163,6 +165,7 @@ public final class MagmaCore {
 
     public static void shutdown(JavaPlugin plugin) {
         if (plugin != null) {
+            OutdatedConfigurationArchive.unregister(plugin);
             registeredPlugins.remove(plugin.getName());
             listenerRegistrations.remove(plugin.getName());
             NightbreakBulkDownloader.shutdown(plugin);
@@ -212,7 +215,7 @@ public final class MagmaCore {
                                            Runnable onSuccess,
                                            Consumer<Throwable> onFailure) {
         PluginInitializationManager.run(plugin, config, context -> {
-            com.magmaguy.magmacore.config.OutdatedConfigurationArchive.archive(plugin);
+            OutdatedConfigurationArchive.archiveFor(plugin);
             asyncInitialization.accept(context);
         }, syncInitialization, onSuccess, onFailure);
     }
