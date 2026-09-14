@@ -11,11 +11,13 @@ import java.util.Objects;
 import java.util.TreeMap;
 import java.util.function.Function;
 import java.util.function.UnaryOperator;
+import java.util.function.ToIntFunction;
 
-/** Owns only its generated lore prefix and glint override, preserving the host's other item data. */
+/** Owns its generated lore section and glint override, preserving the host's other item data. */
 final class EnchantmentPresentation {
     private static final NamespacedKey ROOT = EnchantmentItemData.key("enchantment_presentation");
     private static final NamespacedKey LINES = EnchantmentItemData.key("lines");
+    private static final NamespacedKey POSITION = EnchantmentItemData.key("position");
     private static final NamespacedKey LABELS = EnchantmentItemData.key("labels");
     private static final NamespacedKey NAME = EnchantmentItemData.key("name");
     private static final NamespacedKey MAX = EnchantmentItemData.key("max");
@@ -33,25 +35,44 @@ final class EnchantmentPresentation {
     static void render(ItemMeta meta, Map<String, Integer> entries,
                        Function<String, EnchantmentItems.Resolved> resolver,
                        UnaryOperator<List<String>> rebuildHostLore) {
+        render(meta, entries, resolver, rebuildHostLore, null);
+    }
+
+    static void render(ItemMeta meta, Map<String, Integer> entries,
+                       Function<String, EnchantmentItems.Resolved> resolver,
+                       UnaryOperator<List<String>> rebuildHostLore,
+                       ToIntFunction<List<String>> enchantmentPosition) {
         PersistentDataContainer data = meta.getPersistentDataContainer();
         PersistentDataContainer old = data.get(ROOT, PersistentDataType.TAG_CONTAINER);
         if (data.has(ROOT) && old == null) throw new IllegalArgumentException("Malformed enchantment presentation record");
         List<String> lore = meta.hasLore() ? new ArrayList<>(Objects.requireNonNull(meta.getLore())) : new ArrayList<>();
         Boolean originalGlint = meta.hasEnchantmentGlintOverride() ? meta.getEnchantmentGlintOverride() : null;
         PersistentDataContainer oldLabels = null;
+        int position = 0;
         if (old != null) {
             if (!Integer.valueOf(1).equals(old.get(EnchantmentItemData.VERSION, PersistentDataType.INTEGER)))
                 throw new IllegalArgumentException("Unknown enchantment presentation version");
-            List<String> prefix = old.get(LINES, PersistentDataType.LIST.strings());
-            if (prefix == null || prefix.size() > EnchantmentItemData.MAX_ENTRIES || lore.size() < prefix.size()
-                    || !lore.subList(0, prefix.size()).equals(prefix))
+            // Existing records describe a prefix and therefore have position zero.
+            Integer storedPosition = old.get(POSITION, PersistentDataType.INTEGER);
+            if (old.has(POSITION) && storedPosition == null)
+                throw new IllegalArgumentException("Malformed enchantment presentation position");
+            position = storedPosition == null ? 0 : storedPosition;
+            List<String> section = old.get(LINES, PersistentDataType.LIST.strings());
+            int start = Math.max(0, position);
+            if (position < -1 || section == null || section.size() > EnchantmentItemData.MAX_ENTRIES
+                    || position == -1 && !section.isEmpty() || start > lore.size()
+                    || section.size() > lore.size() - start
+                    || !lore.subList(start, start + section.size()).equals(section))
                 throw new IllegalArgumentException("Generated enchantment lore was changed externally; rebuild from the host definition");
-            lore = new ArrayList<>(lore.subList(prefix.size(), lore.size()));
+            lore.subList(start, start + section.size()).clear();
             Boolean applied = decodeGlint(old.get(APPLIED_GLINT, PersistentDataType.INTEGER));
             if (Objects.equals(originalGlint, applied)) originalGlint = decodeGlint(old.get(ORIGINAL_GLINT, PersistentDataType.INTEGER));
             oldLabels = old.get(LABELS, PersistentDataType.TAG_CONTAINER);
         }
         lore = List.copyOf(rebuildHostLore.apply(List.copyOf(lore)));
+        if (enchantmentPosition != null) position = enchantmentPosition.applyAsInt(lore);
+        if (position < -1 || position > lore.size())
+            throw new IllegalArgumentException("Enchantment section position is outside host lore");
         PersistentDataContainer labels = data.getAdapterContext().newPersistentDataContainer();
         List<String> lines = new ArrayList<>();
         for (var entry : new TreeMap<>(entries).entrySet()) {
@@ -76,16 +97,21 @@ final class EnchantmentPresentation {
         }
         Boolean appliedGlint = originalGlint == null && !entries.isEmpty() ? Boolean.TRUE : originalGlint;
         meta.setEnchantmentGlintOverride(appliedGlint);
-        List<String> combined = new ArrayList<>(lines);
-        combined.addAll(lore);
+        List<String> visibleLines = position == -1 ? List.of() : lines;
+        List<String> combined = new ArrayList<>(lore);
+        int start = Math.max(0, position);
+        combined.addAll(start, visibleLines);
         meta.setLore(combined.isEmpty() ? null : combined);
-        if (entries.isEmpty()) { data.remove(ROOT); return; }
+        // Preserve a host-selected position even before its first enchantment is added.
+        if (entries.isEmpty() && position == 0) { data.remove(ROOT); return; }
         PersistentDataContainer record = data.getAdapterContext().newPersistentDataContainer();
         record.set(EnchantmentItemData.VERSION, PersistentDataType.INTEGER, 1);
+        record.set(POSITION, PersistentDataType.INTEGER, position);
         // Bukkit normalizes legacy formatting when converting lore to native components.
         // Compare against that stored form on redraw, not our pre-conversion input.
         record.set(LINES, PersistentDataType.LIST.strings(),
-                List.copyOf(Objects.requireNonNull(meta.getLore()).subList(0, lines.size())));
+                visibleLines.isEmpty() ? List.of()
+                        : List.copyOf(Objects.requireNonNull(meta.getLore()).subList(start, start + visibleLines.size())));
         record.set(LABELS, PersistentDataType.TAG_CONTAINER, labels);
         record.set(ORIGINAL_GLINT, PersistentDataType.INTEGER, encodeGlint(originalGlint));
         record.set(APPLIED_GLINT, PersistentDataType.INTEGER, encodeGlint(appliedGlint));
