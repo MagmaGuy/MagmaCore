@@ -162,8 +162,8 @@ public final class OutdatedConfigurationArchive {
         Map<String, Set<Rule>> result = new LinkedHashMap<>();
         for (var entry : yaml.entrySet()) {
             if (!(entry.getKey() instanceof String category)
-                    || !category.matches("[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*"))
-                throw new IOException("An outdated configuration category must be a relative content directory");
+                    || !category.matches("[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*|[A-Za-z0-9_-]+\\.ya?ml"))
+                throw new IOException("An outdated configuration category must be a relative content directory or a root YAML filename");
             if (!(entry.getValue() instanceof List<?> rules) || rules.isEmpty())
                 throw new IOException("An outdated configuration category requires nonempty rules: " + category);
             Set<Rule> selected = new LinkedHashSet<>();
@@ -216,6 +216,9 @@ public final class OutdatedConfigurationArchive {
             if (!category.startsWith(data) || category.equals(data)) throw new IOException("Invalid content category");
             if (!Files.exists(category, LinkOption.NOFOLLOW_LINKS)) continue;
             requireNoLinks(category);
+            if ((rule.getKey().endsWith(".yml") || rule.getKey().endsWith(".yaml"))
+                    && !Files.isRegularFile(category, LinkOption.NOFOLLOW_LINKS))
+                throw new IOException("Not a regular YAML file: " + category);
             try (var paths = Files.walk(category)) {
                 for (Path path : paths.sorted().toList()) {
                     requireNoLinks(path);
