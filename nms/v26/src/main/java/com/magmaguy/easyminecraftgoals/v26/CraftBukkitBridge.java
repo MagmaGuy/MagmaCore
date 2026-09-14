@@ -12,6 +12,7 @@ import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 
 /**
  * Bridge class for CraftBukkit access on MC 26.1+.
@@ -35,7 +36,6 @@ public class CraftBukkitBridge {
     private static Method craftEntityGetHandle;
     private static Method craftLivingEntityGetHandle;
     private static Method craftItemStackAsNMSCopy;
-    private static Method craftItemStackAsBukkitCopy;
     private static Method craftBlockDataGetState;
 
     static {
@@ -56,7 +56,6 @@ public class CraftBukkitBridge {
             craftEntityGetHandle = craftEntityClass.getMethod("getHandle");
             craftLivingEntityGetHandle = craftLivingEntityClass.getMethod("getHandle");
             craftItemStackAsNMSCopy = craftItemStackClass.getMethod("asNMSCopy", org.bukkit.inventory.ItemStack.class);
-            craftItemStackAsBukkitCopy = craftItemStackClass.getMethod("asBukkitCopy", ItemStack.class);
             craftBlockDataGetState = craftBlockDataClass.getMethod("getState");
 
         } catch (Exception e) {
@@ -111,9 +110,41 @@ public class CraftBukkitBridge {
 
     public static org.bukkit.inventory.ItemStack asBukkitCopy(ItemStack itemStack) {
         try {
-            return (org.bukkit.inventory.ItemStack) craftItemStackAsBukkitCopy.invoke(null, itemStack);
+            return (org.bukkit.inventory.ItemStack) BukkitItemCopy.METHOD.invoke(null, itemStack);
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException("Failed to convert native item to Bukkit", e);
+        }
+    }
+
+    // Resolve only when conversion is needed; a conversion incompatibility must not
+    // prevent the bridge from providing unrelated world and entity handles.
+    private static final class BukkitItemCopy {
+        private static final Method METHOD = resolveMethod();
+
+        private static Method resolveMethod() {
+            // Spigot exposes ItemStack directly. Paper 26.2 exposes ItemInstance
+            // publicly and makes its ItemStack overload private.
+            Method selected = null;
+            boolean ambiguous = false;
+            for (Method method : craftItemStackClass.getMethods()) {
+                if (!method.getName().equals("asBukkitCopy")
+                        || !Modifier.isStatic(method.getModifiers())
+                        || method.getParameterCount() != 1
+                        || !method.getParameterTypes()[0].isAssignableFrom(ItemStack.class)
+                        || !org.bukkit.inventory.ItemStack.class.isAssignableFrom(method.getReturnType()))
+                    continue;
+                if (method.getParameterTypes()[0] == ItemStack.class)
+                    return method;
+                ambiguous |= selected != null;
+                selected = method;
+            }
+            if (ambiguous)
+                throw new IllegalStateException("Ambiguous public CraftItemStack.asBukkitCopy overloads for "
+                        + ItemStack.class.getName());
+            if (selected == null)
+                throw new IllegalStateException("No public CraftItemStack.asBukkitCopy overload accepts "
+                        + ItemStack.class.getName());
+            return selected;
         }
     }
 
