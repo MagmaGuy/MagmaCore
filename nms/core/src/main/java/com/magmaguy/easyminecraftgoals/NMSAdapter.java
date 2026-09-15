@@ -64,6 +64,16 @@ public abstract class NMSAdapter {
      */
     public abstract void damageWithoutCooldown(LivingEntity target, double amount, Entity source);
 
+    /** Returns the remaining native hit cooldown, independently of other invulnerability timers. */
+    public int getDamageCooldownTicks(LivingEntity entity) {
+        return entity.getNoDamageTicks();
+    }
+
+    /** Changes only the native hit cooldown; the previous hit amount and other immunity remain unchanged. */
+    public void setDamageCooldownTicks(LivingEntity entity, int ticks) {
+        entity.setNoDamageTicks(ticks);
+    }
+
     /**
      * Creates the version-specific native Mind host. Every supported adapter uses the shared
      * native runtime compiled against its own Minecraft mappings.

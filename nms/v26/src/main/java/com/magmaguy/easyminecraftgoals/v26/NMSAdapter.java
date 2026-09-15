@@ -105,6 +105,20 @@ public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter {
         victim.hurtServer((net.minecraft.server.level.ServerLevel) victim.level(), damage, (float) amount);
     }
 
+    @Override
+    public int getDamageCooldownTicks(LivingEntity entity) {
+        DamageCooldownAccess access = DamageCooldownAccess.current();
+        return access == null ? super.getDamageCooldownTicks(entity)
+                : access.get(CraftBukkitBridge.getNMSLivingEntity(entity));
+    }
+
+    @Override
+    public void setDamageCooldownTicks(LivingEntity entity, int ticks) {
+        DamageCooldownAccess access = DamageCooldownAccess.current();
+        if (access == null) super.setDamageCooldownTicks(entity, ticks);
+        else access.set(CraftBukkitBridge.getNMSLivingEntity(entity), ticks);
+    }
+
     public NMSAdapter() {
         // Register the real packet-size measurer so the FMM packet sampler reports true
         // serialized bytes instead of a flat estimate. Defensive: if the codec reflection
