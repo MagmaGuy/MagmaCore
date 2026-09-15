@@ -4,6 +4,7 @@ import com.magmaguy.easyminecraftgoals.PathfindingHandle;
 import com.magmaguy.easyminecraftgoals.PathfindingStatus;
 import com.magmaguy.easyminecraftgoals.internal.pathfinding.PathfindingDriver;
 import com.magmaguy.easyminecraftgoals.internal.pathfinding.PathfindingSession;
+import com.magmaguy.easyminecraftgoals.v26.internal.GoalSelectorAccess;
 import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.level.pathfinder.Path;
@@ -27,7 +28,7 @@ public final class NativePathfindingGoal extends Goal implements PathfindingHand
     }
 
     public void register() {
-        mob.getGoalSelector().addGoal(priority, this);
+        GoalSelectorAccess.get(mob).addGoal(priority, this);
     }
 
     @Override public boolean canUse() { return session.canUse(); }
@@ -71,5 +72,5 @@ public final class NativePathfindingGoal extends Goal implements PathfindingHand
         path = null;
     }
 
-    @Override public void unregisterGoal() { mob.getGoalSelector().removeGoal(this); }
+    @Override public void unregisterGoal() { GoalSelectorAccess.get(mob).removeGoal(this); }
 }

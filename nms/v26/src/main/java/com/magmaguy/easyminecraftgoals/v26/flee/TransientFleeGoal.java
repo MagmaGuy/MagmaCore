@@ -1,6 +1,7 @@
 package com.magmaguy.easyminecraftgoals.v26.flee;
 
 import com.magmaguy.easyminecraftgoals.TransientMovementOverride;
+import com.magmaguy.easyminecraftgoals.v26.internal.GoalSelectorAccess;
 import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.level.pathfinder.Path;
@@ -32,8 +33,8 @@ public final class TransientFleeGoal extends Goal implements TransientMovementOv
         this.mob = Objects.requireNonNull(mob, "mob");
         this.world = Objects.requireNonNull(world, "world");
         this.registration = new TransientGoalRegistration(
-                () -> mob.getGoalSelector().addGoal(PRIORITY, this),
-                () -> mob.getGoalSelector().removeGoal(this));
+                () -> GoalSelectorAccess.get(mob).addGoal(PRIORITY, this),
+                () -> GoalSelectorAccess.get(mob).removeGoal(this));
         validateSpeed(speedModifier);
         this.speedModifier = speedModifier;
         if (!retarget(threatLocation)) {
