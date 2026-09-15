@@ -66,8 +66,9 @@ public final class WorldFolderResolver {
      */
     public static boolean hasModernLayout(String worldName) {
         Path folder = modernFolder(worldName);
-        return Files.isRegularFile(folder.resolve("data/paper/metadata.dat"))
-                && Files.isRegularFile(folder.resolve("data/paper/level_overrides.dat"));
+        Path paperData = folder.resolve("data").resolve("paper");
+        return Files.isRegularFile(paperData.resolve("metadata.dat"))
+                && Files.isRegularFile(paperData.resolve("level_overrides.dat"));
     }
 
     /**

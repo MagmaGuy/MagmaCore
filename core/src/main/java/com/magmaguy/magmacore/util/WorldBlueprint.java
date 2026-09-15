@@ -12,7 +12,9 @@ import java.util.Set;
 /** Inspects one exported dimension and copies it without modifying the source. */
 public final class WorldBlueprint {
     private enum Layout { LEGACY_WORLD, LEGACY_TERRAIN, MODERN_DIMENSION }
-    private static final Set<String> IDENTITY_FILES = Set.of("uid.dat", "session.lock");
+    private static final Set<Path> IDENTITY_FILES = Set.of(
+            Path.of("uid.dat"), Path.of("session.lock"),
+            Path.of("data", "paper", "metadata.dat"), Path.of("data", "paper", "metadata.dat_old"));
     private final Path root;
     private final Path terrain;
     private final Layout layout;
@@ -47,8 +49,9 @@ public final class WorldBlueprint {
             throw new IOException("Expected one terrain dimension with region files, found " + candidates.size() + ": " + root);
         Path terrain = candidates.getFirst();
         boolean metadata = Files.isRegularFile(root.resolve("level.dat")) || Files.isRegularFile(root.resolve("level.dat_old"));
-        boolean modern = !metadata && (Files.isDirectory(root.resolve("data/paper")) || Files.isDirectory(root.resolve("data/minecraft")));
-        if ((metadata && Files.isRegularFile(root.resolve("data/paper/metadata.dat"))) || (modern && !terrain.equals(root)))
+        boolean modern = !metadata && (Files.isDirectory(root.resolve("data").resolve("paper"))
+                || Files.isDirectory(root.resolve("data").resolve("minecraft")));
+        if ((metadata && Files.isRegularFile(root.resolve("data").resolve("paper").resolve("metadata.dat"))) || (modern && !terrain.equals(root)))
             throw new IOException("Mixed legacy and modern blueprint layout: " + root);
         if (!terrain.equals(root) && !terrain.equals(root.resolve(legacyDimension(environment))))
             throw new IOException("Blueprint dimension does not match configured environment " + environment + ": " + root);
@@ -101,9 +104,7 @@ public final class WorldBlueprint {
                 @Override public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
                     if (!attrs.isRegularFile() || Files.isSymbolicLink(file)) throw new IOException("Non-regular blueprint file: " + file);
                     Path relative = source.relativize(file);
-                    String portable = relative.toString().replace('\\', '/');
-                    if (IDENTITY_FILES.contains(portable) || portable.equals("data/paper/metadata.dat")
-                            || portable.equals("data/paper/metadata.dat_old")) return FileVisitResult.CONTINUE;
+                    if (IDENTITY_FILES.contains(relative)) return FileVisitResult.CONTINUE;
                     Files.copy(file, output.resolve(relative), StandardCopyOption.COPY_ATTRIBUTES);
                     return FileVisitResult.CONTINUE;
                 }
