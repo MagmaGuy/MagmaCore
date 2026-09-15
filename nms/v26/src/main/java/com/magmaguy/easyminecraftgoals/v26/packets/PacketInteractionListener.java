@@ -45,9 +45,8 @@ public class PacketInteractionListener implements Listener {
     private static Field channelField;
 
     // Reflection for outbound ClientboundLevelParticlesPacket clamping.
-    // ClientboundLevelParticlesPacket is a regular (non-record) class with one
-    // private final int field — `count` — so we discover it reflectively and
-    // rebuild over-cap packets with the configured count.
+    // Both the legacy class and the 26.3 record expose a private final count field.
+    // Rebuild over-cap packets without mutating that field or losing other values.
     private static Field particleField;
     private static Field countField;
 
@@ -275,11 +274,7 @@ public class PacketInteractionListener implements Listener {
             int count = countField.getInt(packet);
             if (count <= cap) return packet;
 
-            return new ClientboundLevelParticlesPacket(
-                    particle, packet.isOverrideLimiter(), packet.alwaysShow(),
-                    packet.getX(), packet.getY(), packet.getZ(),
-                    packet.getXDist(), packet.getYDist(), packet.getZDist(),
-                    packet.getMaxSpeed(), cap);
+            return ParticlePacketCopy.withCount(packet, cap);
         } catch (Throwable t) {
             // Fail open: if reconstruction fails, the original packet still goes through.
             return packet;

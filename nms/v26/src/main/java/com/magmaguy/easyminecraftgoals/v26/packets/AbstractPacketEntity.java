@@ -10,7 +10,6 @@ import net.minecraft.network.protocol.game.*;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.PositionMoveRotation;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import org.bukkit.Bukkit;
@@ -280,16 +279,7 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
         // (which still exists as a Java-side packet) would have been completely
         // invisible to Bedrock clients, breaking position updates for every
         // packet-armor-stand bone and Interaction hitbox on Bedrock.
-        return new ClientboundEntityPositionSyncPacket(
-                EntityID,
-                new PositionMoveRotation(
-                        entity.position(),
-                        new Vec3(0, 0, 0),
-                        entity.getYRot(),  // Use actual yaw
-                        entity.getXRot()   // Use actual pitch
-                ),
-                true
-        );
+        return EntityPositionPackets.create(EntityID, entity.position(), entity.getYRot(), entity.getXRot());
     }
 
     protected Packet<?> generateHeadRotationPacket() {

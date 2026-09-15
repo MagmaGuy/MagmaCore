@@ -152,7 +152,10 @@ final class NativeMindActuator {
             if (nativeTarget.level() != mob.level()) {
                 throw new IllegalArgumentException("Mind target must be in the body's world");
             }
-            mob.swing(mob.getUsedItemHand());
+            // Bukkit owns the native swing signature, which changed in 26.3.
+            LivingEntity bodyEntity = (LivingEntity) mob.getBukkitEntity();
+            if (mob.getUsedItemHand() == net.minecraft.world.InteractionHand.OFF_HAND) bodyEntity.swingOffHand();
+            else bodyEntity.swingMainHand();
             mob.doHurtTarget((ServerLevel) mob.level(), nativeTarget);
         }
 
