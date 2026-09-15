@@ -131,7 +131,7 @@ public class ConfigurationImporter {
             Path destinationPath = worldContainerPath.resolve(file.getName());
             File destinationFile = destinationPath.toFile();
 
-            if (destinationFile.exists() || WorldFolderResolver.hasModernLayout(file.getName())) {
+            if (Bukkit.getWorld(file.getName()) != null || WorldFolderResolver.folderExists(file.getName())) {
                 Logger.info("Overriding existing directory " + destinationFile.getPath());
                 if (Bukkit.getWorld(file.getName()) != null) {
                     boolean unloaded;

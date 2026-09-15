@@ -11,37 +11,13 @@ import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Set;
 
-/**
- * Resolves world data folder paths under both legacy (Spigot / pre-Paper-26.1) and
- * vanilla-style (Paper 26.1+) directory layouts, and cleans up debris left by
- * partial Paper world migrations.
- *
- * <p>Layouts:
- * <ul>
- *   <li>Legacy:      {@code <worldContainer>/<name>/level.dat}</li>
- *   <li>Paper 26.1+: {@code <worldContainer>/<level-name>/dimensions/minecraft/<name>/level.dat}</li>
- * </ul>
- *
- * <p>Paper 26.1 ({@link <a href="https://github.com/PaperMC/Paper/pull/13736">PR #13736</a>})
- * moved plugin worlds into a vanilla-style {@code dimensions/<namespace>/<path>}
- * layout. {@link Bukkit#createWorld} now runs a one-shot migration when it sees a
- * legacy folder with a {@code level.dat}. If that migration is interrupted before
- * deleting the source root, both layouts hold a {@code level.dat} on the next
- * boot — Paper's {@code WorldMigrationSupport.mergeMove} then refuses to
- * overwrite the already-migrated destination and {@code createWorld} throws.
- * {@link #quarantineMigrationDebris(String)} renames the stale legacy folder
- * aside so the next {@code createWorld} succeeds.
- *
- * <p>All methods are safe on Spigot and pre-26.1 Paper: the modern layout simply
- * doesn't exist there, so the cleanup branches no-op and reads fall through to
- * the legacy path.
- */
+/** Resolves legacy world roots and modern per-dimension storage. */
 public final class WorldFolderResolver {
 
     private static final String DIMENSIONS_DIRECTORY = "dimensions";
     private static final String DEFAULT_NAMESPACE = "minecraft";
     private static final String LEVEL_DAT = "level.dat";
-    private static final String LEVEL_OLD_DAT = "level_old.dat";
+    private static final String LEVEL_OLD_DAT = "level.dat_old";
 
     private WorldFolderResolver() {
     }
@@ -65,39 +41,33 @@ public final class WorldFolderResolver {
         return modernNamespaceRoot().resolve(worldName.toLowerCase(Locale.ROOT));
     }
 
-    /**
-     * The parent of all per-world dimension folders on Paper 26.1+:
-     * {@code <worldContainer>/<level-name>/dimensions/minecraft}. The level-name
-     * is taken from the first loaded world's name (which is always the
-     * level-name world by the time plugins enable). Falls back to
-     * {@code <worldContainer>/world/dimensions/minecraft} when no worlds are
-     * loaded yet.
-     *
-     * <p>We deliberately use the main world's <em>name</em> resolved against
-     * {@link Bukkit#getWorldContainer()} rather than calling
-     * {@link org.bukkit.World#getWorldFolder()} directly, because Paper's
-     * implementation of {@code getWorldFolder()} on the new layout has been
-     * observed to return paths that are not the level-name directory in some
-     * configurations. The name + container approach gives a stable result
-     * that matches Paper's own {@code WorldMigrationSupport} destination path.
-     */
+    /** Resolves the dimension namespace beside the loaded primary dimension, including custom level-name roots. */
     public static Path modernNamespaceRoot() {
-        String levelName = "world";
-        if (!Bukkit.getWorlds().isEmpty()) {
-            levelName = Bukkit.getWorlds().get(0).getName();
+        if (usesModernStorage()) {
+            return Bukkit.getWorlds().getFirst().getWorldFolder().toPath().getParent().getParent()
+                    .resolve(DEFAULT_NAMESPACE);
         }
-        return Bukkit.getWorldContainer().toPath()
-                .resolve(levelName)
-                .resolve(DIMENSIONS_DIRECTORY)
-                .resolve(DEFAULT_NAMESPACE);
+        String levelName = Bukkit.getWorlds().isEmpty() ? "world" : Bukkit.getWorlds().getFirst().getName();
+        return Bukkit.getWorldContainer().toPath().resolve(levelName).resolve(DIMENSIONS_DIRECTORY).resolve(DEFAULT_NAMESPACE);
     }
 
+    /** The loaded primary world's actual directory establishes the server's storage layout. */
+    public static boolean usesModernStorage() {
+        if (Bukkit.getWorlds().isEmpty()) return false;
+        File folder = Bukkit.getWorlds().getFirst().getWorldFolder();
+        if (folder == null) return false;
+        Path parent = folder.toPath().toAbsolutePath().getParent();
+        return parent != null && parent.getParent() != null
+                && DIMENSIONS_DIRECTORY.equals(parent.getParent().getFileName().toString());
+    }
     /**
      * True iff Paper has migrated this world to the vanilla-style layout
-     * (a {@code level.dat} is present at the modern path).
+     * (Paper metadata and per-world overrides exist at the dimension path).
      */
     public static boolean hasModernLayout(String worldName) {
-        return Files.isRegularFile(modernFolder(worldName).resolve(LEVEL_DAT));
+        Path folder = modernFolder(worldName);
+        return Files.isRegularFile(folder.resolve("data/paper/metadata.dat"))
+                && Files.isRegularFile(folder.resolve("data/paper/level_overrides.dat"));
     }
 
     /**
@@ -109,7 +79,7 @@ public final class WorldFolderResolver {
 
     /**
      * Returns the live data folder for a world, preferring the modern path when
-     * both layouts have a {@code level.dat}. Returns the legacy path when neither
+     * both layouts have world metadata. Returns the legacy path when neither
      * has data so callers writing fresh world folders keep their existing
      * destination on Spigot / pre-26.1 Paper / first-time creation.
      */
@@ -119,7 +89,7 @@ public final class WorldFolderResolver {
     }
 
     /**
-     * True iff the world has a {@code level.dat} at either layout.
+     * True iff the world has recognized metadata at either layout.
      */
     public static boolean exists(String worldName) {
         return hasModernLayout(worldName) || hasLegacyLayout(worldName);
@@ -161,7 +131,7 @@ public final class WorldFolderResolver {
      * {@code <name>.paper-migration-backup-<epoch-millis>}.
      *
      * <p>Triggers when Paper would attempt a legacy migration (legacy folder has
-     * {@code level.dat} or {@code level_old.dat}) AND the modern target folder
+     * {@code level.dat} or {@code level.dat_old}) AND the modern target folder
      * already has any content (which is what causes {@code mergeMove} to throw).
      * That covers both the "successfully migrated once but legacy folder still
      * present" case AND the "previous migration failed midway, modern has region
@@ -191,7 +161,7 @@ public final class WorldFolderResolver {
     /**
      * Mirror of Paper's own {@code LegacyCraftBukkitWorldMigration.migrateApiWorld}
      * entry condition: a legacy migration is triggered iff the legacy folder
-     * contains {@code level.dat} or {@code level_old.dat}.
+     * contains {@code level.dat} or {@code level.dat_old}.
      */
     private static boolean legacyTriggersPaperMigration(String worldName) {
         Path legacy = legacyFolder(worldName);
