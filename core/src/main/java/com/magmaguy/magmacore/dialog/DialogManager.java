@@ -1695,9 +1695,9 @@ public class DialogManager {
     }
 
     public static void clearOwnedDialog(Player player, Object owner) {
-        if (dialogOwners.get(player) != owner) return;
-        dialogOwners.remove(player);
-        player.clearDialog();
+        if (owner == null || dialogOwners.get(player) != owner) return;
+        if (Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "minecraft:dialog clear " + player.getName()))
+            dialogOwners.remove(player, owner);
     }
 
     public static void forgetDialogOwner(Player player, Object owner) {
