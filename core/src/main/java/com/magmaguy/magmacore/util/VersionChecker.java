@@ -6,6 +6,7 @@ import com.magmaguy.magmacore.nightbreak.NightbreakPluginUpdater;
 import lombok.Getter;
 import lombok.Setter;
 import org.bukkit.Bukkit;
+import org.bukkit.Server;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
@@ -32,6 +33,9 @@ public class VersionChecker {
     // doesn't re-print the same "you are running the latest version" lines every hour.
     private static final ConcurrentHashMap<String, String> LAST_LOGGED_STATE = new ConcurrentHashMap<>();
     private static boolean pluginIsUpToDate = true;
+    private static volatile ServerVersion cachedServerVersion;
+
+    private record ServerVersion(Server server, int major, int minor) {}
 
     private VersionChecker() {
     }
@@ -45,8 +49,19 @@ public class VersionChecker {
      * @return Whether the version is under the value to be compared
      */
     public static boolean serverVersionOlderThan(int majorVersion, int minorVersion) {
+        Server server = Bukkit.getServer();
+        ServerVersion version = cachedServerVersion;
+        if (version == null || version.server() != server)
+            version = readServerVersion(server);
+        return version.major() < majorVersion
+                || (version.major() == majorVersion && version.minor() < minorVersion);
+    }
 
-        String[] splitVersion = Bukkit.getBukkitVersion().split("[.]");
+    // A server's version is immutable. Identity also keeps replacement test servers independent.
+    private static synchronized ServerVersion readServerVersion(Server server) {
+        ServerVersion cached = cachedServerVersion;
+        if (cached != null && cached.server() == server) return cached;
+        String[] splitVersion = server.getBukkitVersion().split("[.]");
 
         int actualMajorVersion;
         int actualMinorVersion = 0;
@@ -63,13 +78,9 @@ public class VersionChecker {
                 actualMinorVersion = Integer.parseInt(splitVersion[1].split("-")[0]);
         }
 
-        if (actualMajorVersion < majorVersion)
-            return true;
-
-        if (actualMajorVersion == majorVersion)
-            return actualMinorVersion < minorVersion;
-
-        return false;
+        ServerVersion version = new ServerVersion(server, actualMajorVersion, actualMinorVersion);
+        cachedServerVersion = version;
+        return version;
     }
 
     public static void checkPluginVersion(String resourceID) {
