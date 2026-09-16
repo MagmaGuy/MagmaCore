@@ -61,10 +61,71 @@ public final class EnchantmentItems {
         return preview(source, proposed, false, false);
     }
 
-    /** Read-only access for hosts that own metadata construction and native overflow separately. */
+    /** Reads caller-owned metadata without consulting providers or accessing an inventory. */
     public static Map<String, Integer> inspectCustom(ItemMeta meta) {
-        EnchantmentProviders.requireServerThread();
         return EnchantmentItemData.read(Objects.requireNonNull(meta, "item metadata"));
+    }
+
+    /** Immutable definitions for worker-owned items. Capture and publication checks run on the server thread. */
+    public static final class Construction {
+        private final Map<String, Resolved> definitions;
+        private final List<EnchantmentProviders.Provider> providers;
+        private final Map<String, RuntimeException> failures;
+
+        private Construction(Map<String, Resolved> definitions, List<EnchantmentProviders.Provider> providers,
+                             Map<String, RuntimeException> failures) {
+            this.definitions = Map.copyOf(definitions);
+            this.providers = List.copyOf(providers);
+            this.failures = Map.copyOf(failures);
+        }
+
+        public void requireCurrent() {
+            if (!providers.equals(EnchantmentProviders.providers()))
+                throw new ConcurrentModificationException("Enchantment providers changed during item construction");
+        }
+
+        /** Applies custom metadata to a detached item; this is not an inventory transaction. */
+        public ItemStack applyCustom(ItemStack source, Map<String, Integer> custom) {
+            ItemStack result = source.clone();
+            ItemMeta meta = requireMeta(result);
+            for (var nativeEnchantment : nativeEnchantments(meta).keySet())
+                if (custom.containsKey(nativeEnchantment.getKey().toString()))
+                    throw new IllegalArgumentException("Custom enchantment collides with a native enchantment: " + nativeEnchantment.getKey());
+            for (String id : custom.keySet()) {
+                if (failures.containsKey(id))
+                    throw new IllegalArgumentException("Failed to resolve custom enchantment: " + id, failures.get(id));
+                if (id.startsWith("minecraft:") || !definitions.containsKey(id))
+                    throw new IllegalArgumentException("Unavailable custom enchantment: " + id);
+            }
+            EnchantmentItemData.write(meta, custom);
+            EnchantmentPresentation.render(meta, custom, definitions::get);
+            if (!result.setItemMeta(meta)) throw new IllegalArgumentException("Item rejected its metadata");
+            return result;
+        }
+
+        public ItemStack refreshPresentation(ItemStack source, UnaryOperator<List<String>> rebuildHostLore,
+                                             ToIntFunction<List<String>> position) {
+            return renderPresentation(source, rebuildHostLore, position, definitions::get);
+        }
+    }
+
+    public static Construction prepareConstruction(java.util.Collection<String> ids) {
+        EnchantmentProviders.requireServerThread();
+        var providers = EnchantmentProviders.providers();
+        Map<String, Resolved> definitions = new LinkedHashMap<>();
+        Map<String, RuntimeException> failures = new LinkedHashMap<>();
+        for (String id : new java.util.LinkedHashSet<>(ids)) {
+            try {
+                Resolved resolved = EnchantmentDefinitions.resolve(id);
+                if (resolved != null && resolved.available()) definitions.put(id, resolved);
+            } catch (RuntimeException failure) {
+                // Report a bad definition at the item that uses it; unrelated items can still load.
+                failures.put(id, failure);
+            }
+        }
+        Construction result = new Construction(definitions, providers, failures);
+        result.requireCurrent();
+        return result;
     }
 
     /** Administrator-authored items supersede acquisition limits and compatibility rules. */
@@ -169,6 +230,12 @@ public final class EnchantmentItems {
     public ItemStack refreshPresentation(ItemStack source, UnaryOperator<List<String>> rebuildHostLore,
                                          ToIntFunction<List<String>> enchantmentPosition) {
         EnchantmentProviders.requireServerThread();
+        return renderPresentation(source, rebuildHostLore, enchantmentPosition, resolver);
+    }
+
+    private static ItemStack renderPresentation(ItemStack source, UnaryOperator<List<String>> rebuildHostLore,
+                                                ToIntFunction<List<String>> enchantmentPosition,
+                                                Function<String, Resolved> resolver) {
         Objects.requireNonNull(rebuildHostLore, "host lore builder");
         ItemStack result = source.clone();
         ItemMeta meta = requireMeta(result);
