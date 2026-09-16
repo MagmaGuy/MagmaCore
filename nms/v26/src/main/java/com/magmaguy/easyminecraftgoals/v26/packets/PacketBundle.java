@@ -27,7 +27,8 @@ public class PacketBundle implements AbstractPacketBundle {
         // Group packets by player for efficiency
         Map<Player, List<Packet<ClientGamePacketListener>>> playerPackets = new HashMap<>();
 
-        for (PacketBundleEntry entry : entries) {
+        for (int entryIndex = 0; entryIndex < entries.size(); entryIndex++) {
+            PacketBundleEntry entry = entries.get(entryIndex);
             // Skip if no viewers
             if (entry.viewers().isEmpty()) continue;
 
@@ -38,8 +39,15 @@ public class PacketBundle implements AbstractPacketBundle {
             Packet<ClientGamePacketListener> clientPacket = (Packet<ClientGamePacketListener>) entry.packet();
 
             // Add to each viewer's packet list
-            for (Player viewer : entry.viewers()) {
-                playerPackets.computeIfAbsent(viewer, k -> new ArrayList<>()).add(clientPacket);
+            List<Player> viewers = entry.viewers();
+            if (viewers instanceof RandomAccess) {
+                for (int viewerIndex = 0; viewerIndex < viewers.size(); viewerIndex++) {
+                    playerPackets.computeIfAbsent(viewers.get(viewerIndex), k -> new ArrayList<>()).add(clientPacket);
+                }
+            } else {
+                for (Player viewer : viewers) {
+                    playerPackets.computeIfAbsent(viewer, k -> new ArrayList<>()).add(clientPacket);
+                }
             }
         }
 

@@ -40,7 +40,7 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
     }
 
     public List<Player> getViewersAsPlayers() {
-        List<Player> players = new ArrayList<>();
+        List<Player> players = new ArrayList<>(viewers.size());
         for (UUID viewer : viewers) {
             Player player = Bukkit.getPlayer(viewer);
             if (player != null) {

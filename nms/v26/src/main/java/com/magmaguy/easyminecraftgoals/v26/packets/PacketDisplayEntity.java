@@ -4,6 +4,7 @@ import com.magmaguy.easyminecraftgoals.internal.AbstractPacketBundle;
 import com.magmaguy.easyminecraftgoals.internal.PacketModelEntity;
 import com.magmaguy.easyminecraftgoals.v26.CraftBukkitBridge;
 import com.mojang.math.Transformation;
+import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.world.entity.Display;
 import org.bukkit.*;
 import org.bukkit.entity.Player;
@@ -16,11 +17,26 @@ import org.joml.Quaternionfc;
 import org.joml.Vector3f;
 import org.joml.Vector3fc;
 
+import java.lang.reflect.Field;
 import java.util.List;
 import java.util.UUID;
 
 
 public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDisplay> implements PacketModelEntity {
+    private static final EntityDataAccessor<Quaternionfc> RIGHT_ROTATION = resolveRightRotationAccessor();
+
+    @SuppressWarnings("unchecked")
+    private static EntityDataAccessor<Quaternionfc> resolveRightRotationAccessor() {
+        try {
+            // 26.x uses Mojang field names on both Paper and Spigot. Resolve once;
+            // reading this component must not compose an otherwise unused matrix.
+            Field field = Display.class.getDeclaredField("DATA_RIGHT_ROTATION_ID");
+            field.setAccessible(true);
+            return (EntityDataAccessor<Quaternionfc>) field.get(null);
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("Unable to access the display right rotation", failure);
+        }
+    }
 
     private ItemStack carrierItem;
     private net.minecraft.world.item.ItemStack nmsCarrierItem;
@@ -150,12 +166,11 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
         Quaternionf quaternionf = eulerToQuaternion(
                 eulerAngle.getX(), eulerAngle.getY(), eulerAngle.getZ());
 
-        Transformation transformation = getTransformation();
-        transformation = new Transformation(
+        Transformation transformation = new Transformation(
                 new Vector3f(0, 0, 0),  // keep translation out of the transformation
                 quaternionf,
                 new Vector3f(scaleX, scaleY, scaleZ),
-                transformation.rightRotation()
+                entity.getEntityData().get(RIGHT_ROTATION)
         );
 
         entity.setTransformation(transformation);
@@ -242,7 +257,7 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
     }
 
     public Quaternionf getRightRotation() {
-        Quaternionfc rightRotation = getTransformation().rightRotation();
+        Quaternionfc rightRotation = entity.getEntityData().get(RIGHT_ROTATION);
         return new Quaternionf(rightRotation.x(), rightRotation.y(), rightRotation.z(), rightRotation.w());
     }
 
