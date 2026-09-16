@@ -10,6 +10,7 @@ import net.minecraft.network.protocol.game.*;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.Display;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import org.bukkit.Bukkit;
@@ -308,15 +309,21 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
         if (head != null) bundle.addPacket(head, getViewersAsPlayers());
     }
 
-    // Also update generateMovePacket to ensure yaw is handled correctly
     public Packet<?> generateMovePacket(Location location) {
         // Check if we have viewers first
         if (viewers.isEmpty()) {
             return null;
         }
 
-        // Update entity position AND rotation
-        entity.setPos(location.getX(), location.getY(), location.getZ());
+        // Display.setPos rebuilds bounding/culling boxes even when only rotation
+        // changed. Width/height changes refresh display culling independently.
+        // Keep other entity types' position-update side effects unchanged.
+        double x = location.getX();
+        double y = location.getY();
+        double z = location.getZ();
+        if (!(entity instanceof Display) || entity.getX() != x || entity.getY() != y || entity.getZ() != z) {
+            entity.setPos(x, y, z);
+        }
         applyRotation(location);
 
         // Use teleport packet for absolute positioning
