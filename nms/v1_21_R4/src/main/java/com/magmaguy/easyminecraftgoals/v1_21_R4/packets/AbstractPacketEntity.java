@@ -103,6 +103,11 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
         return entity.getUUID();
     }
 
+    @Override
+    public int getEntityId() {
+        return EntityID;
+    }
+
     //Entity creation
     protected Packet<?> createEntityDataPacket() {
         List<SynchedEntityData.DataValue<?>> dataValues = entity.getEntityData().getNonDefaultValues();
