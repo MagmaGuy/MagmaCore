@@ -75,51 +75,62 @@ public class ZipFile {
             validateArchive(zipFile, destinationUnzippedFile, limits);
             long totalWritten = 0L;
             Enumeration<? extends ZipEntry> entries = zipFile.entries();
-            while (entries.hasMoreElements()) {
-                ZipEntry zipEntry = entries.nextElement();
-                File newFile = newFile(destinationUnzippedFile, zipEntry);
-                // Check if directory - isDirectory() only checks for trailing '/', but Windows zips may use '\'
-                String entryName = zipEntry.getName();
-                boolean isDirectory = zipEntry.isDirectory() || entryName.endsWith("\\") || entryName.endsWith("/");
-                if (isDirectory) {
-                    if (!newFile.isDirectory() && !newFile.mkdirs()) {
-                        throw new IOException("Failed to create directory " + newFile);
-                    }
-                } else {
-                    // Fix for Windows-created archives
-                    File parent = newFile.getParentFile();
-                    if (!parent.isDirectory() && !parent.mkdirs()) {
-                        throw new IOException("Failed to create directory " + parent);
-                    }
+            String currentEntry = null;
+            try {
+                while (entries.hasMoreElements()) {
+                    ZipEntry zipEntry = entries.nextElement();
+                    currentEntry = zipEntry.getName();
+                    File newFile = newFile(destinationUnzippedFile, zipEntry);
+                    // Check if directory - isDirectory() only checks for trailing '/', but Windows zips may use '\'
+                    String entryName = zipEntry.getName();
+                    boolean isDirectory = zipEntry.isDirectory() || entryName.endsWith("\\") || entryName.endsWith("/");
+                    if (isDirectory) {
+                        if (!newFile.isDirectory() && !newFile.mkdirs()) {
+                            throw new IOException("Failed to create directory " + newFile);
+                        }
+                    } else {
+                        // Fix for Windows-created archives
+                        File parent = newFile.getParentFile();
+                        if (!parent.isDirectory() && !parent.mkdirs()) {
+                            throw new IOException("Failed to create directory " + parent);
+                        }
 
-                    // Write file content
-                    try (InputStream in = zipFile.getInputStream(zipEntry);
-                         FileOutputStream fileOutputStream = new FileOutputStream(newFile)) {
-                        long entryWritten = 0L;
-                        int len;
-                        while ((len = in.read(buffer)) > 0) {
-                            if (entryWritten + len >
-                                    limits.maxEntryExpandedBytes()) {
-                                throw new IOException(
-                                        "ZIP entry exceeds expanded size limit: "
-                                                + zipEntry.getName());
+                        // Write file content
+                        try (InputStream in = zipFile.getInputStream(zipEntry);
+                             FileOutputStream fileOutputStream = new FileOutputStream(newFile)) {
+                            long entryWritten = 0L;
+                            int len;
+                            while ((len = in.read(buffer)) > 0) {
+                                if (entryWritten + len >
+                                        limits.maxEntryExpandedBytes()) {
+                                    throw new IOException(
+                                            "ZIP entry exceeds expanded size limit: "
+                                                    + zipEntry.getName());
+                                }
+                                if (totalWritten + len >
+                                        limits.maxTotalExpandedBytes()) {
+                                    throw new IOException(
+                                            "ZIP archive exceeds total expanded size limit.");
+                                }
+                                fileOutputStream.write(buffer, 0, len);
+                                entryWritten += len;
+                                totalWritten += len;
                             }
-                            if (totalWritten + len >
-                                    limits.maxTotalExpandedBytes()) {
-                                throw new IOException(
-                                        "ZIP archive exceeds total expanded size limit.");
-                            }
-                            fileOutputStream.write(buffer, 0, len);
-                            entryWritten += len;
-                            totalWritten += len;
                         }
                     }
+                    long entryTime = zipEntry.getTime();
+                    if (entryTime >= 0) newFile.setLastModified(entryTime);
                 }
-                long entryTime = zipEntry.getTime();
-                if (entryTime >= 0) newFile.setLastModified(entryTime);
+            } catch (IOException failure) {
+                throw new IOException("Failed to extract ZIP entry '" + currentEntry + "': "
+                        + failure.getMessage(), failure);
             }
         } catch (IOException failure) {
-            deleteExtractedContents(destination);
+            try {
+                deleteExtractedContents(destination);
+            } catch (IOException cleanupFailure) {
+                failure.addSuppressed(cleanupFailure);
+            }
             throw failure;
         }
         return destinationUnzippedFile;
@@ -131,7 +142,6 @@ public class ZipFile {
             ExtractionLimits limits) throws IOException {
         Enumeration<? extends ZipEntry> entries = zipFile.entries();
         Set<String> names = new HashSet<>();
-        Set<String> files = new HashSet<>();
         long declaredExpandedBytes = 0L;
         int entryCount = 0;
         while (entries.hasMoreElements()) {
@@ -149,19 +159,8 @@ public class ZipFile {
                         "ZIP archive contains a duplicate path: "
                                 + entry.getName());
             }
-            boolean directory = entry.isDirectory() ||
-                    entry.getName().endsWith("/") ||
-                    entry.getName().endsWith("\\");
-            for (String existingFile : files) {
-                if (key.startsWith(existingFile + "/") ||
-                        (!directory &&
-                                existingFile.startsWith(key + "/"))) {
-                    throw new IOException(
-                            "ZIP archive contains a file/directory path conflict: "
-                                    + entry.getName());
-                }
-            }
-            if (!directory) files.add(key);
+            // File/directory conflicts fail during extraction into the empty staging
+            // directory. Duplicate paths still need a check because writes can overwrite.
 
             long size = entry.getSize();
             if (size >= 0L) {

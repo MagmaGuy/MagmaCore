@@ -30,6 +30,7 @@ import java.util.Set;
 import java.util.LinkedHashSet;
 import java.util.UUID;
 import java.util.IdentityHashMap;
+import java.util.HashSet;
 
 /** Preserves whole retired configuration files using the owning plugin's explicit format rules. */
 public final class OutdatedConfigurationArchive {
@@ -119,6 +120,8 @@ public final class OutdatedConfigurationArchive {
 
     sealed interface Rule permits KeyRule, ListEntryRule, ValueRule, LuaScriptRule {
         boolean matches(String filename, Map<?, ?> yaml);
+
+        default boolean appliesTo(String filename) { return true; }
     }
 
     /** A frozen script contract, not a runtime provider or a list of retired filenames. */
@@ -164,6 +167,8 @@ public final class OutdatedConfigurationArchive {
             path = List.copyOf(path);
         }
 
+        @Override public boolean appliesTo(String filename) { return files.contains(filename); }
+
         @Override public boolean matches(String filename, Map<?, ?> yaml) {
             if (!files.contains(filename)) return false;
             Object current = yaml;
@@ -180,6 +185,8 @@ public final class OutdatedConfigurationArchive {
             files = Set.copyOf(files);
             names = Set.copyOf(names);
         }
+
+        @Override public boolean appliesTo(String filename) { return files.contains(filename); }
 
         @Override public boolean matches(String filename, Map<?, ?> yaml) {
             if (!files.contains(filename) || !(yaml.get(key) instanceof List<?> entries)) return false;
@@ -254,15 +261,19 @@ public final class OutdatedConfigurationArchive {
         Path storage = archiveDirectory.toAbsolutePath().normalize();
         if (storage.startsWith(data)) throw new IOException("Archive storage must be outside the content root");
         if (!Files.exists(data, LinkOption.NOFOLLOW_LINKS) || rules.isEmpty()) return List.of();
-        requireNoLinks(data);
+        // Only reuse path checks within this classification pass. Before moving a
+        // retired file, validate its path and contents again against the live filesystem.
+        Set<Path> inspectedPaths = new HashSet<>();
+        requireNoLinks(data, inspectedPaths);
+        Yaml parser = newParser();
         Map<Path, byte[]> matches = new LinkedHashMap<>();
-        // Finish classification before any move. Invalid YAML still aborts the batch;
+        // Finish classification before any move. Invalid applicable YAML aborts the batch;
         // unclassifiable Lua stays in place for the script loader's normal diagnostics.
         for (var rule : rules.entrySet()) {
             Path category = data.resolve(rule.getKey()).normalize();
             if (!category.startsWith(data) || category.equals(data)) throw new IOException("Invalid content category");
             if (!Files.exists(category, LinkOption.NOFOLLOW_LINKS)) continue;
-            requireNoLinks(category);
+            requireNoLinks(category, inspectedPaths);
             if ((rule.getKey().endsWith(".yml") || rule.getKey().endsWith(".yaml"))
                     && !Files.isRegularFile(category, LinkOption.NOFOLLOW_LINKS))
                 throw new IOException("Not a regular YAML file: " + category);
@@ -271,11 +282,12 @@ public final class OutdatedConfigurationArchive {
             List<Rule> yamlRules = rule.getValue().stream().filter(selected -> !(selected instanceof LuaScriptRule)).toList();
             try (var paths = Files.walk(category)) {
                 for (Path path : paths.sorted().toList()) {
-                    requireNoLinks(path);
+                    requireNoLinks(path, inspectedPaths);
                     String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
                     if (Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) continue;
                     boolean lua = name.endsWith(".lua") && !luaRules.isEmpty();
-                    boolean yaml = (name.endsWith(".yml") || name.endsWith(".yaml")) && !yamlRules.isEmpty();
+                    boolean yaml = (name.endsWith(".yml") || name.endsWith(".yaml"))
+                            && yamlRules.stream().anyMatch(selected -> selected.appliesTo(name));
                     if (!lua && !yaml) continue;
                     if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) throw new IOException("Not a regular configuration file: " + path);
                     byte[] original;
@@ -289,7 +301,7 @@ public final class OutdatedConfigurationArchive {
                     if (lua) {
                         if (luaRules.stream().anyMatch(selected -> selected.matchesScript(path, original)))
                             matches.put(path, original);
-                    } else if (matchesYaml(name, original, yamlRules)) {
+                    } else if (matchesYaml(name, original, yamlRules, parser)) {
                         matches.put(path, original);
                     }
                 }
@@ -322,8 +334,8 @@ public final class OutdatedConfigurationArchive {
         return List.copyOf(archived);
     }
 
-    private static boolean matchesYaml(String name, byte[] source, List<Rule> rules) throws IOException {
-        Map<?, ?> yaml = readMapping(source);
+    private static boolean matchesYaml(String name, byte[] source, List<Rule> rules, Yaml parser) throws IOException {
+        Map<?, ?> yaml = readMapping(source, parser);
         return rules.stream().anyMatch(rule -> rule.matches(name, yaml));
     }
 
@@ -336,12 +348,18 @@ public final class OutdatedConfigurationArchive {
     }
 
     private static void requireNoLinks(Path path) throws IOException {
+        requireNoLinks(path, new HashSet<>());
+    }
+
+    private static void requireNoLinks(Path path, Set<Path> inspectedPaths) throws IOException {
         Path absolute = path.toAbsolutePath().normalize();
         for (Path parent = absolute; parent != null; parent = parent.getParent()) {
+            if (inspectedPaths.contains(parent)) break;
             if (Files.isSymbolicLink(parent)) throw new IOException("Refusing linked archive/content path: " + parent);
             if (Files.exists(parent, LinkOption.NOFOLLOW_LINKS)
                     && !parent.toRealPath().equals(parent))
                 throw new IOException("Refusing redirected archive/content path: " + parent);
+            inspectedPaths.add(parent);
         }
     }
 
@@ -352,11 +370,19 @@ public final class OutdatedConfigurationArchive {
     }
 
     private static Map<?, ?> readMapping(byte[] bytes) throws IOException {
+        return readMapping(bytes, newParser());
+    }
+
+    private static Yaml newParser() {
         LoaderOptions options = new LoaderOptions();
         options.setAllowDuplicateKeys(false);
         options.setCodePointLimit(MAX_SOURCE_BYTES);
+        return new Yaml(new SafeConstructor(options));
+    }
+
+    private static Map<?, ?> readMapping(byte[] bytes, Yaml parser) throws IOException {
         try {
-            Object value = new Yaml(new SafeConstructor(options)).load(new String(bytes, StandardCharsets.UTF_8));
+            Object value = parser.load(new String(bytes, StandardCharsets.UTF_8));
             if (value == null) return Map.of();
             if (!(value instanceof Map<?, ?> mapping)) throw new IOException("Configuration must be a YAML mapping");
             return mapping;

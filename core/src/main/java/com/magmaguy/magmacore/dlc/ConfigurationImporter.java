@@ -21,6 +21,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
+import java.nio.file.FileVisitResult;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
@@ -75,9 +78,9 @@ public class ConfigurationImporter {
             return;
         }
         pluginPlatform = getPluginPlatform(this.ownerPlugin.getName());
-        archiveOutdatedConfigurations();
+        archiveOutdatedConfigurations("before import");
         processImportsFolder();
-        archiveOutdatedConfigurations();
+        archiveOutdatedConfigurations("after import");
         if (Bukkit.getPluginManager().isPluginEnabled("FreeMinecraftModels") && modelsInstalled
                 && !this.ownerPlugin.getName().equals("FreeMinecraftModels")) {
             if (Bukkit.isPrimaryThread()) {
@@ -100,26 +103,62 @@ public class ConfigurationImporter {
         }
     }
 
-    private static void deleteDirectory(File file) {
-        if (file == null) return;
-        if (file.isDirectory()) {
-            File[] children = file.listFiles();
-            if (children != null) {
-                for (File iteratedFile : children) {
-                    if (iteratedFile != null) deleteDirectory(iteratedFile);
+    private static boolean deleteDirectory(File file) {
+        // walkFileTree does not follow links. Report failures instead of silently
+        // ignoring File.delete() results or logging every successful deletion.
+        boolean[] complete = {true};
+        try {
+            Files.walkFileTree(file.toPath(), new SimpleFileVisitor<>() {
+                private void failed(Path path, IOException failure) {
+                    complete[0] = false;
+                    Logger.warn("Could not clean up " + path + ": " + failure.getMessage());
                 }
-            }
+
+                private FileVisitResult delete(Path path) {
+                    try {
+                        Files.deleteIfExists(path);
+                    } catch (IOException failure) {
+                        failed(path, failure);
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override public FileVisitResult visitFile(Path path, BasicFileAttributes attributes) {
+                    return delete(path);
+                }
+
+                @Override public FileVisitResult visitFileFailed(Path path, IOException failure) {
+                    if (!(failure instanceof java.nio.file.NoSuchFileException)) failed(path, failure);
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override public FileVisitResult postVisitDirectory(Path path, IOException failure) {
+                    if (failure != null) failed(path, failure);
+                    return delete(path);
+                }
+            });
+        } catch (IOException failure) {
+            complete[0] = false;
+            Logger.warn("Could not clean up " + file + ": " + failure.getMessage());
         }
-        Logger.info("Cleaning up " + file.getPath());
-        file.delete();
+        return complete[0];
     }
 
-    private void archiveOutdatedConfigurations() {
+    private void archiveOutdatedConfigurations(String phase) {
+        long started = System.nanoTime();
         // One pack can target several plugins. Each target must interpret its own policy
         // through its registered owner, never through this importer's shaded parser.
-        for (var plugin : Bukkit.getPluginManager().getPlugins())
-            if (plugin instanceof JavaPlugin target && (target.isEnabled() || target == ownerPlugin))
-                com.magmaguy.magmacore.config.OutdatedConfigurationArchive.archiveFor(target);
+        try {
+            for (var plugin : Bukkit.getPluginManager().getPlugins())
+                if (plugin instanceof JavaPlugin target && (target.isEnabled() || target == ownerPlugin))
+                    com.magmaguy.magmacore.config.OutdatedConfigurationArchive.archiveFor(target);
+        } finally {
+            Logger.info("Retirement scan " + phase + ": " + elapsedMillis(started) + " ms.");
+        }
+    }
+
+    private static long elapsedMillis(long started) {
+        return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
     }
 
     private void moveWorlds(
@@ -463,7 +502,7 @@ public class ConfigurationImporter {
             // OS metadata files (.DS_Store, ._* AppleDouble, Thumbs.db, desktop.ini) are not importable content
             if (!zippedFile.isDirectory() && isOsMetadataFile(zippedFile.getName())) continue;
             if (zippedFile.getName().endsWith(".zip")) {
-                unzipImportFile(zippedFile);
+                importFile(zippedFile, true);
             } else if (pluginPlatform == PluginPlatform.FREEMINECRAFTMODELS && zippedFile.getName().endsWith(".bbmodel")) {
                 processBbmodel(zippedFile);
             } else if (zippedFile.isDirectory()) {
@@ -483,7 +522,7 @@ public class ConfigurationImporter {
                     }
                 }
                 if (incorrectlyUnzippedFolder) {
-                    processUnzippedFile(zippedFile);
+                    importFile(zippedFile, false);
                 } else {
 //                    Logger.debug("Directory " + zippedFile.getAbsolutePath() + " does not contain pack.meta, skipping.");
                 }
@@ -499,34 +538,44 @@ public class ConfigurationImporter {
                 || fileName.equalsIgnoreCase("desktop.ini");
     }
 
-    private void unzipImportFile(File zippedFile) {
+    private void importFile(File source, boolean zipped) {
         Path stagingDirectory = null;
+        long extractionMillis = 0;
+        long installationMillis = 0;
+        boolean installed = false;
         try {
-            String archiveName = zippedFile.getName();
-            String baseName = archiveName.substring(
-                    0, archiveName.length() - ".zip".length())
-                    .replaceAll("[^A-Za-z0-9._-]", "_");
-            stagingDirectory = Files.createTempDirectory(
-                    importsFolder.toPath(),
-                    "." + baseName + ".extract-");
-            File unzippedFolder = ZipFile.unzip(
-                    zippedFile,
-                    stagingDirectory.toFile());
-            if (processUnzippedFile(unzippedFolder)) {
-                deleteDirectory(zippedFile);
-            } else {
-                Logger.warn("Import failed for " + zippedFile.getPath()
-                        + "; retaining the archive for a safe retry.");
+            File unzippedFolder = source;
+            if (zipped) {
+                long started = System.nanoTime();
+                try {
+                    String archiveName = source.getName();
+                    String baseName = archiveName.substring(0, archiveName.length() - ".zip".length())
+                            .replaceAll("[^A-Za-z0-9._-]", "_");
+                    stagingDirectory = Files.createTempDirectory(importsFolder.toPath(), "." + baseName + ".extract-");
+                    unzippedFolder = ZipFile.unzip(source, stagingDirectory.toFile());
+                } finally {
+                    extractionMillis = elapsedMillis(started);
+                }
+            }
+            long started = System.nanoTime();
+            try {
+                installed = processUnzippedFile(unzippedFolder);
+            } finally {
+                installationMillis = elapsedMillis(started);
             }
         } catch (Exception ex) {
-            Logger.warn("Failed to unzip " + zippedFile.getPath() + " ! This probably means the file is corrupted.");
-            Logger.warn("To fix this, delete this file from the imports folder and download a clean copy!");
+            Logger.warn("Failed to import " + source.getPath() + ": " + ex.getMessage());
             ex.printStackTrace();
         } finally {
-            if (stagingDirectory != null &&
-                    Files.exists(stagingDirectory)) {
-                deleteDirectory(stagingDirectory.toFile());
-            }
+            long started = System.nanoTime();
+            boolean cleaned = true;
+            if (stagingDirectory != null) cleaned = deleteDirectory(stagingDirectory.toFile());
+            if (installed) cleaned = deleteDirectory(source) && cleaned;
+            Logger.info((installed ? "Imported " : "Import failed for ") + source.getName()
+                    + ": extraction " + extractionMillis + " ms, installation " + installationMillis
+                    + " ms, cleanup " + elapsedMillis(started) + " ms"
+                    + (cleaned ? "." : "; cleanup incomplete, see warnings."));
+            if (!installed) Logger.warn("Retaining " + source.getPath() + " for retry.");
         }
     }
 
@@ -618,7 +667,6 @@ public class ConfigurationImporter {
             exception.printStackTrace();
             return false;
         }
-        deleteDirectory(unzippedFolder);
         return true;
     }
 
