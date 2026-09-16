@@ -57,10 +57,6 @@ public class PacketBundle implements AbstractPacketBundle {
             }
         });
 
-        int bundleCount = playerPackets.values().stream()
-                .mapToInt(packets -> (packets.size() + MAX_PACKETS_PER_BUNDLE - 1) / MAX_PACKETS_PER_BUNDLE)
-                .sum();
-
     }
 
     private boolean isClientGamePacket(Packet<?> packet) {

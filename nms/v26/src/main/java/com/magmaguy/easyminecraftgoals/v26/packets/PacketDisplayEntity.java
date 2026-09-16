@@ -30,17 +30,14 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
         super(location);
     }
 
-    private static Quaternionf eulerToQuaternion(double originalX, double originalY, double originalZ) {
-        double yaw = Math.toRadians(originalZ);
-        double pitch = Math.toRadians(originalY);
-        double roll = Math.toRadians(originalX);
-
-        double cy = Math.cos(yaw * 0.5);
-        double sy = Math.sin(yaw * 0.5);
-        double cp = Math.cos(pitch * 0.5);
-        double sp = Math.sin(pitch * 0.5);
-        double cr = Math.cos(roll * 0.5);
-        double sr = Math.sin(roll * 0.5);
+    /** Converts XYZ Euler angles in radians to a quaternion in Rz * Ry * Rx order. */
+    private static Quaternionf eulerToQuaternion(double rotationX, double rotationY, double rotationZ) {
+        double cy = Math.cos(rotationZ * 0.5);
+        double sy = Math.sin(rotationZ * 0.5);
+        double cp = Math.cos(rotationY * 0.5);
+        double sp = Math.sin(rotationY * 0.5);
+        double cr = Math.cos(rotationX * 0.5);
+        double sr = Math.sin(rotationX * 0.5);
 
         double w = cr * cp * cy + sr * sp * sy;
         double x = sr * cp * cy - cr * sp * sy;
@@ -120,9 +117,7 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
     public void sendLocationAndRotationPacket(Location location, EulerAngle eulerAngle) {
         move(location);
         Quaternionf quaternionf = eulerToQuaternion(
-                Math.toDegrees(eulerAngle.getX()),
-                Math.toDegrees(eulerAngle.getY()),
-                Math.toDegrees(eulerAngle.getZ()));
+                eulerAngle.getX(), eulerAngle.getY(), eulerAngle.getZ());
         rotate(quaternionf);
         sendPacketToAll(createEntityDataPacket());
     }
@@ -153,9 +148,7 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
 
         // Always update transformation for rotation/scale
         Quaternionf quaternionf = eulerToQuaternion(
-                Math.toDegrees(eulerAngle.getX()),
-                Math.toDegrees(eulerAngle.getY()),
-                Math.toDegrees(eulerAngle.getZ()));
+                eulerAngle.getX(), eulerAngle.getY(), eulerAngle.getZ());
 
         Transformation transformation = getTransformation();
         transformation = new Transformation(
