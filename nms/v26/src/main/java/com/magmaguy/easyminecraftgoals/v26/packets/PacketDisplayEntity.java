@@ -147,12 +147,9 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
     public AbstractPacketBundle generateLocationAndRotationAndScalePackets(
             AbstractPacketBundle packetBundle, Location location, EulerAngle eulerAngle, float scaleX, float scaleY, float scaleZ) {
 
-        if (!getLocation().getWorld().equals(location.getWorld())) {
-            packetBundle.addPacket(generateMovePacket(location), getViewersAsPlayers());
-        } else {
-            // Always move — keeps things in sync for display entities
-            packetBundle.addPacket(generateMovePacket(location), getViewersAsPlayers());
-        }
+        // Both packets belong to the same update and use the same viewer snapshot.
+        List<Player> updateViewers = getViewersAsPlayers();
+        packetBundle.addPacket(generateMovePacket(location), updateViewers);
 
         // Always update transformation for rotation/scale
         Quaternionf quaternionf = eulerToQuaternion(
@@ -178,9 +175,9 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
         // Full snapshots still go out on displayTo (spawn) and the periodic resync.
         if (com.magmaguy.easyminecraftgoals.internal.PacketEntityTuning.useDeltaMetadataUpdates) {
             net.minecraft.network.protocol.Packet<?> dirty = createDirtyEntityDataPacket();
-            if (dirty != null) packetBundle.addPacket(dirty, getViewersAsPlayers());
+            if (dirty != null) packetBundle.addPacket(dirty, updateViewers);
         } else {
-            packetBundle.addPacket(createEntityDataPacket(), getViewersAsPlayers());
+            packetBundle.addPacket(createEntityDataPacket(), updateViewers);
         }
 
         return packetBundle;
@@ -267,8 +264,8 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
     }
 
     public Transformation getTransformation() {
-        Transformation nms = Display.createTransformation(this.entity.getEntityData());
-        return new Transformation(nms.translation(), nms.leftRotation(), nms.scale(), nms.rightRotation());
+        // The native factory already returns a fresh transformation.
+        return Display.createTransformation(this.entity.getEntityData());
     }
 
     private void setTransformation(Transformation transformation) {
