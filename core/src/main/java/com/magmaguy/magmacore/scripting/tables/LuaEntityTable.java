@@ -77,8 +77,10 @@ public class LuaEntityTable {
         }
         if (entity instanceof org.bukkit.entity.AbstractArrow arrow) {
             LuaTableSupport.lazyField(table, "in_block", () -> LuaValue.valueOf(arrow.isInBlock()));
-            LuaTableSupport.lazyField(table, "attachment_location", () -> arrow.getAttachedBlock() == null ? LuaValue.NIL
-                    : LuaTableSupport.locationToTable(arrow.getAttachedBlock().getRelative(arrow.getFacing()).getLocation().add(.5, .5, .5)));
+            // Embedded arrows rest just outside the struck surface. Stepping forward
+            // from that cell puts the destination inside the obstacle being grappled.
+            LuaTableSupport.lazyField(table, "attachment_location", () -> !arrow.isInBlock() ? LuaValue.NIL
+                    : LuaTableSupport.locationToTable(arrow.getLocation().getBlock().getLocation().add(.5, .5, .5)));
             table.set("set_pickup", LuaTableSupport.tableMethod(table, args -> {
                 arrow.setPickupStatus(org.bukkit.entity.AbstractArrow.PickupStatus.valueOf(args.checkjstring(1).toUpperCase(java.util.Locale.ROOT)));
                 return LuaValue.NIL;

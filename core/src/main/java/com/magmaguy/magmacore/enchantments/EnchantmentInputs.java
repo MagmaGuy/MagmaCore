@@ -203,7 +203,14 @@ public final class EnchantmentInputs implements Listener {
                     facts.remove("inventory_slot"); // Ammunition is consumed; it is not the item in the bow's slot.
                     facts.put("projectile", projectile.getUniqueId());
                     source.put("facts", facts);
-                    dispatch(plugin, source, PROJECTILE_LAUNCH, null, "launch");
+                    // Bow events run before the arrow is added to the world. Keep the
+                    // consumed ammunition snapshot, but expose the launch only once
+                    // ordinary entity lookup and action ownership can resolve it.
+                    org.bukkit.Bukkit.getScheduler().runTask(plugin, () -> {
+                        if (!elected() || !projectile.isValid()
+                                || org.bukkit.Bukkit.getEntity(projectile.getUniqueId()) != projectile) return;
+                        dispatch(plugin, source, PROJECTILE_LAUNCH, null, "launch");
+                    });
                 }
             }
         } catch (RuntimeException invalid) { warn(player, invalid); }
