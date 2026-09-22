@@ -14,8 +14,14 @@ import org.bukkit.inventory.meta.SkullMeta;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.UncheckedIOException;
+import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -44,8 +50,11 @@ public class ConfigurationEngine {
     public static FileConfiguration fileConfigurationCreator(File file) {
         if (OutdatedConfigurationArchive.isArchivePath(file.toPath()))
             throw new IllegalArgumentException("Archived configurations cannot be loaded: " + file);
-        try {
-            return YamlConfiguration.loadConfiguration(new InputStreamReader(Files.newInputStream(file.toPath().normalize().toAbsolutePath()), StandardCharsets.UTF_8));
+        try (InputStreamReader reader = new InputStreamReader(
+                Files.newInputStream(file.toPath().normalize().toAbsolutePath()), StandardCharsets.UTF_8)) {
+            YamlConfiguration configuration = new YamlConfiguration();
+            configuration.load(reader);
+            return configuration;
         } catch (Exception exception) {
             Logger.warn("Failed to read configuration from file " + file.getName());
             return null;
@@ -54,25 +63,48 @@ public class ConfigurationEngine {
 
     public static void fileSaverCustomValues(FileConfiguration fileConfiguration, File file) {
         fileConfiguration.options().copyDefaults(true);
-
-        try {
-            fileConfiguration.save(file);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-
+        saveConfiguration(fileConfiguration, file);
     }
 
     public static void fileSaverOnlyDefaults(FileConfiguration fileConfiguration, File file) {
         fileConfiguration.options().copyDefaults(true);
         UnusedNodeHandler.clearNodes(fileConfiguration);
 
-        try {
-            fileConfiguration.save(file);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+        saveConfiguration(fileConfiguration, file);
+    }
 
+    private static void saveConfiguration(FileConfiguration configuration, File file) {
+        Path destination = file.toPath().toAbsolutePath().normalize();
+        Path temporary = null;
+        try {
+            // Complete serialization before touching the previous configuration.
+            String contents = configuration.saveToString();
+            // Preserve configured file links rather than replacing the link itself.
+            if (Files.isSymbolicLink(destination)) destination = destination.toRealPath();
+            Files.createDirectories(destination.getParent());
+            temporary = Files.createTempFile(destination.getParent(), ".config-", ".tmp");
+            Files.writeString(temporary, contents, StandardCharsets.UTF_8);
+            try (FileChannel channel = FileChannel.open(temporary, StandardOpenOption.WRITE)) {
+                channel.force(true);
+            }
+            try {
+                Files.move(temporary, destination, StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException unsupported) {
+                Files.move(temporary, destination, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (IOException failure) {
+            throw new UncheckedIOException("Failed to save configuration " + destination, failure);
+        } finally {
+            if (temporary != null) {
+                try {
+                    Files.deleteIfExists(temporary);
+                } catch (IOException cleanupFailure) {
+                    Logger.warn("Failed to remove configuration temporary file " + temporary
+                            + ": " + cleanupFailure.getMessage());
+                }
+            }
+        }
     }
 
     public static void setComments(FileConfiguration fileConfiguration, String key, List<String> comments) {
@@ -185,10 +217,12 @@ public class ConfigurationEngine {
     }
 
     public static boolean writeValue(Object value, File file, FileConfiguration fileConfiguration, String path) {
+        Object previous = fileConfiguration.get(path, null);
         fileConfiguration.set(path, value);
         try {
             fileSaverCustomValues(fileConfiguration, file);
         } catch (Exception exception) {
+            fileConfiguration.set(path, previous);
             Logger.warn("Failed to write value for " + path + " in file " + file.getName());
             return false;
         }
@@ -196,6 +230,7 @@ public class ConfigurationEngine {
     }
 
     public static void removeValue(File file, FileConfiguration fileConfiguration, String path) {
-        writeValue(null, file, fileConfiguration, path);
+        if (!writeValue(null, file, fileConfiguration, path))
+            throw new IllegalStateException("Failed to remove value " + path + " from " + file);
     }
 }

@@ -3,6 +3,7 @@ package com.magmaguy.magmacore.config;
 
 import com.magmaguy.magmacore.MagmaCore;
 import com.magmaguy.magmacore.util.Logger;
+import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.reflections.Reflections;
@@ -190,6 +191,7 @@ public class CustomConfig {
             }
 
             InheritanceResolver.ResolvedConfiguration resolved = resolver.resolve(file);
+            LoadedState before = resolved.inherited() ? null : LoadedState.capture(resolved.rawConfiguration());
             fields.setFile(file);
             if (resolved.inherited())
                 fields.beginInheritedRead(resolved.readConfiguration(), resolved.rawConfiguration());
@@ -199,7 +201,7 @@ public class CustomConfig {
 
             // Sparse leaves remain sparse: inherited values and parser defaults never leak into them.
             if (!resolved.inherited())
-                ConfigurationEngine.fileSaverCustomValues(resolved.rawConfiguration(), file);
+                saveChanges(resolved.rawConfiguration(), file, before);
             addCustomConfigFields(file.getName(), fields);
         } catch (Exception exception) {
             Logger.warn("Disabled inherited configuration " + file.getName() + ": " + rootMessage(exception));
@@ -377,6 +379,7 @@ public class CustomConfig {
     private void initialize(CustomConfigFields customConfigFields, File file) {
         //Get config file
         FileConfiguration fileConfiguration = ConfigurationEngine.fileConfigurationCreator(file);
+        LoadedState before = LoadedState.capture(fileConfiguration);
 
         //Associate config
         customConfigFields.setFile(file);
@@ -386,7 +389,7 @@ public class CustomConfig {
         customConfigFields.processConfigFields();
 
         //Save all configuration values as they exist
-        ConfigurationEngine.fileSaverCustomValues(fileConfiguration, file);
+        saveChanges(fileConfiguration, file, before);
 
         //if (customConfigFields.isEnabled)
         //Store for use by the plugin
@@ -400,7 +403,8 @@ public class CustomConfig {
         //Load file configuration from file
         try {
             if (!file.getName().endsWith(".yml")) return;
-            FileConfiguration fileConfiguration = YamlConfiguration.loadConfiguration(file);
+            FileConfiguration fileConfiguration = ConfigurationEngine.fileConfigurationCreator(file);
+            LoadedState before = LoadedState.capture(fileConfiguration);
             //Instantiate the correct CustomConfigFields instance
             Constructor<?> constructor = customConfigFields.getConstructor(String.class, boolean.class);
             CustomConfigFields instancedCustomConfigFields = (CustomConfigFields) constructor.newInstance(file.getName(), true);
@@ -408,11 +412,8 @@ public class CustomConfig {
             instancedCustomConfigFields.setFile(file);
             //Parse actual fields and load into RAM to be used
             instancedCustomConfigFields.processConfigFields();
-            //Persist any newly-defaulted keys (e.g. options added in a newer version) back to disk so they
-            //become visible and editable. fileSaverCustomValues uses copyDefaults(true) which only writes
-            //missing defaults; it never overwrites existing user-set values or strips comments. This mirrors
-            //the fresh-generation path so pre-existing user files also gain newly added defaults.
-            ConfigurationEngine.fileSaverCustomValues(fileConfiguration, file);
+            // Persist added defaults and parser changes, without rewriting an unchanged definition.
+            saveChanges(fileConfiguration, file, before);
             //if (instancedCustomConfigFields.isEnabled)
             //Store for use by the plugin
             addCustomConfigFields(file.getName(), instancedCustomConfigFields);
@@ -421,6 +422,51 @@ public class CustomConfig {
             ex.printStackTrace();
         }
 
+    }
+
+    private static void saveChanges(FileConfiguration configuration, File file, LoadedState before) {
+        configuration.options().copyDefaults(true);
+        if (!before.equals(LoadedState.capture(configuration)))
+            ConfigurationEngine.fileSaverCustomValues(configuration, file);
+    }
+
+    /** Logical load state avoids serializing or rereading unchanged YAML merely to compare it. */
+    private record LoadedState(Object values, Map<String, List<String>> comments,
+                               Map<String, List<String>> inlineComments,
+                               List<String> header, List<String> footer) {
+        private static LoadedState capture(FileConfiguration configuration) {
+            Map<String, List<String>> comments = new HashMap<>();
+            Map<String, List<String>> inlineComments = new HashMap<>();
+            for (String key : configuration.getKeys(true)) {
+                List<String> block = configuration.getComments(key);
+                List<String> inline = configuration.getInlineComments(key);
+                if (!block.isEmpty()) comments.put(key, new ArrayList<>(block));
+                if (!inline.isEmpty()) inlineComments.put(key, new ArrayList<>(inline));
+            }
+            return new LoadedState(copyValue(configuration), comments, inlineComments,
+                    new ArrayList<>(configuration.options().getHeader()),
+                    new ArrayList<>(configuration.options().getFooter()));
+        }
+
+        private static Object copyValue(Object value) {
+            if (value instanceof ConfigurationSection section)
+                return copyValue(section.getValues(false));
+            if (value instanceof Map<?, ?> map) {
+                Map<Object, Object> copy = new LinkedHashMap<>();
+                map.forEach((key, entry) -> copy.put(key, copyValue(entry)));
+                return copy;
+            }
+            if (value instanceof List<?> list) {
+                List<Object> copy = new ArrayList<>(list.size());
+                list.forEach(entry -> copy.add(copyValue(entry)));
+                return copy;
+            }
+            if (value instanceof org.bukkit.configuration.serialization.ConfigurationSerializable serializable)
+                return new SerializedValue(value.getClass(), copyValue(serializable.serialize()));
+            return value;
+        }
+
+        private record SerializedValue(Class<?> type, Object values) { }
     }
 
 }

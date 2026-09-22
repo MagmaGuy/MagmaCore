@@ -2,7 +2,6 @@ package com.magmaguy.magmacore.config;
 
 import lombok.Getter;
 import org.bukkit.configuration.file.FileConfiguration;
-import org.bukkit.configuration.file.YamlConfiguration;
 
 import java.io.File;
 
@@ -18,7 +17,9 @@ public abstract class ConfigurationFile {
     /** Loads the same configuration lifecycle without requiring a plugin-owned path. */
     protected ConfigurationFile(File file) {
         this.file = ConfigurationEngine.fileCreator(java.util.Objects.requireNonNull(file, "file"));
-        fileConfiguration = YamlConfiguration.loadConfiguration(file);
+        fileConfiguration = java.util.Objects.requireNonNull(
+                ConfigurationEngine.fileConfigurationCreator(file),
+                "Configuration could not be loaded: " + file);
         initializeValues();
         saveDefaults();
     }
