@@ -4,10 +4,15 @@ import com.magmaguy.magmacore.location.LocationQueryRegistry;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.entity.Entity;
+import org.bukkit.entity.Player;
 import org.bukkit.util.BoundingBox;
 import org.bukkit.util.Vector;
 
-/** Optional collision/protection preflight for authored pulls. Does not move an entity or load chunks. */
+/**
+ * Optional collision preflight for authored pulls, with claim protection for non-player entities.
+ * Player entry restrictions remain enforced by native movement listeners.
+ * Does not move an entity or load chunks.
+ */
 public final class EntityMovementPath {
     public enum Status { CLEAR, BLOCKED, PROTECTED, UNAVAILABLE }
     private EntityMovementPath() { }
@@ -33,18 +38,21 @@ public final class EntityMovementPath {
         // Each segment tests a swept box, so thin blocks cannot fall between sample points.
         int steps = Math.max(1, (int) Math.ceil(distance * 4));
         Vector step = offset.clone().multiply(1D / steps);
+        // Build protection does not forbid player travel, including grappling inside dungeons.
+        // Keep the claim guard for pulls that could remove mobs from protected areas.
+        boolean checkProtection = !(entity instanceof Player);
         BoundingBox previous = source;
         for (int i = 1; i <= steps; i++) {
             BoundingBox next = source.clone().shift(step.clone().multiply(i));
             BoundingBox swept = previous.clone().union(next).expand(-1.0E-5D);
-            Status status = inspectVolume(world, swept);
+            Status status = inspectVolume(world, swept, checkProtection);
             if (status != Status.CLEAR) return status;
             previous = next;
         }
         return Status.CLEAR;
     }
 
-    private static Status inspectVolume(World world, BoundingBox volume) {
+    private static Status inspectVolume(World world, BoundingBox volume, boolean checkProtection) {
         int minX = (int) Math.floor(volume.getMinX()), maxX = (int) Math.floor(volume.getMaxX());
         int minY = (int) Math.floor(volume.getMinY()), maxY = (int) Math.floor(volume.getMaxY());
         int minZ = (int) Math.floor(volume.getMinZ()), maxZ = (int) Math.floor(volume.getMaxZ());
@@ -53,7 +61,8 @@ public final class EntityMovementPath {
             // Fences/walls can extend above the block cell immediately below the entity.
             for (int y = Math.max(world.getMinHeight(), minY - 1); y <= maxY; y++) {
                 var block = world.getBlockAt(x, y, z);
-                if (y >= minY && LocationQueryRegistry.isInAnyProtectedRegion(block.getLocation())) return Status.PROTECTED;
+                if (checkProtection && y >= minY
+                        && LocationQueryRegistry.isInAnyProtectedRegion(block.getLocation())) return Status.PROTECTED;
                 // Bukkit's enclosing collision box is conservative around stairs and fences.
                 // Refusing a narrow route is preferable to pulling through an obstruction.
                 if (!block.isPassable() && block.getBoundingBox().overlaps(volume)) return Status.BLOCKED;
