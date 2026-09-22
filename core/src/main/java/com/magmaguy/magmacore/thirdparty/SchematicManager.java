@@ -70,9 +70,9 @@ public class SchematicManager {
             return null;
         } catch (Exception e) {
             Logger.warn("Failed to load schematic " + schematicFile.getName() + " ! 99% of the time, this is because you are not using the correct WorldEdit version for your Minecraft server. You should be downloading WorldEdit from here https://dev.bukkit.org/projects/worldedit . You can check which versions the download links are compatible with by hovering over them.");
-            erroredOnce = true;
             if (!erroredOnce) e.printStackTrace();
             else Logger.warn("Hiding stacktrace for this error, as it has already been printed once");
+            erroredOnce = true;
             return null;
         }
         return clipboard;
@@ -273,18 +273,19 @@ public class SchematicManager {
             boolean pasteAir) {
 
         Clipboard clipboard = load(schematicFile);
+        if (clipboard == null) throw new IllegalStateException("Could not load schematic " + schematicFile);
         if (randomizeRotation) {
             double rotateY = new Random().nextInt(4) * 90 - 90;
             if (rotateY < 0) rotateY = 270;
             try {
-                clipboard.transform(new AffineTransform().rotateY(rotateY));
+                clipboard = clipboard.transform(new AffineTransform().rotateY(rotateY));
             } catch (WorldEditException e) {
                 throw new RuntimeException(e);
             }
         }
 
         List<PasteBlock> pasteBlocks = createPasteBlocks(
-                load(schematicFile),
+                clipboard,
                 location,
                 schematicOffset,
                 pedestalMaterialProvider,
