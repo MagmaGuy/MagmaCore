@@ -1,6 +1,10 @@
 package com.magmaguy.magmacore.enchantments;
 
 import org.bukkit.Bukkit;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.HandlerList;
+import org.bukkit.event.Listener;
+import org.bukkit.event.server.ServiceUnregisterEvent;
 import org.bukkit.plugin.Plugin;
 
 import java.util.Map;
@@ -10,7 +14,7 @@ import java.util.function.BiFunction;
 import java.util.logging.Level;
 
 /** Service marker. Its simple name and JDK method signature survive shading. */
-public final class EnchantmentProviderEndpoint implements BiFunction<String, Map<String, Object>, Map<String, Object>> {
+public final class EnchantmentProviderEndpoint implements BiFunction<String, Map<String, Object>, Map<String, Object>>, Listener {
     static final String PROTOCOL = "magmacore.enchantments";
     static final int VERSION = 1;
     private final Plugin owner;
@@ -21,6 +25,7 @@ public final class EnchantmentProviderEndpoint implements BiFunction<String, Map
     private long revision = 1;
     private boolean active = true;
     private boolean failureWarned;
+    private Map<String, Object> descriptor;
 
     EnchantmentProviderEndpoint(Plugin owner, String namespace, Set<String> capabilities,
                                 EnchantmentProviders.Handler handler) {
@@ -28,6 +33,7 @@ public final class EnchantmentProviderEndpoint implements BiFunction<String, Map
         this.namespace = namespace;
         this.capabilities = Set.copyOf(capabilities);
         this.handler = handler;
+        refreshDescriptor();
     }
 
     @Override
@@ -35,9 +41,7 @@ public final class EnchantmentProviderEndpoint implements BiFunction<String, Map
         if (!Bukkit.isPrimaryThread()) return failure("WRONG_THREAD");
         if (!available()) return failure("UNAVAILABLE");
         if ("describe".equals(operation)) {
-            return Map.of("status", "OK", "protocol", PROTOCOL, "version", VERSION,
-                    "namespace", namespace, "plugin", owner.getName(), "generation", generation,
-                    "revision", revision, "capabilities", capabilities.stream().sorted().toList());
+            return descriptor;
         }
         try {
             if (request == null || !request.keySet().equals(Set.of("protocol", "version", "generation", "revision", "payload")))
@@ -73,14 +77,28 @@ public final class EnchantmentProviderEndpoint implements BiFunction<String, Map
         if (!available()) throw new IllegalStateException("Provider is unavailable");
         revision = Math.incrementExact(revision);
         failureWarned = false;
+        refreshDescriptor();
         return revision;
     }
 
-    void deactivate() { active = false; }
+    private void refreshDescriptor() {
+        descriptor = Map.of("status", "OK", "protocol", PROTOCOL, "version", VERSION,
+                "namespace", namespace, "plugin", owner.getName(), "generation", generation,
+                "revision", revision, "capabilities", capabilities.stream().sorted().toList());
+    }
+
+    @EventHandler
+    public void onUnregister(ServiceUnregisterEvent event) {
+        if (event.getProvider().getProvider() == this) deactivate();
+    }
+
+    void deactivate() {
+        active = false;
+        HandlerList.unregisterAll(this);
+    }
 
     private boolean available() {
-        return active && owner.isEnabled() && Bukkit.getServicesManager().getRegistrations(BiFunction.class)
-                .stream().anyMatch(service -> service.getProvider() == this);
+        return active && owner.isEnabled();
     }
 
     static Map<String, Object> failure(String status) { return Map.of("status", status); }

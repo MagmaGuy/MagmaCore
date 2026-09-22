@@ -176,7 +176,14 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
         );
 
         entity.setTransformation(transformation);
-        packetBundle.addPacket(createEntityDataPacket(), getViewersAsPlayers());
+        if (com.magmaguy.easyminecraftgoals.internal.PacketEntityTuning.useDeltaMetadataUpdates) {
+            java.util.List<net.minecraft.network.syncher.SynchedEntityData.DataValue<?>> dirty = entity.getEntityData().packDirty();
+            if (dirty != null && !dirty.isEmpty()) {
+                packetBundle.addPacket(new net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket(entity.getId(), dirty), getViewersAsPlayers());
+            }
+        } else {
+            packetBundle.addPacket(createEntityDataPacket(), getViewersAsPlayers());
+        }
 
         return packetBundle;
     }

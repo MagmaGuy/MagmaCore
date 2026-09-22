@@ -73,7 +73,13 @@ public final class EnchantmentProviders {
         if (entries().stream().anyMatch(e -> e.provider.namespace().equals(namespace)))
             throw new IllegalStateException("Enchantment namespace already owned: " + namespace);
         var endpoint = new EnchantmentProviderEndpoint(owner, namespace, capabilities, handler);
-        Bukkit.getServicesManager().register(BiFunction.class, endpoint, owner, ServicePriority.Normal);
+        Bukkit.getPluginManager().registerEvents(endpoint, owner);
+        try {
+            Bukkit.getServicesManager().register(BiFunction.class, endpoint, owner, ServicePriority.Normal);
+        } catch (RuntimeException | Error failure) {
+            endpoint.deactivate();
+            throw failure;
+        }
         return new Registration(endpoint);
     }
 

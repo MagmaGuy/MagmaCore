@@ -224,11 +224,12 @@ public abstract class AdvancedCommand {
         String raw = getStringArgument(key, commandSender, args);
         if (raw == null) return null;
         try {
-            return Double.parseDouble(raw);
+            double value = Double.parseDouble(raw);
+            if (Double.isFinite(value)) return value;
         } catch (NumberFormatException e) {
-            Logger.sendMessage(commandSender, "Key " + key + " not a valid number");
-            return null;
         }
+        Logger.sendMessage(commandSender, "Key " + key + " not a valid finite number");
+        return null;
     }
 
     /**

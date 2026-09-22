@@ -99,6 +99,7 @@ public class NMSManager {
      * Shuts down NMS components. Should be called when the plugin using EasyMinecraftGoals is disabled.
      */
     public static void shutdown() {
+        com.magmaguy.easyminecraftgoals.internal.pathfinding.LongRangePathfindingHandle.shutdownPlanning();
         // Terrain displays must be removed while the adapter is still available to send packets.
         TerrainImpactService.shutdown();
         if (adapter != null) {

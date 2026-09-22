@@ -199,9 +199,9 @@ public final class NightbreakChangelogManager implements Listener {
                     || NightbreakPluginUpdater.compareVersions(currentVersion, trackingFloorVersion) > 0;
             if (pluginNeedsHistory && !selectedPluginComplete) {
                 List<NightbreakAccount.PluginChangelog> previouslySelected = selected;
-                List<NightbreakAccount.PluginChangelog> releases =
-                        NightbreakAccount.getPublicPluginChangelogs(spec.pluginSlug(), false);
-                historyServiceUnavailable = releases.isEmpty();
+                NightbreakAccount.ChangelogFetch history = NightbreakAccount.fetchPluginChangelogs(spec.pluginSlug());
+                List<NightbreakAccount.PluginChangelog> releases = history.releases();
+                historyServiceUnavailable = history.serviceUnavailable();
                 RangeSelection selection = bootstrapCurrentRelease
                         ? selectCurrentRelease(releases, currentVersion)
                         : selectRange(releases, trackingFloorVersion, currentVersion);
@@ -223,9 +223,9 @@ public final class NightbreakChangelogManager implements Listener {
                 }
                 if (selectedContentCompleteness.getOrDefault(content.slug, false)) continue;
                 if (historyServiceUnavailable) continue;
-                List<NightbreakAccount.PluginChangelog> contentHistory =
-                        NightbreakAccount.getPublicDlcChangelogs(content.slug, false);
-                if (contentHistory.isEmpty()) historyServiceUnavailable = true;
+                NightbreakAccount.ChangelogFetch history = NightbreakAccount.fetchDlcChangelogs(content.slug);
+                List<NightbreakAccount.PluginChangelog> contentHistory = history.releases();
+                historyServiceUnavailable = history.serviceUnavailable();
                 RangeSelection selection = content.bootstrapCurrentRelease
                         ? selectCurrentRelease(contentHistory, content.currentVersion)
                         : selectRange(contentHistory, content.floorVersion, content.currentVersion);

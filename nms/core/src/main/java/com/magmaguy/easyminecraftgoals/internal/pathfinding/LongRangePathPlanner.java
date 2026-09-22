@@ -22,6 +22,8 @@ import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.HashSet;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
@@ -37,8 +39,15 @@ final class LongRangePathPlanner {
     private static final double CORRIDOR_RADIUS = 48D;
     private static final int MAX_CAPTURED_CHUNKS = 160;
     private static final int MAX_VISITED_NODES = 180_000;
+    private static volatile long generation;
 
     private LongRangePathPlanner() {
+    }
+
+    static void shutdown() {
+        generation++;
+        AsyncSearchQueue.shutdown();
+        SnapshotWorkQueue.shutdown();
     }
 
     static Request plan(LivingEntity entity, Location finalTarget, Consumer<PlanResult> callback) {
@@ -186,6 +195,7 @@ final class LongRangePathPlanner {
         private final int maximumY;
         private final Map<Long, ChunkSnapshot> snapshots = new HashMap<>();
         private final AtomicBoolean cancelled = new AtomicBoolean();
+        private final long requestGeneration = generation;
         private SnapshotPathSolver.BlockProperties[] materialProperties;
         private int nextChunk;
         private boolean missingTerrain;
@@ -231,7 +241,7 @@ final class LongRangePathPlanner {
 
         @Override
         public void compute() {
-            if (cancelled.get()) return;
+            if (isCancelled()) return;
             if (materialProperties == null) materialProperties = MaterialProperties.snapshot();
             World world = start.getWorld();
             if (world == null || nextChunk >= chunks.size()) {
@@ -252,16 +262,9 @@ final class LongRangePathPlanner {
         }
 
         private void dispatchSearch() {
-            if (cancelled.get()) return;
+            if (isCancelled()) return;
             Plugin plugin = MagmaCore.getInstance().getRequestingPlugin();
-            AsyncSearchQueue.submit(plugin, () -> {
-                if (cancelled.get()) return;
-                PlanResult result = search();
-                if (cancelled.get()) return;
-                plugin.getServer().getScheduler().runTask(plugin, () -> {
-                    if (!cancelled.get()) callback.accept(result);
-                });
-            });
+            AsyncSearchQueue.submit(plugin, this);
         }
 
         private PlanResult search() {
@@ -280,7 +283,8 @@ final class LongRangePathPlanner {
                             planningTarget.getBlockY(),
                             planningTarget.getBlockZ()),
                     body,
-                    MAX_VISITED_NODES);
+                    MAX_VISITED_NODES,
+                    this::isCancelled);
             if (!solved.found()) {
                 return missingTerrain
                         ? PlanResult.terrainUnavailable(solved.exhaustedNodeBudget())
@@ -307,6 +311,12 @@ final class LongRangePathPlanner {
         @Override
         public void close() {
             cancelled.set(true);
+            SnapshotWorkQueue.discard(this);
+            AsyncSearchQueue.cancel(this);
+        }
+
+        boolean isCancelled() {
+            return cancelled.get() || requestGeneration != generation;
         }
     }
 
@@ -437,11 +447,17 @@ final class LongRangePathPlanner {
 
     private static final class SnapshotWorkQueue {
         private static WorkloadRunnable runner;
+        private static final Set<Request> pending = new HashSet<>();
 
         private SnapshotWorkQueue() {
         }
 
-        private static void enqueue(Workload workload) {
+        private static void enqueue(Request request) {
+            pending.add(request);
+            Workload workload = () -> {
+                pending.remove(request);
+                request.compute();
+            };
             if (runner == null) {
                 runner = new WorkloadRunnable(0.04D, SnapshotWorkQueue::finished);
                 runner.addWorkload(workload);
@@ -454,6 +470,17 @@ final class LongRangePathPlanner {
         private static void finished() {
             runner = null;
         }
+
+        private static void discard(Request request) {
+            pending.remove(request);
+        }
+
+        private static void shutdown() {
+            if (runner != null) runner.cancel();
+            runner = null;
+            for (Request request : List.copyOf(pending)) request.close();
+            pending.clear();
+        }
     }
 
     private static final class AsyncSearchQueue {
@@ -461,36 +488,91 @@ final class LongRangePathPlanner {
                 1,
                 Math.min(4, Runtime.getRuntime().availableProcessors() / 4));
         private static final Deque<SearchWork> PENDING = new ArrayDeque<>();
-        private static int active;
+        private static final Map<Request, SearchWork> ACTIVE = new HashMap<>();
 
         private AsyncSearchQueue() {
         }
 
-        private static synchronized void submit(Plugin plugin, Runnable search) {
-            PENDING.addLast(new SearchWork(plugin, search));
+        private static synchronized void submit(Plugin plugin, Request request) {
+            PENDING.addLast(new SearchWork(plugin, request));
             dispatch();
         }
 
         private static synchronized void dispatch() {
-            while (active < MAX_CONCURRENT_SEARCHES && !PENDING.isEmpty()) {
+            while (ACTIVE.size() < MAX_CONCURRENT_SEARCHES && !PENDING.isEmpty()) {
                 SearchWork work = PENDING.removeFirst();
-                active++;
-                work.plugin().getServer().getScheduler().runTaskAsynchronously(work.plugin(), () -> {
-                    try {
-                        work.search().run();
-                    } finally {
-                        complete();
-                    }
-                });
+                if (work.request.isCancelled()) {
+                    work.request.snapshots.clear();
+                    continue;
+                }
+                ACTIVE.put(work.request, work);
+                try {
+                    work.task = work.plugin.getServer().getScheduler().runTaskAsynchronously(work.plugin, () -> run(work));
+                } catch (RuntimeException failure) {
+                    ACTIVE.remove(work.request, work);
+                    work.request.cancelled.set(true);
+                    work.request.snapshots.clear();
+                    if (work.plugin.isEnabled())
+                        work.plugin.getLogger().warning("Could not schedule path search: " + failure.getMessage());
+                }
             }
         }
 
-        private static synchronized void complete() {
-            active--;
+        private static void run(SearchWork work) {
+            synchronized (AsyncSearchQueue.class) {
+                if (ACTIVE.get(work.request) != work) return;
+                work.started = true;
+            }
+            try {
+                if (work.request.isCancelled()) return;
+                PlanResult result = work.request.search();
+                if (work.request.isCancelled()) return;
+                work.plugin.getServer().getScheduler().runTask(work.plugin, () -> {
+                    if (!work.request.isCancelled()) work.request.callback.accept(result);
+                });
+            } catch (RuntimeException failure) {
+                work.request.cancelled.set(true);
+                if (work.plugin.isEnabled())
+                    work.plugin.getLogger().warning("Path search failed: " + failure.getMessage());
+            } finally {
+                work.request.snapshots.clear();
+                synchronized (AsyncSearchQueue.class) {
+                    ACTIVE.remove(work.request, work);
+                    dispatch();
+                }
+            }
+        }
+
+        private static synchronized void cancel(Request request) {
+            PENDING.removeIf(work -> work.request == request);
+            SearchWork active = ACTIVE.get(request);
+            if (active != null && active.started) return;
+            if (active != null) {
+                if (active.task != null) active.task.cancel();
+                ACTIVE.remove(request, active);
+            }
+            request.snapshots.clear();
             dispatch();
         }
 
-        private record SearchWork(Plugin plugin, Runnable search) {
+        private static synchronized void shutdown() {
+            List<Request> requests = new ArrayList<>(ACTIVE.keySet());
+            for (SearchWork work : PENDING) requests.add(work.request);
+            // Mark all before cancellation can dispatch another pending request.
+            for (Request request : requests) request.cancelled.set(true);
+            for (Request request : requests) cancel(request);
+        }
+
+        private static final class SearchWork {
+            private final Plugin plugin;
+            private final Request request;
+            private org.bukkit.scheduler.BukkitTask task;
+            private boolean started;
+
+            private SearchWork(Plugin plugin, Request request) {
+                this.plugin = plugin;
+                this.request = request;
+            }
         }
     }
 }

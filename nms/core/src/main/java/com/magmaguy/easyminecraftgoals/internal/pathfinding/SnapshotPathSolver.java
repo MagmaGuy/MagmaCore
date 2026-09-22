@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 
 /** Pure A* search over immutable chunk snapshots. No Bukkit world state is read here. */
 final class SnapshotPathSolver {
@@ -26,9 +27,15 @@ final class SnapshotPathSolver {
             Point requestedGoal,
             BodyProfile body,
             int maximumVisitedNodes) {
-        Point start = nearestValid(terrain, requestedStart, body, 2, 8);
+        return solve(terrain, requestedStart, requestedGoal, body, maximumVisitedNodes, () -> false);
+    }
+
+    static Result solve(Terrain terrain, Point requestedStart, Point requestedGoal, BodyProfile body,
+                        int maximumVisitedNodes, BooleanSupplier cancelled) {
+        if (cancelled.getAsBoolean()) return Result.noPath(false);
+        Point start = nearestValid(terrain, requestedStart, body, 2, 8, cancelled);
         if (start == null) return Result.noPath(false);
-        Point goal = nearestValid(terrain, requestedGoal, body, 8, 48);
+        Point goal = nearestValid(terrain, requestedGoal, body, 8, 48, cancelled);
         if (goal == null) return Result.noPath(false);
         if (start.equals(goal)) return new Result(List.of(start), false);
 
@@ -41,6 +48,7 @@ final class SnapshotPathSolver {
 
         int visited = 0;
         while (!open.isEmpty()) {
+            if (cancelled.getAsBoolean()) return Result.noPath(false);
             SearchNode next = open.poll();
             Point current = next.point();
             if (!closed.add(current)) continue;
@@ -120,12 +128,14 @@ final class SnapshotPathSolver {
             Point requested,
             BodyProfile body,
             int horizontalRadius,
-            int verticalRadius) {
+            int verticalRadius,
+            BooleanSupplier cancelled) {
         if (isValid(terrain, requested, body)) return requested;
         Point best = null;
         double bestDistance = Double.POSITIVE_INFINITY;
         for (int dx = -horizontalRadius; dx <= horizontalRadius; dx++) {
             for (int dz = -horizontalRadius; dz <= horizontalRadius; dz++) {
+                if (cancelled.getAsBoolean()) return null;
                 for (int dy = -verticalRadius; dy <= verticalRadius; dy++) {
                     Point candidate = requested.add(dx, dy, dz);
                     double distance = dx * dx + dz * dz + dy * dy * 0.25D;

@@ -11,6 +11,11 @@ import java.util.function.Function;
 
 /** Publishes provider-owned catalogs through the existing cross-shading bridge. No Lua state crosses it. */
 public final class EnchantmentDefinitions {
+    private static final Map<String, ResolvedCatalog> RESOLVED = new LinkedHashMap<>();
+
+    private record ResolvedCatalog(EnchantmentProviders.Provider provider,
+                                   Map<String, EnchantmentItems.Resolved> definitions) { }
+
     private EnchantmentDefinitions() { }
 
     public static HostedCatalog publish(Plugin owner, EnchantmentCatalog catalog, Set<String> capabilities,
@@ -109,7 +114,17 @@ public final class EnchantmentDefinitions {
         String namespace = id.substring(0, id.indexOf(':'));
         if (namespace.equals("minecraft")) throw new IllegalArgumentException("Native enchantments use the native registry");
         var provider = EnchantmentProviders.find(namespace).orElse(null);
-        if (provider == null || !provider.compatible()) return null;
+        if (provider == null || !provider.compatible()) {
+            RESOLVED.remove(namespace);
+            return null;
+        }
+        ResolvedCatalog cached = RESOLVED.get(namespace);
+        if (cached == null || !cached.provider().equals(provider)) {
+            cached = new ResolvedCatalog(provider, new LinkedHashMap<>());
+            RESOLVED.put(namespace, cached);
+        }
+        EnchantmentItems.Resolved existing = cached.definitions().get(id);
+        if (existing != null) return existing;
         var response = EnchantmentProviders.call(provider, EnchantmentProviders.Operation.RESOLVE, Map.of("id", id));
         if (response.status() != EnchantmentProviders.Status.OK) return null;
         Map<String, Object> payload = response.payload();
@@ -119,7 +134,9 @@ public final class EnchantmentDefinitions {
             throw new IllegalArgumentException("Malformed enchantment definition response from " + namespace);
         EnchantmentDefinition definition = decode(raw);
         if (!definition.id().equals(id)) throw new IllegalArgumentException("Provider returned a different enchantment identity");
-        return new EnchantmentItems.Resolved(definition, provider);
+        EnchantmentItems.Resolved resolved = new EnchantmentItems.Resolved(definition, provider);
+        cached.definitions().put(id, resolved);
+        return resolved;
     }
 
     private static Map<String, Object> encode(EnchantmentDefinition definition) {

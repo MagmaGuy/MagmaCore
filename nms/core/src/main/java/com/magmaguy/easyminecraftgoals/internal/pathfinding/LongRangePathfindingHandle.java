@@ -39,6 +39,12 @@ public final class LongRangePathfindingHandle implements PathfindingHandle {
         this.nativeHandle = java.util.Objects.requireNonNull(nativeHandle, "nativeHandle");
     }
 
+    /** Retires snapshot and search work with the adapter lifecycle. */
+    public static void shutdownPlanning() {
+        requirePrimaryThread();
+        LongRangePathPlanner.shutdown();
+    }
+
     @Override
     public boolean moveTo(Location target, double requestedSpeedModifier) {
         requirePrimaryThread();
@@ -101,7 +107,10 @@ public final class LongRangePathfindingHandle implements PathfindingHandle {
             finish(PathfindingStatus.ENDED_SHORT);
             return;
         }
-        if (planningRequest != null) return;
+        if (planningRequest != null) {
+            if (planningRequest.isCancelled()) finish(PathfindingStatus.NO_PATH);
+            return;
+        }
         if (terrainRetryAfterMillis > 0L) {
             if (System.currentTimeMillis() >= terrainRetryAfterMillis && finalTarget != null) beginPlanning();
             return;

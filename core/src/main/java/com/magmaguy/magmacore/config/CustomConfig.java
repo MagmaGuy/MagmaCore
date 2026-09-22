@@ -79,6 +79,13 @@ public class CustomConfig {
             //In some plugins the premades are empty which causes this error
         }
         customConfigFieldsArrayList.removeIf(fields -> !ownsFilename(fields.getFilename()));
+        Map<String, CustomConfigFields> defaultOwners = new HashMap<>();
+        for (CustomConfigFields fields : customConfigFieldsArrayList) {
+            CustomConfigFields previous = defaultOwners.putIfAbsent(normalizeFilename(fields.getFilename()), fields);
+            if (previous != null)
+                throw new IllegalStateException("Conflicting defaults for " + folderName + "/" + fields.getFilename()
+                        + ": " + previous.getClass().getName() + " and " + fields.getClass().getName());
+        }
 
         //Check if the directory doesn't exist
         try {
@@ -98,7 +105,7 @@ public class CustomConfig {
             for (File selected : ContentFileSelector.select(collectYamlFiles(file)))
                 fileInitializer(selected);
         else {
-            initializeInheritanceAware(file);
+            initializeInheritanceAware(file, defaultOwners);
             return;
         }
 
@@ -152,15 +159,11 @@ public class CustomConfig {
                 .equals(source.toPath().toAbsolutePath().normalize());
     }
 
-    private void initializeInheritanceAware(File directory) {
+    private void initializeInheritanceAware(File directory, Map<String, CustomConfigFields> premades) {
         List<File> existingFiles = collectYamlFiles(directory);
         Set<String> existingNames = new HashSet<>();
         for (File existingFile : existingFiles)
             existingNames.add(normalizeFilename(existingFile.getName()));
-
-        Map<String, CustomConfigFields> premades = new HashMap<>();
-        for (CustomConfigFields premade : customConfigFieldsArrayList)
-            premades.put(normalizeFilename(premade.getFilename()), premade);
 
         Set<String> alreadyInitialized = new HashSet<>();
         for (Map.Entry<String, CustomConfigFields> entry : premades.entrySet()) {

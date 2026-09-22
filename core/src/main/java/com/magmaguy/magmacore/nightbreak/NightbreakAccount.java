@@ -584,18 +584,34 @@ public class NightbreakAccount {
     }
 
     private static List<PluginChangelog> getPublicChangelogs(String prefix, String slug, boolean logFailures) {
+        return fetchPublicChangelogs(prefix, slug, logFailures).releases();
+    }
+
+    record ChangelogFetch(List<PluginChangelog> releases, boolean serviceUnavailable) { }
+
+    static ChangelogFetch fetchPluginChangelogs(String slug) {
+        return fetchPublicChangelogs("/server/plugins/", slug, false);
+    }
+
+    static ChangelogFetch fetchDlcChangelogs(String slug) {
+        return fetchPublicChangelogs("/server/dlc/", slug, false);
+    }
+
+    private static ChangelogFetch fetchPublicChangelogs(String prefix, String slug, boolean logFailures) {
         try {
             String url = baseUrl() + prefix + encodePathSegment(slug) + "/changelogs?limit=100";
-            String response = httpGetPublic(url, logFailures);
-            if (response == null) return List.of();
-            JsonElement root = JsonParser.parseString(response);
+            PublicResponse response = httpGetPublicResponse(url, logFailures);
+            if (response.body() == null) {
+                return new ChangelogFetch(List.of(), response.status() != 404 && response.status() != 410);
+            }
+            JsonElement root = JsonParser.parseString(response.body());
             JsonArray releases;
             if (root.isJsonArray()) releases = root.getAsJsonArray();
             else if (root.isJsonObject() && root.getAsJsonObject().has("releases"))
                 releases = root.getAsJsonObject().getAsJsonArray("releases");
             else if (root.isJsonObject() && root.getAsJsonObject().has("changelogs"))
                 releases = root.getAsJsonObject().getAsJsonArray("changelogs");
-            else return List.of();
+            else return new ChangelogFetch(List.of(), false);
 
             List<PluginChangelog> result = new ArrayList<>();
             for (JsonElement element : releases) {
@@ -613,11 +629,11 @@ public class NightbreakAccount {
             // The public history contract is newest-first so the bounded response always
             // contains the current release. Consumers render chronological digests.
             java.util.Collections.reverse(result);
-            return List.copyOf(result);
+            return new ChangelogFetch(List.copyOf(result), false);
         } catch (Exception exception) {
             if (logFailures)
                 Logger.warn("Error getting changelogs for '" + slug + "': " + exception.getMessage());
-            return List.of();
+            return new ChangelogFetch(List.of(), false);
         }
     }
 
@@ -799,6 +815,12 @@ public class NightbreakAccount {
     }
 
     private static String httpGetPublic(String urlString, boolean logFailures) {
+        return httpGetPublicResponse(urlString, logFailures).body();
+    }
+
+    private record PublicResponse(int status, String body) { }
+
+    private static PublicResponse httpGetPublicResponse(String urlString, boolean logFailures) {
         try {
             URL url = new URL(urlString);
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
@@ -810,7 +832,7 @@ public class NightbreakAccount {
 
             int responseCode = connection.getResponseCode();
             if (responseCode == 200) {
-                return readUtf8Bounded(connection.getInputStream(), MAX_PUBLIC_JSON_BYTES);
+                return new PublicResponse(responseCode, readUtf8Bounded(connection.getInputStream(), MAX_PUBLIC_JSON_BYTES));
             }
 
             String errorResponse = null;
@@ -821,12 +843,12 @@ public class NightbreakAccount {
             if (logFailures) {
                 logHttpError(urlString, responseCode, errorResponse);
             }
-            return null;
+            return new PublicResponse(responseCode, null);
         } catch (IOException e) {
             if (logFailures) {
                 logNetworkFailure(urlString, e.getMessage());
             }
-            return null;
+            return new PublicResponse(0, null);
         }
     }
 
