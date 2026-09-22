@@ -56,6 +56,10 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
 
     protected abstract T createEntity(Location location);
 
+    protected boolean hasViewer(UUID viewer) {
+        return viewers.contains(viewer);
+    }
+
     @Override
     public void addViewer(UUID player) {
         viewers.add(player);
@@ -169,7 +173,7 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
         }
 
         // Add to viewers first
-        addViewer(player.getUniqueId());
+        viewers.add(player.getUniqueId());
 
         // Send packets ONLY to this specific player
         sendPacketToPlayer(player,

@@ -50,8 +50,7 @@ public class LuaPlayerUITable {
 
                 if (ticks > 0) {
                     Bukkit.getScheduler().runTaskLater(MagmaCore.getInstance().getRequestingPlugin(), () -> {
-                        BossBar current = activeBossBars.remove(uuid);
-                        if (current != null) current.removeAll();
+                        if (activeBossBars.remove(uuid, bar)) bar.removeAll();
                     }, ticks);
                 }
             });
@@ -87,8 +86,7 @@ public class LuaPlayerUITable {
                 activeActionBars.put(uuid, task);
 
                 Bukkit.getScheduler().runTaskLater(MagmaCore.getInstance().getRequestingPlugin(), () -> {
-                    BukkitTask t = activeActionBars.remove(uuid);
-                    if (t != null) t.cancel();
+                    if (activeActionBars.remove(uuid, task)) task.cancel();
                 }, ticks);
             }
             return LuaValue.NIL;

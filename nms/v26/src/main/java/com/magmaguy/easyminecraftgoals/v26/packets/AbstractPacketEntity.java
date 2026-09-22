@@ -58,6 +58,10 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
 
     protected abstract T createEntity(Location location);
 
+    protected boolean hasViewer(UUID viewer) {
+        return viewers.contains(viewer);
+    }
+
     @Override
     public void addViewer(UUID player) {
         viewers.add(player);
@@ -187,7 +191,7 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
         }
 
         // Add to viewers first
-        addViewer(player.getUniqueId());
+        viewers.add(player.getUniqueId());
 
         // Send packets ONLY to this specific player
         sendPacketToPlayer(player,
@@ -217,7 +221,7 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
             return;
         }
 
-        addViewer(player.getUniqueId());
+        viewers.add(player.getUniqueId());
         List<Player> playerOnly = List.of(player);
         packetBundle.addPacket(new ClientboundAddEntityPacket(
                 EntityID,
@@ -310,11 +314,6 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
     }
 
     public Packet<?> generateMovePacket(Location location) {
-        // Check if we have viewers first
-        if (viewers.isEmpty()) {
-            return null;
-        }
-
         // Display.setPos rebuilds bounding/culling boxes even when only rotation
         // changed. Width/height changes refresh display culling independently.
         // Keep other entity types' position-update side effects unchanged.
@@ -325,6 +324,8 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
             entity.setPos(x, y, z);
         }
         applyRotation(location);
+
+        if (viewers.isEmpty()) return null;
 
         // Use teleport packet for absolute positioning
         return generateTeleportPacket();

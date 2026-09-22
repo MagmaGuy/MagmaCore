@@ -27,8 +27,9 @@ final class SnapshotPathSolver {
             BodyProfile body,
             int maximumVisitedNodes) {
         Point start = nearestValid(terrain, requestedStart, body, 2, 8);
+        if (start == null) return Result.noPath(false);
         Point goal = nearestValid(terrain, requestedGoal, body, 8, 48);
-        if (start == null || goal == null) return Result.noPath(false);
+        if (goal == null) return Result.noPath(false);
         if (start.equals(goal)) return new Result(List.of(start), false);
 
         PriorityQueue<SearchNode> open = new PriorityQueue<>(Comparator.comparingDouble(SearchNode::score));
@@ -120,6 +121,7 @@ final class SnapshotPathSolver {
             BodyProfile body,
             int horizontalRadius,
             int verticalRadius) {
+        if (isValid(terrain, requested, body)) return requested;
         Point best = null;
         double bestDistance = Double.POSITIVE_INFINITY;
         for (int dx = -horizontalRadius; dx <= horizontalRadius; dx++) {

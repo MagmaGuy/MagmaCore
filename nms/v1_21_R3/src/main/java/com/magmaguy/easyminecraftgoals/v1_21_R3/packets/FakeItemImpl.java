@@ -60,6 +60,7 @@ public class FakeItemImpl implements FakeItem, TrackedPacketEntity {
         UUID uuid = player.getUniqueId();
         if (playerEntities.containsKey(uuid)) return;
         ItemDisplayPacketEntity entity = createItemDisplayEntity(location);
+        entity.teleport(location);
         playerEntities.put(uuid, entity);
         entity.displayTo(uuid);
         if (currentVehicleId != -1) entity.mountTo(currentVehicleId);

@@ -108,8 +108,9 @@ public class PacketArmorStandEntity extends AbstractPacketEntity<ArmorStand> imp
     }
 
 @Override
-public void displayTo(Player player) {
-    super.displayTo(player);
+    public void displayTo(Player player) {
+        if (player == null || hasViewer(player.getUniqueId())) return;
+        super.displayTo(player);
     if (nmsLeatherHorseArmor != null) {
         sendPacket(player, new ClientboundSetEquipmentPacket(entity.getId(), List.of(Pair.of(EquipmentSlot.HEAD, nmsLeatherHorseArmor))));
     }
@@ -121,7 +122,6 @@ public void displayTo(Player player) {
 
     @Override
     public void addViewer(UUID player) {
-        super.addViewer(player);
         displayTo(player);
     }
 

@@ -648,6 +648,12 @@ public class NightbreakAccount {
     }
 
     public PluginDownloadResult downloadPluginUpdate(String slug, File destinationFile, DownloadProgressCallback progressCallback) {
+        return downloadPluginUpdate(slug, destinationFile, progressCallback, () -> true);
+    }
+
+    PluginDownloadResult downloadPluginUpdate(String slug, File destinationFile,
+                                              DownloadProgressCallback progressCallback,
+                                              java.util.function.BooleanSupplier operationCurrent) {
         if (!hasToken()) {
             Logger.warn("Cannot download plugin update: No account token registered. Use /nightbreaklogin <token> first.");
             return new PluginDownloadResult(false, 0, "NO_TOKEN",
@@ -656,7 +662,7 @@ public class NightbreakAccount {
 
         try {
             String url = baseUrl() + "/server/plugins/" + encodePathSegment(slug) + "/download";
-            return httpDownloadWithProgressResult(url, destinationFile, progressCallback);
+            return httpDownloadWithProgressResult(url, destinationFile, progressCallback, operationCurrent);
         } catch (Exception e) {
             Logger.warn("Error downloading plugin update '" + slug + "': " + e.getMessage());
             return new PluginDownloadResult(false, 0, "DOWNLOAD_ERROR",
@@ -1086,8 +1092,11 @@ public class NightbreakAccount {
         }
     }
 
-    private PluginDownloadResult httpDownloadWithProgressResult(String urlString, File destinationFile, DownloadProgressCallback callback) {
+    private PluginDownloadResult httpDownloadWithProgressResult(String urlString, File destinationFile,
+                                                                DownloadProgressCallback callback,
+                                                                java.util.function.BooleanSupplier operationCurrent) {
         try {
+            if (!operationCurrent.getAsBoolean()) throw new IOException("Plugin download cancelled.");
             URL url = new URL(urlString);
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
             configureScopedTestRedirectPolicy(connection);
@@ -1127,6 +1136,7 @@ public class NightbreakAccount {
                             exceededLimit = true;
                             break;
                         }
+                        if (!operationCurrent.getAsBoolean()) throw new IOException("Plugin download cancelled.");
                         out.write(buffer, 0, bytesRead);
                         bytesDownloaded += bytesRead;
                         if (callback != null && bytesDownloaded - lastProgressUpdate >= 102400) {
@@ -1191,7 +1201,10 @@ public class NightbreakAccount {
     // ==================== JSON PARSING ====================
 
     private static VersionInfo parseVersionInfo(String json) {
-        // Simple JSON parsing without external dependencies
+        return parseVersionInfo(JsonParser.parseString(json).getAsJsonObject());
+    }
+
+    private static VersionInfo parseVersionInfo(JsonObject json) {
         VersionInfo info = new VersionInfo();
         info.slug = extractJsonString(json, "slug");
         info.version = extractJsonString(json, "version");
@@ -1221,6 +1234,10 @@ public class NightbreakAccount {
     }
 
     private static AccessInfo parseAccessInfo(String json) {
+        return parseAccessInfo(JsonParser.parseString(json).getAsJsonObject());
+    }
+
+    private static AccessInfo parseAccessInfo(JsonObject json) {
         AccessInfo info = new AccessInfo();
         info.slug = extractJsonString(json, "slug");
         info.hasAccess = extractJsonBoolean(json, "hasAccess");
@@ -1236,97 +1253,48 @@ public class NightbreakAccount {
         return info;
     }
 
-    private static String extractJsonString(String json, String key) {
-        String searchKey = "\"" + key + "\":\"";
-        int startIndex = json.indexOf(searchKey);
-        if (startIndex == -1) return null;
-        startIndex += searchKey.length();
-        int endIndex = json.indexOf("\"", startIndex);
-        if (endIndex == -1) return null;
-        return json.substring(startIndex, endIndex);
+    private static String extractJsonString(JsonObject json, String key) {
+        JsonElement value = json.get(key);
+        if (value == null || value.isJsonNull()) return null;
+        if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isString()) {
+            throw new IllegalArgumentException("Expected string for " + key);
+        }
+        return value.getAsString();
     }
 
-    private static int extractJsonInt(String json, String key) {
-        String searchKey = "\"" + key + "\":";
-        int startIndex = json.indexOf(searchKey);
-        if (startIndex == -1) return -1;
-        startIndex += searchKey.length();
-        int endIndex = startIndex;
-        while (endIndex < json.length() && (Character.isDigit(json.charAt(endIndex)) || json.charAt(endIndex) == '-')) {
-            endIndex++;
-        }
-        try {
-            return Integer.parseInt(json.substring(startIndex, endIndex));
-        } catch (NumberFormatException e) {
-            return -1;
-        }
+    private static int extractJsonInt(JsonObject json, String key) {
+        return Math.toIntExact(extractJsonLong(json, key));
     }
 
-    private static long extractJsonLong(String json, String key) {
-        String searchKey = "\"" + key + "\":";
-        int startIndex = json.indexOf(searchKey);
-        if (startIndex == -1) return -1;
-        startIndex += searchKey.length();
-        int endIndex = startIndex;
-        while (endIndex < json.length() && (Character.isDigit(json.charAt(endIndex)) || json.charAt(endIndex) == '-')) {
-            endIndex++;
+    private static long extractJsonLong(JsonObject json, String key) {
+        JsonElement value = json.get(key);
+        if (value == null || value.isJsonNull()) return -1;
+        if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isNumber()) {
+            throw new IllegalArgumentException("Expected number for " + key);
         }
-        try {
-            return Long.parseLong(json.substring(startIndex, endIndex));
-        } catch (NumberFormatException e) {
-            return -1;
-        }
+        return value.getAsBigDecimal().longValueExact();
     }
 
-    private static boolean extractJsonBoolean(String json, String key) {
-        String searchKey = "\"" + key + "\":";
-        int startIndex = json.indexOf(searchKey);
-        if (startIndex == -1) return false;
-        startIndex += searchKey.length();
-        return json.substring(startIndex).startsWith("true");
+    private static boolean extractJsonBoolean(JsonObject json, String key) {
+        JsonElement value = json.get(key);
+        if (value == null || value.isJsonNull()) return false;
+        if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isBoolean()) {
+            throw new IllegalArgumentException("Expected boolean for " + key);
+        }
+        return value.getAsBoolean();
     }
 
     private static Map<String, VersionInfo> parseAllVersionsResponse(String json) {
         Map<String, VersionInfo> versions = new HashMap<>();
-        int versionsStart = json.indexOf("\"versions\":");
-        if (versionsStart == -1) return versions;
-        int arrayStart = json.indexOf("[", versionsStart);
-        if (arrayStart == -1) return versions;
-        int arrayEnd = findMatchingBracket(json, arrayStart, '[', ']');
-        if (arrayEnd == -1) return versions;
-        String arrayContent = json.substring(arrayStart, arrayEnd + 1);
-        int pos = 0;
-        while (pos < arrayContent.length()) {
-            int objectStart = arrayContent.indexOf("{", pos);
-            if (objectStart == -1) break;
-            int objectEnd = findMatchingBracket(arrayContent, objectStart, '{', '}');
-            if (objectEnd == -1) break;
-            String objectJson = arrayContent.substring(objectStart, objectEnd + 1);
-            VersionInfo info = parseVersionInfo(objectJson);
+        JsonArray entries = JsonParser.parseString(json).getAsJsonObject().getAsJsonArray("versions");
+        if (entries == null) throw new IllegalArgumentException("Missing versions array");
+        for (JsonElement entry : entries) {
+            VersionInfo info = parseVersionInfo(entry.getAsJsonObject());
             if (info.slug != null) {
                 versions.put(info.slug, info);
             }
-            pos = objectEnd + 1;
         }
         return versions;
-    }
-
-    private static int findMatchingBracket(String json, int openPos, char openChar, char closeChar) {
-        int depth = 0;
-        boolean inString = false;
-        for (int i = openPos; i < json.length(); i++) {
-            char c = json.charAt(i);
-            if (c == '"' && (i == 0 || json.charAt(i - 1) != '\\')) {
-                inString = !inString;
-            } else if (!inString) {
-                if (c == openChar) depth++;
-                else if (c == closeChar) {
-                    depth--;
-                    if (depth == 0) return i;
-                }
-            }
-        }
-        return -1;
     }
 
     // ==================== DATA CLASSES ====================
@@ -1409,11 +1377,15 @@ public class NightbreakAccount {
         }
 
         private static PluginDownloadResult fromHttp(int responseCode, String json) {
-            String error = json == null ? null : extractJsonString(json, "error");
-            String message = json == null ? null : extractJsonString(json, "message");
-            String reason = json == null ? null : extractJsonString(json, "reason");
-            String requiredTier = json == null ? null : extractJsonString(json, "requiredTier");
-            return new PluginDownloadResult(false, responseCode, error, message, reason, requiredTier);
+            try {
+                JsonObject body = json == null ? new JsonObject() : JsonParser.parseString(json).getAsJsonObject();
+                return new PluginDownloadResult(false, responseCode,
+                        extractJsonString(body, "error"), extractJsonString(body, "message"),
+                        extractJsonString(body, "reason"), extractJsonString(body, "requiredTier"));
+            } catch (RuntimeException exception) {
+                return new PluginDownloadResult(false, responseCode, "INVALID_RESPONSE",
+                        "Nightbreak returned an invalid error response.", null, null);
+            }
         }
 
         public String displayDetail() {

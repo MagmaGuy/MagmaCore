@@ -151,7 +151,7 @@ public class NightbreakContentRefresher {
                         if (!operationCurrent.getAsBoolean()) return null;
                         NightbreakAccount.AccessInfo fetched = iterationAccount.checkAccess(key);
                         if (fetched != null && operationCurrent.getAsBoolean()) {
-                            NightbreakContentManager.getAccessCache().put(key, fetched);
+                            NightbreakContentManager.cacheAccess(key, fetched, iterationAccount);
                         }
                         return fetched;
                     });

@@ -158,7 +158,7 @@ public final class LuaMindModuleRegistry implements AutoCloseable {
                             "Lua Mind module owner exceeds the module limit of "
                                     + MAX_MODULES_PER_OWNER);
                 }
-                validateCatalog(proposed);
+                validateCatalog(proposed, candidate.identifier());
                 modules = proposed;
                 return candidate.descriptor();
             }
@@ -238,8 +238,21 @@ public final class LuaMindModuleRegistry implements AutoCloseable {
             }
         }
 
-        private void validateCatalog(Map<String, LuaMindModuleSource> proposed) {
-            List<String> roots = proposed.keySet().stream().sorted().toList();
+        private void validateCatalog(Map<String, LuaMindModuleSource> proposed, String changedIdentifier) {
+            java.util.Set<String> affected = new java.util.HashSet<>();
+            affected.add(changedIdentifier);
+            boolean expanded;
+            do {
+                expanded = false;
+                for (LuaMindModuleSource module : proposed.values()) {
+                    if (!affected.contains(module.identifier())
+                            && module.dependencies().stream().anyMatch(affected::contains)) {
+                        affected.add(module.identifier());
+                        expanded = true;
+                    }
+                }
+            } while (expanded);
+            List<String> roots = affected.stream().sorted().toList();
             for (String root : roots) {
                 List<LuaMindModuleSource> composition = resolve(
                         proposed,

@@ -26,6 +26,7 @@ public class AdvancedMenuHandler {
             AdvancedMenu advancedMenu = advancedMenus.get(event.getInventory());
             if (advancedMenu == null) return;
             event.setCancelled(true);
+            if (event.getClickedInventory() != event.getView().getTopInventory()) return;
             advancedMenu.run(event.getSlot());
         }
 

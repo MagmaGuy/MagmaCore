@@ -36,6 +36,8 @@ public abstract class MatchInstance implements MatchInstanceInterface {
     @Getter
     protected String permission = null;
     private TickTask tick = null;
+    private CountdownTask countdown;
+    private boolean terminal;
 
     public MatchInstance(MatchInstanceConfiguration matchInstanceConfiguration) {
         this.matchInstanceConfiguration = matchInstanceConfiguration;
@@ -50,7 +52,14 @@ public abstract class MatchInstance implements MatchInstanceInterface {
 
     public MatchInstantiateEvent start() {
         MatchInstantiateEvent matchInstantiateEvent = new MatchInstantiateEvent(this);
-        if (matchInstantiateEvent.isCancelled()) {
+        if (terminal || state != InstanceState.WAITING || tick != null) {
+            matchInstantiateEvent.setCancelled(true);
+            return matchInstantiateEvent;
+        }
+
+        if (players.size() < matchInstanceConfiguration.getMinPlayers()) {
+            countdownMatch();
+            matchInstantiateEvent.setCancelled(true);
             return matchInstantiateEvent;
         }
 
@@ -62,12 +71,10 @@ public abstract class MatchInstance implements MatchInstanceInterface {
     }
 
     public boolean addNewPlayer(Player player) {
+        if (terminal || MatchPlayer.getMatchPlayer(player) != null) return false;
         MatchJoinEvent event = new MatchJoinEvent(this, player);
         Bukkit.getPluginManager().callEvent(event);
         if (event.isCancelled()) return false;
-
-        if (getMatchInstanceConfiguration().getMatchGamemode() != null)
-            player.setGameMode(getMatchInstanceConfiguration().getMatchGamemode());
 
         //Check permissions
         if (getMatchInstanceConfiguration().getDungeonPermission() != null && !player.hasPermission(getMatchInstanceConfiguration().getDungeonPermission())) {
@@ -95,18 +102,18 @@ public abstract class MatchInstance implements MatchInstanceInterface {
                 this,
                 getMatchInstanceConfiguration().getLives(),
                 MatchPlayer.MatchPlayerType.PLAYER);
+        if (getMatchInstanceConfiguration().getMatchGamemode() != null)
+            player.setGameMode(getMatchInstanceConfiguration().getMatchGamemode());
         players.add(matchPlayer);
         return initializeNewPlayerOrSpectator(matchPlayer, players);
     }
 
     public boolean addNewPlayer(MatchPlayer matchPlayer) {
+        if (terminal || players.contains(matchPlayer) || matchPlayer.getMatchInstance() != this) return false;
         Player player = matchPlayer.getPlayer();
         MatchJoinEvent event = new MatchJoinEvent(this, player);
         Bukkit.getPluginManager().callEvent(event);
         if (event.isCancelled()) return false;
-
-        if (getMatchInstanceConfiguration().getMatchGamemode() != null)
-            player.setGameMode(getMatchInstanceConfiguration().getMatchGamemode());
 
         //Check permissions
         if (getMatchInstanceConfiguration().getDungeonPermission() != null && !player.hasPermission(getMatchInstanceConfiguration().getDungeonPermission())) {
@@ -127,12 +134,14 @@ public abstract class MatchInstance implements MatchInstanceInterface {
             return false;
         }
 
+        if (getMatchInstanceConfiguration().getMatchGamemode() != null)
+            player.setGameMode(getMatchInstanceConfiguration().getMatchGamemode());
         players.add(matchPlayer);
-
         return initializeNewPlayerOrSpectator(matchPlayer, players);
     }
 
     public boolean addNewSpectator(Player player) {
+        if (terminal || MatchPlayer.getMatchPlayer(player) != null) return false;
         if (!getMatchInstanceConfiguration().isSpectatable()) return false;
 
         MatchJoinEvent event = new MatchJoinEvent(this, player);
@@ -165,6 +174,7 @@ public abstract class MatchInstance implements MatchInstanceInterface {
         new BukkitRunnable() {
             @Override
             public void run() {
+                if (terminal || MatchPlayer.getMatchPlayer(matchPlayer.getPlayer()) != matchPlayer) return;
                 //Teleport the player to the correct location
                 if (matchInstanceConfiguration.getLobbyLocation() != null && state.equals(InstanceState.WAITING))
                     matchPlayer.teleport(matchInstanceConfiguration.getLobbyLocation());
@@ -177,7 +187,7 @@ public abstract class MatchInstance implements MatchInstanceInterface {
     }
 
     public void postPlayerRemovalCheck(MatchPlayer matchPlayer) {
-        if (players.isEmpty()) endMatch();
+        if (!terminal && players.isEmpty()) endMatch();
     }
 
     public void playerDeath(MatchPlayer matchPlayer) {
@@ -209,13 +219,14 @@ public abstract class MatchInstance implements MatchInstanceInterface {
     }
 
     public void countdownMatch() {
-        if (state != InstanceState.WAITING) return;
+        if (terminal || state != InstanceState.WAITING) return;
         if (players.size() < matchInstanceConfiguration.getMinPlayers()) {
             announceChat(matchInstanceConfiguration.getMatchFailedToStartNotEnoughPlayersMessage().replace("$amount", matchInstanceConfiguration.getMinPlayers() + ""));
             return;
         }
         state = InstanceState.STARTING;
-        new CountdownTask().runTaskTimer(MagmaCore.getInstance().getRequestingPlugin(), 0L, 20L);
+        countdown = new CountdownTask();
+        countdown.runTaskTimer(MagmaCore.getInstance().getRequestingPlugin(), 0L, 20L);
     }
 
     private void playerWatchdog() {
@@ -301,6 +312,7 @@ public abstract class MatchInstance implements MatchInstanceInterface {
     }
 
     protected void endMatch() {
+        if (terminal) return;
         if (state != InstanceState.COMPLETED_VICTORY &&
                 state != InstanceState.COMPLETED_DEFEAT)
             state = InstanceState.COMPLETED;
@@ -311,7 +323,9 @@ public abstract class MatchInstance implements MatchInstanceInterface {
     }
 
     protected void destroyMatch() {
-        state = InstanceState.WAITING;
+        if (terminal) return;
+        terminal = true;
+        if (countdown != null) countdown.cancel();
         List<MatchPlayer> copy = getAllParticipants();
         copy.forEach(MatchPlayer::removeMatchPlayer);
         players.clear();

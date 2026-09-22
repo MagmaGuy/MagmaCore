@@ -52,22 +52,30 @@ public final class NightbreakPluginInstaller {
                                            Consumer<InstallResult> callback) {
         long generation =
                 NightbreakPluginUpdater.lifecycleGeneration(ownerPlugin);
-        Bukkit.getScheduler().runTaskAsynchronously(ownerPlugin, () -> {
-            InstallResult result = downloadPlugin(
-                    ownerPlugin, entry, sender, generation);
-            if (!NightbreakPluginUpdater.isLifecycleCurrent(
-                    ownerPlugin, generation)) {
-                return;
-            }
-            Bukkit.getScheduler().runTask(ownerPlugin, () -> {
-                if (!NightbreakPluginUpdater.isLifecycleCurrent(
-                        ownerPlugin, generation)) {
-                    return;
+        NightbreakPluginAsyncWorkTracker.Work work =
+                NightbreakPluginUpdater.registerAsyncWork(ownerPlugin, generation);
+        if (work == null) return;
+        try {
+            var task = Bukkit.getScheduler().runTaskAsynchronously(ownerPlugin, () -> {
+                if (!work.start()) return;
+                try {
+                    if (!NightbreakPluginUpdater.isLifecycleCurrent(ownerPlugin, generation)) return;
+                    InstallResult result = downloadPlugin(ownerPlugin, entry, sender, generation);
+                    if (!NightbreakPluginUpdater.isLifecycleCurrent(ownerPlugin, generation)) return;
+                    Bukkit.getScheduler().runTask(ownerPlugin, () -> {
+                        if (!NightbreakPluginUpdater.isLifecycleCurrent(ownerPlugin, generation)) return;
+                        sendInstallResult(sender, result);
+                        if (callback != null) callback.accept(result);
+                    });
+                } finally {
+                    work.close();
                 }
-                sendInstallResult(sender, result);
-                if (callback != null) callback.accept(result);
             });
-        });
+            work.attach(task);
+        } catch (RuntimeException exception) {
+            work.dispatchFailed();
+            throw exception;
+        }
     }
 
     private static InstallResult downloadPlugin(JavaPlugin ownerPlugin,
@@ -159,6 +167,7 @@ public final class NightbreakPluginInstaller {
 
         final long[] lastProgressMessage = {0L};
         NightbreakAccount.PluginDownloadResult downloadResult = account.downloadPluginUpdate(entry.slug(), tempFile, (bytesDownloaded, totalBytes) -> {
+            if (!NightbreakPluginUpdater.isLifecycleCurrent(ownerPlugin, generation)) return;
             if (!canMessage(sender)) return;
             long now = System.currentTimeMillis();
             if (now - lastProgressMessage[0] < 2000L) return;
@@ -167,15 +176,21 @@ public final class NightbreakPluginInstaller {
                     ? String.format(Locale.ROOT, "%.1f%%", bytesDownloaded * 100.0 / totalBytes)
                     : formatBytes(bytesDownloaded);
             Bukkit.getScheduler().runTask(ownerPlugin, () -> {
-                if (canMessage(sender)) {
+                if (NightbreakPluginUpdater.isLifecycleCurrent(ownerPlugin, generation) && canMessage(sender)) {
                     Logger.sendSimpleMessage(sender, "&7[" + entry.displayName() + "] Downloading plugin... " + progress);
                 }
             });
-        });
+        }, () -> NightbreakPluginUpdater.isLifecycleCurrent(ownerPlugin, generation));
 
         if (!downloadResult.success || !tempFile.exists()) {
             if (tempFile.exists()) tempFile.delete();
             return new InstallResult(statusFor(downloadResult), entry, versionInfo.version, null, downloadResult.displayDetail());
+        }
+
+        if (!NightbreakPluginUpdater.isLifecycleCurrent(ownerPlugin, generation)) {
+            tempFile.delete();
+            return new InstallResult(InstallStatus.DOWNLOAD_FAILED, entry, versionInfo.version, null,
+                    "Plugin lifecycle changed before the install could be validated.");
         }
 
         if (versionInfo.checksum != null && !versionInfo.checksum.isBlank()) {

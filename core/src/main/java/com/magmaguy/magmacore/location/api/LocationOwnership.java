@@ -195,6 +195,7 @@ public final class LocationOwnership {
                 if ((boolean) m.isProtectedAt.invoke(provider, loc)) return true;
             } catch (ReflectiveOperationException e) {
                 Logger.warn("LocationOwnership.anyProtectedOwnerAt dispatch failed: " + e.getMessage());
+                return true;
             }
         }
         return false;

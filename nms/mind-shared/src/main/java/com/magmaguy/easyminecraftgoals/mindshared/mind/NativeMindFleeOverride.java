@@ -48,7 +48,7 @@ final class NativeMindFleeOverride implements TransientMovementOverride {
             close();
             return;
         }
-        if (--repathTicks <= 0 || path == null || mob.getNavigation().isDone()) {
+        if (--repathTicks <= 0) {
             repathTicks = REPATH_INTERVAL_TICKS;
             path = FleePathfinder.findPath(mob, threatLocation);
         }
@@ -65,6 +65,7 @@ final class NativeMindFleeOverride implements TransientMovementOverride {
         NativeMindHost.requirePrimaryThread();
         if (!active || nextThreat == null || nextThreat.getWorld() == null) return false;
         if (nextThreat.getWorld() != mob.getBukkitEntity().getWorld()) return false;
+        if (threatLocation != null && threatLocation.distanceSquared(nextThreat) > 0D) repathTicks = 0;
         threatLocation = nextThreat.clone();
         return true;
     }

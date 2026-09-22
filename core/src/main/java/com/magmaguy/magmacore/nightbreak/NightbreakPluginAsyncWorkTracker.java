@@ -37,6 +37,7 @@ final class NightbreakPluginAsyncWorkTracker {
     }
 
     synchronized Work register(JavaPlugin plugin) {
+        pruneCompleted(plugin);
         Work work = new Work(plugin);
         activeWork
                 .computeIfAbsent(plugin, ignored -> ConcurrentHashMap.newKeySet())
@@ -45,10 +46,18 @@ final class NightbreakPluginAsyncWorkTracker {
     }
 
     synchronized List<Work> snapshot(JavaPlugin plugin) {
+        pruneCompleted(plugin);
         Set<Work> currentWork = activeWork.get(plugin);
         return currentWork == null
                 ? List.of()
                 : new ArrayList<>(currentWork);
+    }
+
+    private void pruneCompleted(JavaPlugin plugin) {
+        Set<Work> currentWork = activeWork.get(plugin);
+        if (currentWork == null) return;
+        currentWork.removeIf(work -> work.canRetire() && !isTaskActive(work));
+        if (currentWork.isEmpty()) activeWork.remove(plugin);
     }
 
     void awaitQuiescence(String pluginName, List<Work> work) {
@@ -125,6 +134,7 @@ final class NightbreakPluginAsyncWorkTracker {
         private BukkitTask task;
         private Thread runningThread;
         private boolean terminal;
+        private boolean dispatchSettled;
 
         private Work(JavaPlugin plugin) {
             this.plugin = plugin;
@@ -141,6 +151,7 @@ final class NightbreakPluginAsyncWorkTracker {
             boolean cancel;
             synchronized (this) {
                 this.task = task;
+                dispatchSettled = true;
                 cancel = terminal || shutdownRequested.isDone();
             }
             dispatchCompleted.complete(null);
@@ -148,6 +159,9 @@ final class NightbreakPluginAsyncWorkTracker {
         }
 
         void dispatchFailed() {
+            synchronized (this) {
+                dispatchSettled = true;
+            }
             dispatchCompleted.complete(null);
             close();
         }
@@ -198,6 +212,10 @@ final class NightbreakPluginAsyncWorkTracker {
 
         synchronized int taskId() {
             return task == null ? -1 : task.getTaskId();
+        }
+
+        synchronized boolean canRetire() {
+            return dispatchSettled && terminal && runningThread == null && completion.isDone();
         }
 
         private static void cancelTask(BukkitTask task) {

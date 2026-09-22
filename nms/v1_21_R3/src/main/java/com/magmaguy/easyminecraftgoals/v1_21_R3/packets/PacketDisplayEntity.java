@@ -193,7 +193,6 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
 
     @Override
     public void addViewer(UUID player) {
-        super.addViewer(player);
         displayTo(player);
     }
 

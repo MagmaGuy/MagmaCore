@@ -24,13 +24,34 @@ import java.util.function.Consumer;
  */
 public class NightbreakContentManager {
 
-    @Getter
-    private static final Map<String, NightbreakAccount.AccessInfo> accessCache = new ConcurrentHashMap<>();
+    private static final Map<String, CachedAccess> accessCache = new ConcurrentHashMap<>();
     @Getter
     private static final Map<String, NightbreakAccount.VersionInfo> versionCache = new ConcurrentHashMap<>();
 
-    private static long lastCacheRefresh = 0;
+    private static volatile long lastCacheRefresh = 0;
     private static final long CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+    private record CachedAccess(NightbreakAccount account, NightbreakAccount.AccessInfo info, long fetchedAt) {
+        boolean isFresh(NightbreakAccount currentAccount, long now) {
+            return account == currentAccount && now - fetchedAt < CACHE_TTL_MS;
+        }
+    }
+
+    public static Map<String, NightbreakAccount.AccessInfo> getAccessCache() {
+        NightbreakAccount account = NightbreakAccount.getInstance();
+        long now = System.currentTimeMillis();
+        Map<String, NightbreakAccount.AccessInfo> result = new java.util.HashMap<>();
+        accessCache.forEach((slug, cached) -> {
+            if (cached.isFresh(account, now)) result.put(slug, cached.info());
+        });
+        return Map.copyOf(result);
+    }
+
+    static void cacheAccess(String slug, NightbreakAccount.AccessInfo info, NightbreakAccount account) {
+        if (info != null && account != null && account == NightbreakAccount.getInstance()) {
+            accessCache.put(slug, new CachedAccess(account, info, System.currentTimeMillis()));
+        }
+    }
 
     /**
      * Checks if the cache is stale and needs refreshing.
@@ -108,8 +129,9 @@ public class NightbreakContentManager {
         }
 
         // Check cache first
-        if (accessCache.containsKey(slug) && !isCacheStale()) {
-            if (operationCurrent.getAsBoolean()) callback.accept(accessCache.get(slug));
+        CachedAccess cached = accessCache.get(slug);
+        if (cached != null && cached.isFresh(NightbreakAccount.getInstance(), System.currentTimeMillis())) {
+            if (operationCurrent.getAsBoolean()) callback.accept(cached.info());
             return;
         }
 
@@ -120,7 +142,7 @@ public class NightbreakContentManager {
             NightbreakAccount account = NightbreakAccount.getInstance();
             NightbreakAccount.AccessInfo info = account == null ? null : account.checkAccess(slug);
             if (info != null && operationCurrent.getAsBoolean()) {
-                accessCache.put(slug, info);
+                cacheAccess(slug, info, account);
             }
             if (!operationCurrent.getAsBoolean()) {
                 return;

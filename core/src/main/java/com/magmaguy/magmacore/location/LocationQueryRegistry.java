@@ -97,6 +97,7 @@ public final class LocationQueryRegistry {
     public static boolean isInAnyProtectedRegion(Location location) {
         if (location == null || location.getWorld() == null) return false;
         ensureBuiltInProtectionProviders();
+        if (!failedBuiltInAttempts.isEmpty()) return true;
 
         // Local protection providers (WorldGuard/GriefPrevention adapters and any
         // plugin that called registerProtectionProvider on this same shaded copy).
@@ -135,6 +136,7 @@ public final class LocationQueryRegistry {
     public static boolean canBuild(Player player, Location location) {
         if (player == null || location == null || location.getWorld() == null) return false;
         ensureBuiltInProtectionProviders();
+        if (!failedBuiltInAttempts.isEmpty()) return false;
         for (RegionProtectionProvider provider : protectionProviders) {
             try {
                 if (!provider.canBuild(player, location)) return false;

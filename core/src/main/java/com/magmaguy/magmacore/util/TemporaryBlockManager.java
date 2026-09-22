@@ -11,9 +11,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.world.WorldUnloadEvent;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.scheduler.BukkitRunnable;
-
-import java.util.HashSet;
+import org.bukkit.scheduler.BukkitTask;
 import java.util.UUID;
 
 /**
@@ -23,7 +21,6 @@ import java.util.UUID;
  */
 public final class TemporaryBlockManager implements Listener {
 
-    private static final HashSet<Block> temporaryBlocks = new HashSet<>();
     private static final String OWNED_KEY = "nightbreak_owned_temporary_block";
     private static final java.util.Map<BlockKey, OwnedBlock> ownedBlocks = new java.util.HashMap<>();
 
@@ -37,8 +34,11 @@ public final class TemporaryBlockManager implements Listener {
         private final org.bukkit.plugin.Plugin owner;
         private final String token = UUID.randomUUID().toString();
         private final BlockData original;
-        private final BlockData replacement;
+        private BlockData replacement;
         private boolean closed;
+        private boolean legacyPlacement;
+        private BukkitTask expiryTask;
+        private long expiryGeneration;
 
         private OwnedBlock(Block block, BlockData replacement, org.bukkit.plugin.Plugin owner) {
             key = BlockKey.of(block);
@@ -48,9 +48,14 @@ public final class TemporaryBlockManager implements Listener {
         }
 
         @Override public void close() {
+            release(true);
+        }
+
+        private void release(boolean restore) {
             if (!Bukkit.isPrimaryThread()) throw new IllegalStateException("Block restoration requires the server thread");
             if (closed) return;
             closed = true;
+            if (expiryTask != null) expiryTask.cancel();
             ownedBlocks.remove(key, this);
             World world = Bukkit.getWorld(key.world());
             if (world == null || !world.isChunkLoaded(key.x() >> 4, key.z() >> 4)) return;
@@ -59,14 +64,14 @@ public final class TemporaryBlockManager implements Listener {
                     .anyMatch(value -> value.getOwningPlugin() == owner && token.equals(value.asString()));
             if (!owned) return;
             block.removeMetadata(OWNED_KEY, owner);
-            if (block.getBlockData().equals(replacement)) block.setBlockData(original, false);
+            if (restore && block.getBlockData().equals(replacement)) block.setBlockData(original, false);
         }
     }
 
     /** Preflight without loading chunks. BlockData restoration deliberately excludes block-entity contents. */
     public static boolean canOwn(Block block) {
         return block.getWorld().isChunkLoaded(block.getX() >> 4, block.getZ() >> 4)
-                && !temporaryBlocks.contains(block) && !block.hasMetadata(OWNED_KEY)
+                && !block.hasMetadata(OWNED_KEY)
                 && !(block.getState() instanceof org.bukkit.block.TileState);
     }
 
@@ -101,26 +106,40 @@ public final class TemporaryBlockManager implements Listener {
      * @param replacementMaterial the material to set
      */
     public static void addTemporaryBlock(Block block, int ticks, Material replacementMaterial) {
-        if (block.hasMetadata(OWNED_KEY)) return;
-        BlockData previousBlockData = block.getBlockData().clone();
-        if (temporaryBlocks.contains(block)) previousBlockData = null;
-        temporaryBlocks.add(block);
-        block.setType(replacementMaterial);
-        if (ticks <= 0) return;
-        UUID worldUUID = block.getWorld().getUID();
-        BlockData finalPreviousBlockData = previousBlockData;
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                if (Bukkit.getWorld(worldUUID) == null) return;
-                temporaryBlocks.remove(block);
-                if (!block.getBlockData().equals(finalPreviousBlockData))
-                    if (finalPreviousBlockData != null)
-                        block.setBlockData(finalPreviousBlockData);
-                    else
-                        block.setType(Material.AIR);
-            }
-        }.runTaskLater(MagmaCore.getInstance().getRequestingPlugin(), ticks);
+        if (!Bukkit.isPrimaryThread()) throw new IllegalStateException("Block replacement requires the server thread");
+        OwnedBlock lease = ownedBlocks.get(BlockKey.of(block));
+        if (lease != null && !lease.legacyPlacement) return;
+        if (lease == null && block.hasMetadata(OWNED_KEY)) return;
+        if (ticks <= 0) {
+            if (lease != null) lease.release(false);
+            block.setType(replacementMaterial);
+            return;
+        }
+        if (lease != null && !block.getBlockData().equals(lease.replacement)) {
+            lease.release(false);
+            lease = null;
+        }
+        if (lease == null) {
+            lease = replaceOwned(block, replacementMaterial.createBlockData(),
+                    MagmaCore.getInstance().getRequestingPlugin());
+            if (lease == null) return;
+            lease.legacyPlacement = true;
+        } else {
+            if (lease.expiryTask != null) lease.expiryTask.cancel();
+            block.setType(replacementMaterial);
+            lease.replacement = block.getBlockData().clone();
+        }
+        OwnedBlock current = lease;
+        long generation = ++lease.expiryGeneration;
+        try {
+            lease.expiryTask = Bukkit.getScheduler().runTaskLater(
+                    MagmaCore.getInstance().getRequestingPlugin(), () -> {
+                        if (current.expiryGeneration == generation) current.close();
+                    }, ticks);
+        } catch (RuntimeException failure) {
+            current.close();
+            throw failure;
+        }
     }
 
     /**
@@ -137,28 +156,31 @@ public final class TemporaryBlockManager implements Listener {
     }
 
     public static boolean isTemporaryBlock(Block block) {
-        return temporaryBlocks.contains(block) || block.hasMetadata(OWNED_KEY);
+        return block.hasMetadata(OWNED_KEY);
     }
 
     public static void removeTemporaryBlock(Block block) {
-        temporaryBlocks.remove(block);
+        OwnedBlock lease = ownedBlocks.get(BlockKey.of(block));
+        if (lease != null) lease.release(false);
     }
 
     /**
-     * Reverts all temporary blocks to air and clears tracking.
+     * Restores still-owned temporary blocks and clears tracking.
      * Call during plugin shutdown.
      */
     public static void shutdown() {
         for (OwnedBlock lease : new java.util.ArrayList<>(ownedBlocks.values())) lease.close();
-        for (Block block : temporaryBlocks)
-            block.setType(Material.AIR);
-        temporaryBlocks.clear();
     }
 
-    @EventHandler(ignoreCancelled = true)
+    @EventHandler(ignoreCancelled = true, priority = org.bukkit.event.EventPriority.MONITOR)
     public void onBlockBreak(BlockBreakEvent event) {
         if (!isTemporaryBlock(event.getBlock())) return;
         event.setDropItems(false);
+        removeTemporaryBlock(event.getBlock());
+    }
+
+    @EventHandler(ignoreCancelled = true, priority = org.bukkit.event.EventPriority.MONITOR)
+    public void onBlockPlace(org.bukkit.event.block.BlockPlaceEvent event) {
         removeTemporaryBlock(event.getBlock());
     }
 
@@ -166,7 +188,6 @@ public final class TemporaryBlockManager implements Listener {
     public void onWorldUnload(WorldUnloadEvent event) {
         for (OwnedBlock lease : new java.util.ArrayList<>(ownedBlocks.values()))
             if (lease.key.world().equals(event.getWorld().getUID())) lease.close();
-        temporaryBlocks.removeIf(block -> block.getWorld().equals(event.getWorld()));
     }
 
     @EventHandler(ignoreCancelled = true)

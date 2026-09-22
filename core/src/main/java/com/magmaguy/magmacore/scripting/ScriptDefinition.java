@@ -14,20 +14,30 @@ public class ScriptDefinition {
     private final String source;
     private final int priority;
     private final Set<ScriptHook> hooks;
+    @Getter(lombok.AccessLevel.NONE)
+    private final Prototype prototype;
 
     public ScriptDefinition(String fileName, File sourceFile, String source,
                             int priority, Set<ScriptHook> hooks) {
+        this(fileName, sourceFile, source, priority, hooks,
+                compile(fileName, source, LuaEnvironmentFactory.createGlobals()));
+    }
+
+    private ScriptDefinition(String fileName, File sourceFile, String source,
+                             int priority, Set<ScriptHook> hooks, Prototype prototype) {
         this.fileName = fileName;
         this.sourceFile = sourceFile;
         this.source = source;
         this.priority = priority;
         this.hooks = Set.copyOf(hooks);
+        this.prototype = prototype;
     }
 
     public static ScriptDefinition validate(String fileName, File sourceFile,
                                             String source, ScriptProvider provider) {
         Globals globals = LuaEnvironmentFactory.createGlobals();
-        LuaTable scriptTable = evaluate(fileName, source, globals);
+        Prototype prototype = compile(fileName, source, globals);
+        LuaTable scriptTable = evaluate(fileName, prototype, globals);
 
         int apiVersion = extractIntField(scriptTable, "api_version", fileName, true);
         if (apiVersion != 1)
@@ -55,19 +65,27 @@ public class ScriptDefinition {
             hooks.add(hook);
         }
 
-        return new ScriptDefinition(fileName, sourceFile, source, priority, hooks);
+        return new ScriptDefinition(fileName, sourceFile, source, priority, hooks, prototype);
     }
 
     public LuaTable instantiate() {
-        return evaluate(fileName, source, LuaEnvironmentFactory.createGlobals());
+        return evaluate(fileName, prototype, LuaEnvironmentFactory.createGlobals());
     }
 
     public boolean supportsHook(ScriptHook hook) {
         return hook != null && hooks.contains(hook);
     }
 
-    private static LuaTable evaluate(String fileName, String source, Globals globals) {
-        LuaValue chunk = globals.load(source, fileName);
+    private static Prototype compile(String fileName, String source, Globals globals) {
+        try {
+            return globals.compilePrototype(new java.io.StringReader(source), fileName);
+        } catch (java.io.IOException exception) {
+            throw new IllegalArgumentException("Could not compile script " + fileName, exception);
+        }
+    }
+
+    private static LuaTable evaluate(String fileName, Prototype prototype, Globals globals) {
+        LuaValue chunk = new LuaClosure(prototype, globals);
         LuaValue result = LuaExecutionBudget.run(chunk::call);
         if (!(result instanceof LuaTable scriptTable))
             throw new IllegalArgumentException("Script " + fileName + " must return a table.");

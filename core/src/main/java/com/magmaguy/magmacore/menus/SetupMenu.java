@@ -241,6 +241,7 @@ public class SetupMenu {
             SetupMenu setupMenu = setupMenus.get(event.getInventory());
             if (setupMenu == null) return;
             event.setCancelled(true);
+            if (event.getClickedInventory() != event.getView().getTopInventory()) return;
             Player player = (Player) event.getWhoClicked();
             if (setupMenu.inventoryMap.get(event.getSlot()) == null) return;
             setupMenu.inventoryMap.get(event.getSlot()).onClick(player);

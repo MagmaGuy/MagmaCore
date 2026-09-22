@@ -139,14 +139,15 @@ final class LuaMindContextTable {
 
     private static Object actionValue(LuaValue value) {
         if (value.isboolean()) return value.checkboolean();
-        if (value.isstring()) return value.checkjstring();
-        if (value.isnumber()) {
+        if (value.type() == LuaValue.TSTRING) return value.checkjstring();
+        if (value.type() == LuaValue.TNUMBER) {
             double number = value.checkdouble();
             if (!Double.isFinite(number)) {
                 throw new IllegalArgumentException("Mind action numbers must be finite");
             }
             long integral = (long) number;
-            return number == integral ? integral : number;
+            if (number >= -0x1.0p63 && number < 0x1.0p63 && number == integral) return Long.valueOf(integral);
+            return Double.valueOf(number);
         }
         if (!value.istable()) {
             throw new IllegalArgumentException("Unsupported Lua Mind action payload value");

@@ -85,28 +85,32 @@ public class MatchPlayer {
     }
 
     public void removeMatchPlayer() {
-        if (previousGameMode != null) player.setGameMode(previousGameMode);
-        player.setHealth(AttributeManager.getAttributeBaseValue(player, "generic_max_health"));
+        if (!matchPlayers.remove(player.getUniqueId(), this)) return;
+        matchInstance.players.remove(this);
+        matchInstance.spectators.remove(this);
+        try {
+            if (previousGameMode != null) player.setGameMode(previousGameMode);
+            player.setHealth(AttributeManager.getAttributeBaseValue(player, "generic_max_health"));
 
-        if (matchInstance.getMatchInstanceConfiguration().getExitLocation() != null)
-            teleport(matchInstance.getMatchInstanceConfiguration().getExitLocation());
-        else if (previousLocation != null && previousLocation.getWorld() != null) {
-            teleport(previousLocation);
-        } else teleport(fallbackLocation);
+            if (matchInstance.getMatchInstanceConfiguration().getExitLocation() != null)
+                teleport(matchInstance.getMatchInstanceConfiguration().getExitLocation());
+            else if (previousLocation != null && previousLocation.getWorld() != null) {
+                teleport(previousLocation);
+            } else teleport(fallbackLocation);
 
-        Bukkit.getPluginManager().callEvent(new MatchLeaveEvent(matchInstance, this));
-
-        if (matchInstance.isPlayer(this))
-            matchInstance.players.remove(this);
-        if (matchInstance.isSpectator(this))
-            matchInstance.spectators.remove(this);
-        matchInstance.postPlayerRemovalCheck(this);
+            Bukkit.getPluginManager().callEvent(new MatchLeaveEvent(matchInstance, this));
+        } finally {
+            matchInstance.postPlayerRemovalCheck(this);
+        }
     }
 
     public void teleport(Location location) {
         MatchInstance.MatchInstanceEvents.teleportBypass = true;
-        player.teleport(location);
-        MatchInstance.MatchInstanceEvents.teleportBypass = false;
+        try {
+            player.teleport(location);
+        } finally {
+            MatchInstance.MatchInstanceEvents.teleportBypass = false;
+        }
     }
 
     public enum MatchPlayerType {

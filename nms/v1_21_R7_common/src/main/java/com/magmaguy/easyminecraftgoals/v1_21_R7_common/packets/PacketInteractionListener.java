@@ -383,12 +383,7 @@ public class PacketInteractionListener implements Listener {
 
     private static int getEntityId(ServerboundInteractPacket packet) {
         try {
-            // Try record accessor first (MC 26.1+)
-            try {
-                return (int) ServerboundInteractPacket.class.getMethod("entityId").invoke(packet);
-            } catch (NoSuchMethodException ignored) {
-            }
-            // Fall back to reflection field access
+            // This adapter targets 1.21.11, whose packet uses the cached field binding.
             if (entityIdField != null) {
                 return entityIdField.getInt(packet);
             }

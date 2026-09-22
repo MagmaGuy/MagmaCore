@@ -499,7 +499,10 @@ final class NativeMindSession implements MindHandle {
     }
 
     private void writeMarker(NativeMindBody target) {
-        MindPersistentState state = memory.persistentState();
+        writeMarker(target, memory.persistentState());
+    }
+
+    private void writeMarker(NativeMindBody target, MindPersistentState state) {
         MindCarrierState.write(
                 target.entity(),
                 host.hostIdentity(),
@@ -514,7 +517,7 @@ final class NativeMindSession implements MindHandle {
     private void writeMarkerIfChanged(NativeMindBody target) {
         MindPersistentState current = memory.persistentState();
         if (current.equals(lastWrittenState)) return;
-        writeMarker(target);
+        writeMarker(target, current);
     }
 
     private long incrementRequestedGeneration() {
