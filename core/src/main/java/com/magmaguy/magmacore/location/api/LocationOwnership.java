@@ -40,6 +40,8 @@ public final class LocationOwnership {
 
     /** Cached reflective methods, keyed by the entry's Class. */
     private static final java.util.Map<Class<?>, EntryMethods> methodCache = new ConcurrentHashMap<>();
+    private static final Set<Object> warnedProtectionFailures =
+            Collections.synchronizedSet(Collections.newSetFromMap(new java.util.WeakHashMap<>()));
 
     private LocationOwnership() {
     }
@@ -194,7 +196,9 @@ public final class LocationOwnership {
             try {
                 if ((boolean) m.isProtectedAt.invoke(provider, loc)) return true;
             } catch (ReflectiveOperationException e) {
-                Logger.warn("LocationOwnership.anyProtectedOwnerAt dispatch failed: " + e.getMessage());
+                if (warnedProtectionFailures.add(provider))
+                    Logger.warn("LocationOwnership.anyProtectedOwnerAt dispatch failed: " + e.getMessage()
+                            + "; further failures suppressed until provider replacement");
                 return true;
             }
         }

@@ -9,7 +9,9 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.PathfinderMob;
+import net.minecraft.world.entity.ai.Brain;
 import net.minecraft.world.entity.ai.behavior.Behavior;
+import net.minecraft.world.entity.ai.behavior.BehaviorControl;
 import net.minecraft.world.entity.ai.memory.MemoryModuleType;
 import net.minecraft.world.entity.ai.memory.MemoryStatus;
 import net.minecraft.world.entity.player.Player;
@@ -17,10 +19,16 @@ import net.minecraft.world.entity.schedule.Activity;
 import net.minecraft.world.level.pathfinder.Path;
 import org.bukkit.Location;
 import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.scheduler.BukkitTask;
 
+import java.lang.reflect.Field;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 public class WanderBackToPointBehavior extends Behavior<LivingEntity> implements AbstractWanderBackToPoint {
+    private static final Field BEHAVIORS = behaviorField();
 
     private Location returnLocation;
     private final double maximumDistanceFromPoint;
@@ -40,6 +48,9 @@ public class WanderBackToPointBehavior extends Behavior<LivingEntity> implements
     private boolean startWithCooldown = false;
 
     private Path path = null;
+    private Brain<?> registeredBrain;
+    private int registeredPriority;
+    private BukkitTask returnTask;
 
     public WanderBackToPointBehavior(org.bukkit.entity.LivingEntity livingEntity,
                                      Mob mob,
@@ -60,6 +71,7 @@ public class WanderBackToPointBehavior extends Behavior<LivingEntity> implements
 
     @Override
     protected boolean checkExtraStartConditions(ServerLevel var0, LivingEntity nmsLivingEntity) {
+        if (registeredBrain == null) return false;
         if (!hardObjective && !returnDuringCombat && mob.getTarget() instanceof Player) {
             updateCooldown();
             return false;
@@ -73,6 +85,11 @@ public class WanderBackToPointBehavior extends Behavior<LivingEntity> implements
             path = null;
             return false;
         }
+        if (registeredBrain == null) {
+            path = null;
+            returnState.end(false);
+            return false;
+        }
         if (path != null && path.canReach()) return true;
 
         path = null;
@@ -82,7 +99,8 @@ public class WanderBackToPointBehavior extends Behavior<LivingEntity> implements
 
     @Override
     protected void start(ServerLevel var0, LivingEntity var1, long var2) {
-        if (!returnState.isActive() || path == null) return;
+        if (registeredBrain == null || !returnState.isActive() || path == null) return;
+        cancelReturnTask();
         this.mob.getNavigation().stop();
         if (!this.mob.getNavigation().moveTo(path, speed)) {
             returnState.end(true);
@@ -90,7 +108,7 @@ public class WanderBackToPointBehavior extends Behavior<LivingEntity> implements
         }
         mob.getBrain().setActiveActivityIfPossible(Activity.CORE);
         if (hardObjective || returnDuringCombat) {
-            new BukkitRunnable() {
+            returnTask = new BukkitRunnable() {
                 @Override
                 public void run() {
                     if (!returnState.isActive()) {
@@ -116,7 +134,8 @@ public class WanderBackToPointBehavior extends Behavior<LivingEntity> implements
 
     @Override
     protected void stop(ServerLevel var0, LivingEntity var1, long var2) {
-        boolean teleportOnFailure = returnState.isActive() && !returnState.isAtReturnPoint();
+        cancelReturnTask();
+        boolean teleportOnFailure = registeredBrain != null && returnState.isActive() && !returnState.isAtReturnPoint();
         mob.getNavigation().stop();
         path = null;
         returnState.end(teleportOnFailure);
@@ -126,7 +145,7 @@ public class WanderBackToPointBehavior extends Behavior<LivingEntity> implements
 
     @Override
     protected boolean canStillUse(ServerLevel var0, LivingEntity var1, long var2) {
-        if (!returnState.isActive() || !livingEntity.isValid() || livingEntity.isDead()) return false;
+        if (registeredBrain == null || !returnState.isActive() || !livingEntity.isValid() || livingEntity.isDead()) return false;
         if (returnState.hasTimedOut() || path == null || !path.canReach()) return false;
         if (!hardObjective && !returnDuringCombat && mob.getTarget() instanceof Player) return false;
         return !path.isDone() && !mob.getNavigation().isDone();
@@ -254,14 +273,65 @@ public class WanderBackToPointBehavior extends Behavior<LivingEntity> implements
 
     @Override
     public void register() {
+        if (registeredBrain != null) return;
         if (startWithCooldown) updateCooldown();
         mob.getBrain().addActivity(Activity.CORE,
                 ImmutableList.of(com.mojang.datafixers.util.Pair.of(priority, this)),
                 java.util.Set.of(), java.util.Set.of());
+        registeredBrain = mob.getBrain();
+        registeredPriority = priority;
     }
 
     @Override
     public void unregister() {
-        //todo: unfortunately resetting brains is significantly harder than goals, this may be implemented later
+        Brain<?> brain = registeredBrain;
+        if (brain == null) return;
+        registeredBrain = null;
+        removeBehavior(brain);
+        cancelReturnTask();
+        if (getStatus() == Status.RUNNING) {
+            ServerLevel level = (ServerLevel) mob.level();
+            doStop(level, mob, level.getGameTime());
+        } else {
+            if (returnState.isActive()) mob.getNavigation().stop();
+            path = null;
+            returnState.end(false);
+        }
+    }
+
+    private void cancelReturnTask() {
+        if (returnTask == null) return;
+        returnTask.cancel();
+        returnTask = null;
+    }
+
+    private static Field behaviorField() {
+        try {
+            Field field = Brain.class.getDeclaredField("availableBehaviorsByPriority");
+            field.setAccessible(true);
+            return field;
+        } catch (ReflectiveOperationException failure) {
+            throw new ExceptionInInitializerError(failure);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private void removeBehavior(Brain<?> brain) {
+        try {
+            Map<Integer, Map<Activity, Set<BehaviorControl<?>>>> priorities =
+                    (Map<Integer, Map<Activity, Set<BehaviorControl<?>>>>) BEHAVIORS.get(brain);
+            Map<Activity, Set<BehaviorControl<?>>> activities = priorities.get(registeredPriority);
+            if (activities == null || activities.get(Activity.CORE) == null) return;
+            Set<BehaviorControl<?>> remaining = new HashSet<>(activities.get(Activity.CORE));
+            if (!remaining.remove(this)) return;
+            Map<Activity, Set<BehaviorControl<?>>> replacement = new HashMap<>(activities);
+            if (remaining.isEmpty()) replacement.remove(Activity.CORE);
+            else replacement.put(Activity.CORE, remaining);
+            // A Bukkit callback may retire us during native iteration. Replace the value
+            // for the existing priority key without mutating that iteration's sets/maps.
+            priorities.put(registeredPriority, replacement);
+        } catch (IllegalAccessException failure) {
+            throw new IllegalStateException("Could not retire native leash behavior", failure);
+        }
     }
 }

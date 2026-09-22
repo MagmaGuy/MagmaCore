@@ -188,7 +188,7 @@ public final class EnchantmentInputs implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void shoot(EntityShootBowEvent event) {
-        if (!elected() || !(event.getEntity() instanceof Player player) || !(event.getProjectile() instanceof Projectile projectile)) return;
+        if (!(event.getEntity() instanceof Player player) || !(event.getProjectile() instanceof Projectile projectile) || !elected()) return;
         EquipmentSlot hand = event.getHand();
         try {
             var captured = capture(player, event.getBow(), slot(hand), inventorySlot(player, hand),
@@ -207,8 +207,8 @@ public final class EnchantmentInputs implements Listener {
                     // consumed ammunition snapshot, but expose the launch only once
                     // ordinary entity lookup and action ownership can resolve it.
                     org.bukkit.Bukkit.getScheduler().runTask(plugin, () -> {
-                        if (!elected() || !projectile.isValid()
-                                || org.bukkit.Bukkit.getEntity(projectile.getUniqueId()) != projectile) return;
+                        if (!projectile.isValid()
+                                || org.bukkit.Bukkit.getEntity(projectile.getUniqueId()) != projectile || !elected()) return;
                         dispatch(plugin, source, PROJECTILE_LAUNCH, null, "launch");
                     });
                 }
@@ -219,7 +219,7 @@ public final class EnchantmentInputs implements Listener {
     /** One activation per definition per physical input, with validated equipment contributions. */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void sneak(PlayerToggleSneakEvent event) {
-        if (!elected() || !event.isSneaking()) return;
+        if (!event.isSneaking() || !elected()) return;
         Player actor = event.getPlayer();
         UUID attack = UUID.randomUUID();
         Map<String, Map<String, Object>> sources = new TreeMap<>();
@@ -257,9 +257,8 @@ public final class EnchantmentInputs implements Listener {
         // Model/proxy APIs subclass the Bukkit event for previews and forward a separate native
         // damage call. Only that final call is an automatic proc source; owners can dispatch explicitly.
         if (event.getClass() != EntityDamageByEntityEvent.class) return;
-        if (!elected()) return;
         Player actor = damageActor(event);
-        if (actor == null) return;
+        if (actor == null || !elected()) return;
         for (var value : actor.getMetadata(DAMAGE_OBSERVER))
             if (value.value() instanceof Deque<?> observers
                     && observers.peekLast() instanceof java.util.function.Consumer<?> observer) {
@@ -297,7 +296,7 @@ public final class EnchantmentInputs implements Listener {
     public void damaged(EntityDamageEvent event) {
         if (event.getClass() != EntityDamageEvent.class && event.getClass() != EntityDamageByEntityEvent.class
                 && event.getClass() != EntityDamageByBlockEvent.class) return;
-        if (!elected() || event.getFinalDamage() <= 0 || !(event.getEntity() instanceof Player player)) return;
+        if (event.getFinalDamage() <= 0 || !(event.getEntity() instanceof Player player) || !elected()) return;
         var inventory = player.getInventory();
         for (var slot : EnchantmentDefinition.Slot.values()) {
             int index = switch (slot) {
@@ -312,9 +311,9 @@ public final class EnchantmentInputs implements Listener {
     public void interact(PlayerInteractEvent event) {
         // Bukkit denies the absent block side of ordinary air interactions. Both sides denied
         // is the same explicit protection/cancellation rule used by the existing FMM input owner.
-        if (!elected() || event.getHand() == null || (event.useItemInHand() == Event.Result.DENY
+        if (event.getHand() == null || (event.useItemInHand() == Event.Result.DENY
                 && event.useInteractedBlock() == Event.Result.DENY)) return;
-        if (event.getAction() == org.bukkit.event.block.Action.PHYSICAL) return;
+        if (event.getAction() == org.bukkit.event.block.Action.PHYSICAL || !elected()) return;
         boolean right = event.getAction() == org.bukkit.event.block.Action.RIGHT_CLICK_AIR
                 || event.getAction() == org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK;
         Player player = event.getPlayer();
@@ -335,9 +334,8 @@ public final class EnchantmentInputs implements Listener {
         // Only immutable input crosses the asynchronous boundary. Election, inventory and Lua
         // belong to the server thread, including synchronous player.chat invocations.
         org.bukkit.Bukkit.getScheduler().runTask(plugin, () -> {
-            if (!elected()) return;
             Player actor = org.bukkit.Bukkit.getPlayer(actorId);
-            if (actor == null || !actor.isOnline() || actor.isDead()) return;
+            if (actor == null || !actor.isOnline() || actor.isDead() || !elected()) return;
             for (var slot : EnchantmentDefinition.Slot.values()) {
                 int index = switch (slot) {
                     case MAINHAND -> actor.getInventory().getHeldItemSlot(); case OFFHAND -> 40;
@@ -360,7 +358,7 @@ public final class EnchantmentInputs implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void mine(org.bukkit.event.block.BlockBreakEvent event) {
-        if (!elected() || event.getClass() != org.bukkit.event.block.BlockBreakEvent.class) return;
+        if (event.getClass() != org.bukkit.event.block.BlockBreakEvent.class || !elected()) return;
         Player actor = event.getPlayer();
         try {
             UUID id = UUID.randomUUID();

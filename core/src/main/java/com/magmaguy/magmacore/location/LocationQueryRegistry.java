@@ -45,6 +45,8 @@ public final class LocationQueryRegistry {
             new ConcurrentHashMap<>();
     private static final AtomicBoolean warnedNoDungeonLocators = new AtomicBoolean(false);
     private static final AtomicBoolean warnedNoProtectionProviders = new AtomicBoolean(false);
+    private static final java.util.Set<RegionProtectionProvider> warnedProtectionFailures =
+            java.util.Collections.synchronizedSet(java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>()));
 
     private LocationQueryRegistry() {
     }
@@ -65,6 +67,7 @@ public final class LocationQueryRegistry {
 
     public static void unregisterProtectionProvider(RegionProtectionProvider provider) {
         protectionProviders.remove(provider);
+        warnedProtectionFailures.remove(provider);
     }
 
     public static boolean isInAnyDungeon(Location location) {
@@ -105,7 +108,7 @@ public final class LocationQueryRegistry {
             try {
                 if (provider.isProtected(location)) return true;
             } catch (Throwable t) {
-                Logger.warn("RegionProtectionProvider '" + provider.providerName() + "' threw during query: " + t.getMessage());
+                warnProtectionFailure(provider, t);
                 // This predicate is used to decide whether potentially destructive scripted
                 // actions may proceed. An adapter failure must never be interpreted as an
                 // unprotected location.
@@ -141,8 +144,7 @@ public final class LocationQueryRegistry {
             try {
                 if (!provider.canBuild(player, location)) return false;
             } catch (Throwable t) {
-                Logger.warn("RegionProtectionProvider '" + provider.providerName()
-                        + "' threw during player build query: " + t.getMessage());
+                warnProtectionFailure(provider, t);
                 return false;
             }
         }
@@ -152,6 +154,12 @@ public final class LocationQueryRegistry {
 
     public static int getDungeonLocatorCount() {
         return dungeonLocators.size();
+    }
+
+    private static void warnProtectionFailure(RegionProtectionProvider provider, Throwable failure) {
+        if (warnedProtectionFailures.add(provider))
+            Logger.warn("RegionProtectionProvider '" + provider.providerName() + "' failed a protection query: "
+                    + failure.getMessage() + "; further failures suppressed until provider replacement");
     }
 
     public static int getProtectionProviderCount() {
@@ -187,6 +195,7 @@ public final class LocationQueryRegistry {
     public static void shutdown() {
         dungeonLocators.clear();
         protectionProviders.clear();
+        warnedProtectionFailures.clear();
         builtInProtectionProviders.clear();
         failedBuiltInAttempts.clear();
         warnedNoDungeonLocators.set(false);
