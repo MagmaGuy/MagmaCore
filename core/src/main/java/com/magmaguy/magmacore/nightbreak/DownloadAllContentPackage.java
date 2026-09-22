@@ -36,7 +36,6 @@ public class DownloadAllContentPackage<T extends NightbreakManagedContent> exten
 
     @Override
     public ItemStack getItemstack() {
-        Collection<T> allPackages = packagesSupplier.get();
         String iconModel;
         Material baseMaterial;
         String displayName;
@@ -52,19 +51,20 @@ public class DownloadAllContentPackage<T extends NightbreakManagedContent> exten
             baseMaterial = Material.RED_STAINED_GLASS_PANE;
             displayName = "&eUpdate Account Token";
             lore = List.of("&7Your saved account token needs", "&7to be updated before downloads work.");
+        } else if (includesPluginUpdate()) {
+            iconModel = NightbreakSetupIcons.MODEL_CROWN_YELLOW;
+            baseMaterial = Material.YELLOW_STAINED_GLASS_PANE;
+            displayName = "&eDownload / Update Everything";
+            lore = List.of(
+                    "&7Checks for a plugin update,",
+                    "&7then downloads and updates content.",
+                    "&7Restart the server to use plugin updates.");
         } else {
+            Collection<T> allPackages = packagesSupplier.get();
             long notDownloadedCount = countNotDownloaded(allPackages);
             long outdatedCount = countOutdated(allPackages);
 
-            if (includesPluginUpdate()) {
-                iconModel = NightbreakSetupIcons.MODEL_CROWN_YELLOW;
-                baseMaterial = Material.YELLOW_STAINED_GLASS_PANE;
-                displayName = "&eDownload / Update Everything";
-                lore = List.of(
-                        "&7Checks for a plugin update,",
-                        "&7then downloads and updates content.",
-                        "&7Restart the server to use plugin updates.");
-            } else if (notDownloadedCount > 0 && outdatedCount > 0) {
+            if (notDownloadedCount > 0 && outdatedCount > 0) {
                 iconModel = NightbreakSetupIcons.MODEL_CROWN_YELLOW;
                 baseMaterial = Material.YELLOW_STAINED_GLASS_PANE;
                 displayName = "&eDownload & Update All";
@@ -134,6 +134,10 @@ public class DownloadAllContentPackage<T extends NightbreakManagedContent> exten
             NightbreakSetupMenuHelper.sendTokenUpdatePrompt(player, pluginName);
             return;
         }
+        if (includesPluginUpdate()) {
+            Bukkit.dispatchCommand(player, downloadAllCommand);
+            return;
+        }
 
         boolean hasNotDownloaded = false;
         boolean hasOutdated = false;
@@ -151,11 +155,6 @@ public class DownloadAllContentPackage<T extends NightbreakManagedContent> exten
                 hasOutdated = true;
             }
             if (hasNotDownloaded && hasOutdated) break;
-        }
-
-        if (includesPluginUpdate()) {
-            Bukkit.dispatchCommand(player, downloadAllCommand);
-            return;
         }
 
         if (!hasNotDownloaded && !hasOutdated) {

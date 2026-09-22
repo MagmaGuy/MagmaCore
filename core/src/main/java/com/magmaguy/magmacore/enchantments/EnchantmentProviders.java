@@ -121,7 +121,10 @@ public final class EnchantmentProviders {
             if (current.size() > 1) return result(Status.CONFLICT);
             if (current.isEmpty() || current.getFirst().endpoint != entry.endpoint || !current.getFirst().provider.equals(expected))
                 return result(Status.STALE);
-            return new Result(Status.OK, EnchantmentValues.copy(output));
+            // The Result constructor validates and copies the untrusted payload once.
+            @SuppressWarnings("unchecked")
+            Map<String, Object> resultPayload = (Map<String, Object>) output;
+            return new Result(Status.OK, resultPayload);
         } catch (RuntimeException | LinkageError failure) {
             return result(Status.FAILED);
         }
