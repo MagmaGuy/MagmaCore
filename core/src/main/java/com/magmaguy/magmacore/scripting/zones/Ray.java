@@ -3,6 +3,7 @@ package com.magmaguy.magmacore.scripting.zones;
 import org.bukkit.Location;
 import org.bukkit.Particle;
 import org.bukkit.entity.LivingEntity;
+import org.bukkit.util.BoundingBox;
 import org.bukkit.util.Vector;
 
 import java.util.ArrayList;
@@ -96,6 +97,36 @@ public class Ray extends Shape {
     @Override
     public Location getCenter() {
         return centerLocation;
+    }
+
+    @Override
+    public BoundingBox getEntityQueryBounds() {
+        if (locations.isEmpty() || !Double.isFinite(thickness)) return null;
+        double minX = Double.POSITIVE_INFINITY;
+        double minY = Double.POSITIVE_INFINITY;
+        double minZ = Double.POSITIVE_INFINITY;
+        double maxX = Double.NEGATIVE_INFINITY;
+        double maxY = Double.NEGATIVE_INFINITY;
+        double maxZ = Double.NEGATIVE_INFINITY;
+        // Animated rays replace these samples; original endpoints need not bound their current path.
+        for (Location location : locations) {
+            minX = Math.min(minX, location.getX());
+            minY = Math.min(minY, location.getY());
+            minZ = Math.min(minZ, location.getZ());
+            maxX = Math.max(maxX, location.getX());
+            maxY = Math.max(maxY, location.getY());
+            maxZ = Math.max(maxZ, location.getZ());
+        }
+        double extent = Math.abs(thickness);
+        minX -= extent;
+        minY -= extent;
+        minZ -= extent;
+        maxX += extent;
+        maxY += extent;
+        maxZ += extent;
+        if (!Double.isFinite(minX) || !Double.isFinite(minY) || !Double.isFinite(minZ)
+                || !Double.isFinite(maxX) || !Double.isFinite(maxY) || !Double.isFinite(maxZ)) return null;
+        return new BoundingBox(minX, minY, minZ, maxX, maxY, maxZ);
     }
 
     //Children override this

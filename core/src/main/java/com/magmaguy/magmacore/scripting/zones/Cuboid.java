@@ -43,10 +43,19 @@ public class Cuboid extends Shape {
 
     @Override
     public boolean contains(LivingEntity livingEntity) {
-        BoundingBox boundingBox = new BoundingBox(
+        return livingEntity.getBoundingBox().overlaps(outerBoundingBox());
+    }
+
+    private BoundingBox outerBoundingBox() {
+        return new BoundingBox(
                 Math.floor(x / 2D + centerLocation.getBlockX()), y / 2D + centerLocation.getBlockY(), Math.floor(z / 2D + centerLocation.getBlockZ()),
                 Math.floor(-x / 2D + centerLocation.getBlockX()), centerLocation.getBlockY(), Math.floor(-z / 2D + centerLocation.getBlockZ()));
-        return livingEntity.getBoundingBox().overlaps(boundingBox);
+    }
+
+    @Override
+    public BoundingBox getEntityQueryBounds() {
+        if (!Float.isFinite(x) || !Float.isFinite(y) || !Float.isFinite(z)) return null;
+        return outerBoundingBox();
     }
 
     @Override

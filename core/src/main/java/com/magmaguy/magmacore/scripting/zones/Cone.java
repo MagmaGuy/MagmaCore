@@ -3,6 +3,7 @@ package com.magmaguy.magmacore.scripting.zones;
 import org.bukkit.Location;
 import org.bukkit.Particle;
 import org.bukkit.entity.LivingEntity;
+import org.bukkit.util.BoundingBox;
 import org.bukkit.util.Vector;
 
 import java.util.ArrayList;
@@ -119,6 +120,20 @@ public class Cone extends Shape {
     @Override
     public Location getCenter() {
         return top.clone().add(bottom.toVector().subtract(top.toVector()).multiply(0.5));
+    }
+
+    @Override
+    public BoundingBox getEntityQueryBounds() {
+        double extent = Math.abs(baseRadius);
+        double minX = Math.min(top.getX(), bottom.getX()) - extent;
+        double minY = Math.min(top.getY(), bottom.getY()) - extent;
+        double minZ = Math.min(top.getZ(), bottom.getZ()) - extent;
+        double maxX = Math.max(top.getX(), bottom.getX()) + extent;
+        double maxY = Math.max(top.getY(), bottom.getY()) + extent;
+        double maxZ = Math.max(top.getZ(), bottom.getZ()) + extent;
+        if (!Double.isFinite(minX) || !Double.isFinite(minY) || !Double.isFinite(minZ)
+                || !Double.isFinite(maxX) || !Double.isFinite(maxY) || !Double.isFinite(maxZ)) return null;
+        return new BoundingBox(minX, minY, minZ, maxX, maxY, maxZ);
     }
 
     /**

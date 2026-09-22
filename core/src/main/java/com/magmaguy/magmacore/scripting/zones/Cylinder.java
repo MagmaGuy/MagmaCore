@@ -86,6 +86,21 @@ public class Cylinder extends Shape {
     }
 
     @Override
+    public BoundingBox getEntityQueryBounds() {
+        if (centerLocation == null) return null;
+        double extent = Math.abs(radius);
+        double minX = centerLocation.getX() - extent;
+        double minY = centerLocation.getY();
+        double minZ = centerLocation.getZ() - extent;
+        double maxX = centerLocation.getX() + extent;
+        double maxY = centerLocation.getY() + height;
+        double maxZ = centerLocation.getZ() + extent;
+        if (!Double.isFinite(minX) || !Double.isFinite(minY) || !Double.isFinite(minZ)
+                || !Double.isFinite(maxX) || !Double.isFinite(maxY) || !Double.isFinite(maxZ)) return null;
+        return new BoundingBox(minX, minY, minZ, maxX, maxY, maxZ);
+    }
+
+    @Override
     public List<Location> getEdgeLocations() {
         if (edgeVectors != null) return convert(edgeVectors);
         List<Location> edgeLocations = new ArrayList<>();
