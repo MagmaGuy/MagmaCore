@@ -42,7 +42,7 @@ public class ConfigurationEngine {
                 file.getParentFile().mkdirs();
                 file.createNewFile();
             } catch (IOException ex) {
-                Logger.warn("Error generating the plugin file: " + file.getName());
+                throw new UncheckedIOException("Could not create configuration file " + file, ex);
             }
         return file;
     }

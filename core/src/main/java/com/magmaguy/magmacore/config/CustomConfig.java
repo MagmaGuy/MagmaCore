@@ -381,6 +381,8 @@ public class CustomConfig {
     private void initialize(CustomConfigFields customConfigFields, File file) {
         //Get config file
         FileConfiguration fileConfiguration = ConfigurationEngine.fileConfigurationCreator(file);
+        if (fileConfiguration == null)
+            throw new java.io.UncheckedIOException(new java.io.IOException("Could not load configuration file " + file));
         LoadedState before = LoadedState.capture(fileConfiguration);
 
         //Associate config
