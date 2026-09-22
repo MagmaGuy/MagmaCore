@@ -907,12 +907,24 @@ public class ConfigurationImporter {
                                     backup.getKey());
                         });
             }
-            rollbackFailure = collectFailure(
-                    rollbackFailure,
-                    () -> deleteRecursively(backupRoot));
             if (rollbackFailure != null) {
+                // Failed restoration leaves these copies as the only recovery input.
+                // Hidden transaction directories are excluded from import discovery.
+                Logger.warn("Import rollback was incomplete. Recovery copies are retained at "
+                        + backupRoot + ". Restore the affected destinations before retrying.");
+                fileBackups.forEach((destination, backup) ->
+                        Logger.warn("Import recovery file: " + backup + " -> " + destination));
+                displacedDirectories.forEach((destination, backup) ->
+                        Logger.warn("Import recovery directory: " + backup + " -> " + destination));
                 rollbackFailure.addSuppressed(originalFailure);
-                throw rollbackFailure;
+                throw new IOException("Import rollback failed; recovery copies retained at "
+                        + backupRoot, rollbackFailure);
+            }
+            try {
+                deleteRecursively(backupRoot);
+            } catch (IOException cleanupFailure) {
+                cleanupFailure.addSuppressed(originalFailure);
+                throw cleanupFailure;
             }
         }
 
