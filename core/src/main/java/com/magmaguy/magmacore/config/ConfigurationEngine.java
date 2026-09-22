@@ -74,11 +74,15 @@ public class ConfigurationEngine {
     }
 
     private static void saveConfiguration(FileConfiguration configuration, File file) {
+        fileSaverSerialized(configuration.saveToString(), file);
+    }
+
+    /** Atomically publishes an already serialized snapshot without accessing a live YAML model. */
+    public static void fileSaverSerialized(String contents, File file) {
+        java.util.Objects.requireNonNull(contents, "contents");
         Path destination = file.toPath().toAbsolutePath().normalize();
         Path temporary = null;
         try {
-            // Complete serialization before touching the previous configuration.
-            String contents = configuration.saveToString();
             // Preserve configured file links rather than replacing the link itself.
             if (Files.isSymbolicLink(destination)) destination = destination.toRealPath();
             Files.createDirectories(destination.getParent());
