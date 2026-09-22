@@ -277,7 +277,9 @@ public class CustomConfig {
             }
 
             try {
-                YamlConfiguration raw = YamlConfiguration.loadConfiguration(file);
+                FileConfiguration raw = Objects.requireNonNull(
+                        ConfigurationEngine.fileConfigurationCreator(file),
+                        "Failed to read configuration " + file);
                 String parent = raw.getString(inheritancePolicy.parentKey());
                 if (parent == null || parent.isBlank()) {
                     ResolvedConfiguration result = new ResolvedConfiguration(raw, raw, false);
