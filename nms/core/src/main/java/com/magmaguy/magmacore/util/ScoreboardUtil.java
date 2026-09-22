@@ -12,15 +12,22 @@ import org.bukkit.scoreboard.DisplaySlot;
 import org.bukkit.scoreboard.Objective;
 import org.bukkit.scoreboard.Score;
 import org.bukkit.scoreboard.Scoreboard;
+import org.bukkit.scoreboard.Team;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
+import java.util.WeakHashMap;
 
 public final class ScoreboardUtil {
     private static final String DEFAULT_SIDEBAR_OBJECTIVE = "mcore_sb";
     private static final int MAX_SIDEBAR_LINES = 15;
-    private static final int LEGACY_SCOREBOARD_ENTRY_LIMIT = 40;
+    private static final int SCOREBOARD_LABEL_LIMIT = 32767;
+    private static final Map<Scoreboard, Map<String, List<SidebarRow>>> sidebarRows = new WeakHashMap<>();
     private static final Set<String> shutdownListenerRegistrations = new HashSet<>();
     private static boolean adapterInitializationAttempted = false;
 
@@ -81,19 +88,57 @@ public final class ScoreboardUtil {
         return NMSManager.getAdapter().hideScoreboardNumbers(objective);
     }
 
-    private static void setSidebarLines(Objective objective, List<String> scoreboardContents) {
-        if (scoreboardContents == null) return;
-        int lineCount = Math.min(scoreboardContents.size(), MAX_SIDEBAR_LINES);
+    public static void setSidebarLines(Objective objective, List<String> scoreboardContents) {
+        Scoreboard scoreboard = objective.getScoreboard();
+        if (scoreboard == null) return;
+        List<SidebarRow> rows = sidebarRows.computeIfAbsent(scoreboard, ignored -> new HashMap<>())
+                .computeIfAbsent(objective.getName(), ignored -> new ArrayList<>());
+        int lineCount = scoreboardContents == null ? 0 : Math.min(scoreboardContents.size(), MAX_SIDEBAR_LINES);
+        while (rows.size() > lineCount) {
+            SidebarRow removed = rows.remove(rows.size() - 1);
+            // resetScores is board-wide. Preserve an external objective using this entry.
+            Map<Objective, Integer> otherScores = new HashMap<>();
+            for (Objective other : scoreboard.getObjectives()) {
+                if (other.equals(objective)) continue;
+                Score score = other.getScore(removed.entry);
+                if (score.isScoreSet()) otherScores.put(other, score.getScore());
+            }
+            scoreboard.resetScores(removed.entry);
+            otherScores.forEach((other, value) -> other.getScore(removed.entry).setScore(value));
+            Team team = scoreboard.getTeam(removed.teamName);
+            if (team != null) team.unregister();
+        }
         for (int i = 0; i < lineCount; i++) {
-            Score score = objective.getScore(trimScoreboardEntry(scoreboardContents.get(i)));
-            score.setScore(i);
+            if (rows.size() == i) {
+                String teamName;
+                do {
+                    teamName = "mc" + UUID.randomUUID().toString().replace("-", "").substring(0, 14);
+                } while (scoreboard.getTeam(teamName) != null);
+                StringBuilder entry = new StringBuilder();
+                for (char digit : teamName.substring(2).toCharArray()) entry.append('\u00a7').append(digit);
+                Team team = scoreboard.registerNewTeam(teamName);
+                team.addEntry(entry.toString());
+                rows.add(new SidebarRow(teamName, entry.toString()));
+            }
+            SidebarRow row = rows.get(i);
+            String label = trimScoreboardEntry(scoreboardContents.get(i));
+            Team team = scoreboard.getTeam(row.teamName);
+            if (team == null) {
+                team = scoreboard.registerNewTeam(row.teamName);
+                team.addEntry(row.entry);
+            }
+            if (!label.equals(team.getPrefix())) team.setPrefix(label);
+            Score score = objective.getScore(row.entry);
+            if (!score.isScoreSet() || score.getScore() != i) score.setScore(i);
         }
     }
 
+    private record SidebarRow(String teamName, String entry) {}
+
     private static String trimScoreboardEntry(String entry) {
         if (entry == null) return "";
-        if (entry.length() <= LEGACY_SCOREBOARD_ENTRY_LIMIT) return entry;
-        return entry.substring(0, LEGACY_SCOREBOARD_ENTRY_LIMIT - 1);
+        if (entry.length() <= SCOREBOARD_LABEL_LIMIT) return entry;
+        return entry.substring(0, SCOREBOARD_LABEL_LIMIT - 1);
     }
 
     private static synchronized void ensureAdapter(Plugin plugin) {
