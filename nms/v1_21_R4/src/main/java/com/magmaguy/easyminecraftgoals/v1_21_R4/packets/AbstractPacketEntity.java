@@ -2,6 +2,7 @@ package com.magmaguy.easyminecraftgoals.v1_21_R4.packets;
 
 import com.google.common.collect.Sets;
 import com.magmaguy.easyminecraftgoals.internal.PacketEntityInterface;
+import com.magmaguy.easyminecraftgoals.internal.PacketPassengerRegistry;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.*;
 import net.minecraft.network.syncher.SynchedEntityData;
@@ -24,6 +25,7 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
     private final List<Runnable> removeCallbacks = new LinkedList<>();
     protected boolean visible = true;
     private final int EntityID;
+    private int currentVehicleId = -1;
 
     protected AbstractPacketEntity(Location location) {
         this.entity = createEntity(location);
@@ -67,6 +69,7 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
 
     @Override
     public void removeViewer(UUID player) {
+        detachPassengerFor(player);
         viewers.remove(player);
     }
 
@@ -129,8 +132,10 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
 
     //Entity destruction
     public void remove() {
+        dismount();
         // Broadcast remove to all viewers
         sendPacketToAll(generateRemovePacket());
+        viewers.clear();
         removeCallbacks.forEach(Runnable::run);
     }
 
@@ -146,8 +151,10 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
     }
 
     public void setVisible(boolean visible) {
+        if (!visible) for (UUID viewer : viewers) detachPassengerFor(viewer);
         // This is a global visibility change - send to all
         sendPacketToAll(generateSetVisiblePacket(visible));
+        if (visible) for (UUID viewer : viewers) refreshPassengerFor(viewer);
     }
 
     // Hide from specific player - FIXED
@@ -191,6 +198,7 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
                 generateHeadRotationPacket(),
                 createEntityDataPacket()
         );
+        refreshPassengerFor(player.getUniqueId());
     }
 
     //Teleports - affects all viewers
@@ -257,6 +265,48 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
     public void move(Location location) {
         sendPacketToAll(generateMovePacket(location));
         sendPacketToAll(generateHeadRotationPacket());
+    }
+
+    @Override
+    public void mountTo(int vehicleEntityId) {
+        if (currentVehicleId != vehicleEntityId) dismount();
+        currentVehicleId = vehicleEntityId;
+        for (UUID viewer : viewers) refreshPassengerFor(viewer);
+    }
+
+    @Override
+    public void dismount() {
+        if (currentVehicleId == -1) return;
+        for (UUID viewer : viewers) detachPassengerFor(viewer);
+        currentVehicleId = -1;
+    }
+
+    private int[] nativePassengerIds() {
+        Entity vehicle = entity.level().getEntity(currentVehicleId);
+        return vehicle == null ? new int[0]
+                : vehicle.getPassengers().stream().mapToInt(Entity::getId).toArray();
+    }
+
+    private void refreshPassengerFor(UUID viewer) {
+        if (currentVehicleId == -1 || !visible) return;
+        Player player = Bukkit.getPlayer(viewer);
+        if (player == null) {
+            PacketPassengerRegistry.clearViewer(viewer);
+            return;
+        }
+        PacketPassengerRegistry.attach(viewer, currentVehicleId, EntityID);
+        sendPacketToPlayer(player, PassengerPackets.create(currentVehicleId,
+                PacketPassengerRegistry.compose(viewer, currentVehicleId, nativePassengerIds())));
+    }
+
+    private void detachPassengerFor(UUID viewer) {
+        if (currentVehicleId == -1) return;
+        PacketPassengerRegistry.detach(viewer, currentVehicleId, EntityID);
+        Player player = Bukkit.getPlayer(viewer);
+        if (player != null) {
+            sendPacketToPlayer(player, PassengerPackets.create(currentVehicleId,
+                    PacketPassengerRegistry.compose(viewer, currentVehicleId, nativePassengerIds())));
+        }
     }
 
     // ==== Packet sending methods - RENAMED AND CLARIFIED ====

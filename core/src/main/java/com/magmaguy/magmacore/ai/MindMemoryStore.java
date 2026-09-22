@@ -10,6 +10,9 @@ public final class MindMemoryStore {
     private final Map<MindMemoryKey<?>, Entry> values = new LinkedHashMap<>();
     private long currentTick;
     private MindPersistentState pendingRestore;
+    private final MindMemoryView sharedView = new View();
+    private long expiredAtTick;
+    private boolean expiryCurrent;
 
     public MindMemoryStore(MindSchema schema) {
         this.schema = schema;
@@ -19,7 +22,7 @@ public final class MindMemoryStore {
         currentTick = gameTick;
         materializePendingRestore(gameTick);
         expire(gameTick);
-        return new View();
+        return sharedView;
     }
 
     public MindMemoryStore transferTo(MindSchema nextSchema, StateTransfer transfer) {
@@ -56,6 +59,7 @@ public final class MindMemoryStore {
                             : saturatedAdd(entry.expiresAtTick, elapsedTicks)));
         }
         currentTick = saturatedAdd(currentTick, elapsedTicks);
+        expiryCurrent = false;
     }
 
     public MindPersistentState persistentState() {
@@ -83,6 +87,7 @@ public final class MindMemoryStore {
         }
         values.clear();
         pendingRestore = state;
+        expiryCurrent = false;
     }
 
     private void materializePendingRestore(long gameTick) {
@@ -103,11 +108,14 @@ public final class MindMemoryStore {
     }
 
     private void expire(long gameTick) {
+        if (expiryCurrent && expiredAtTick == gameTick) return;
         Iterator<Entry> iterator = values.values().iterator();
         while (iterator.hasNext()) {
             Entry entry = iterator.next();
             if (entry.expiresAtTick <= gameTick) iterator.remove();
         }
+        expiredAtTick = gameTick;
+        expiryCurrent = true;
     }
 
     private static long saturatedAdd(long value, long increment) {
@@ -165,6 +173,7 @@ public final class MindMemoryStore {
         private <T> void put(MindMemoryKey<T> key, T value, long expiresAtTick) {
             requireDeclared(key);
             values.put(key, new Entry(key.requireType(value), expiresAtTick));
+            if (expiresAtTick <= currentTick) expiryCurrent = false;
         }
 
         private void requireDeclared(MindMemoryKey<?> key) {

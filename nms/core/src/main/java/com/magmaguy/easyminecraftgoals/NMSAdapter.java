@@ -273,6 +273,7 @@ public abstract class NMSAdapter {
         return false;
     }
 
+    /** Native placement retaining chunk, lighting, save and client-update bookkeeping. Call on the server thread. */
     public abstract void setBlockInNativeDataPalette(World world, int x, int y, int z, BlockData blockData, boolean applyPhysics);
 
     public abstract AbstractPacketBundle createPacketBundle();

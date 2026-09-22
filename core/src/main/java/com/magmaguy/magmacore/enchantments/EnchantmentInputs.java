@@ -102,7 +102,13 @@ public final class EnchantmentInputs implements Listener {
     /** The snapshot carries Bukkit/JDK values only, including pinned definition revisions and consumed ammunition. */
     public static Map<String, Object> capture(Player actor, ItemStack item, EnchantmentDefinition.Slot slot,
             int inventorySlot, ItemStack ammunition, String attackKind, UUID attackId) {
+        return capture(actor, item, slot, inventorySlot, ammunition, attackKind, attackId, new InputFacts(actor));
+    }
+
+    private static Map<String, Object> capture(Player actor, ItemStack item, EnchantmentDefinition.Slot slot,
+            int inventorySlot, ItemStack ammunition, String attackKind, UUID attackId, InputFacts inputFacts) {
         EnchantmentProviders.requireServerThread();
+        if (inputFacts.equipment != null) item = inputFacts.equipment.get(slot.name());
         if (item == null || item.getType().isAir() || item.getType() == org.bukkit.Material.ENCHANTED_BOOK
                 || !item.hasItemMeta()) return Map.of();
         var levels = EnchantmentItemData.read(item.getItemMeta());
@@ -125,12 +131,33 @@ public final class EnchantmentInputs implements Listener {
         if (effects.isEmpty()) return Map.of();
         Map<String,Object> facts = new LinkedHashMap<>();
         facts.put("item", item.clone()); facts.put("inventory_slot", inventorySlot); facts.put("slot", slot.name());
-        var equipment = EnchantmentActions.captureEquipment(actor);
-        facts.put("equipment", equipment); facts.put("attack_kind", attackKind);
-        facts.put("providers", EnchantmentActions.captureProviderFacts(actor.getUniqueId(), equipment));
+        inputFacts.capture();
+        facts.put("equipment", inputFacts.equipment); facts.put("attack_kind", attackKind);
+        facts.put("providers", inputFacts.providers);
         if (ammunition != null && !ammunition.getType().isAir()) facts.put("ammunition", ammunition.clone());
         return EnchantmentValues.copy(Map.of("attack", attackId, "actor", actor.getUniqueId(),
                 "world", actor.getWorld().getUID(), "facts", facts, "effects", effects));
+    }
+
+    private static final class InputFacts {
+        private final Player actor;
+        private Map<String, ItemStack> equipment;
+        private Map<String, Object> providers;
+        private RuntimeException failure;
+
+        private InputFacts(Player actor) { this.actor = actor; }
+
+        private void capture() {
+            if (failure != null) throw failure;
+            if (providers != null) return;
+            if (equipment == null) equipment = EnchantmentActions.captureEquipment(actor);
+            try {
+                providers = EnchantmentActions.captureProviderFacts(actor.getUniqueId(), equipment);
+            } catch (RuntimeException rejected) {
+                failure = rejected;
+                throw rejected;
+            }
+        }
     }
 
     /** Called after the base action succeeds. A stale or failed optional effect cannot replay the base action. */
@@ -225,13 +252,15 @@ public final class EnchantmentInputs implements Listener {
         Map<String, Map<String, Object>> sources = new TreeMap<>();
         Map<String, Map<?, ?>> effects = new TreeMap<>();
         Map<String, Integer> totals = new TreeMap<>();
+        InputFacts inputFacts = new InputFacts(actor);
+        int heldSlot = actor.getInventory().getHeldItemSlot();
         for (var slot : EnchantmentDefinition.Slot.values()) {
             int index = switch (slot) {
-                case MAINHAND -> actor.getInventory().getHeldItemSlot(); case OFFHAND -> 40;
+                case MAINHAND -> heldSlot; case OFFHAND -> 40;
                 case HEAD -> 39; case CHEST -> 38; case LEGS -> 37; case FEET -> 36;
             };
             try {
-                var captured = capture(actor, actor.getInventory().getItem(index), slot, index, null, "", attack);
+                var captured = capture(actor, actor.getInventory().getItem(index), slot, index, null, "", attack, inputFacts);
                 if (captured.isEmpty()) continue;
                 for (Object raw : (List<?>) captured.get("effects")) {
                     var effect = (Map<?, ?>) raw;
