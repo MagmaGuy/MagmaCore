@@ -243,14 +243,11 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
 
     // Also update generateMovePacket to ensure yaw is handled correctly
     public Packet<?> generateMovePacket(Location location) {
-        // Check if we have viewers first
-        if (viewers.isEmpty()) {
-            return null;
-        }
-
-        // Update entity position AND rotation
+        // Initial viewer admission needs the latest pose even before packets have recipients.
         entity.setPos(location.getX(), location.getY(), location.getZ());
         applyRotation(location);
+
+        if (viewers.isEmpty()) return null;
 
         // Use teleport packet for absolute positioning
         return generateTeleportPacket();
