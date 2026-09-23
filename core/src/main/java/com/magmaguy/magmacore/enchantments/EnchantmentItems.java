@@ -21,6 +21,10 @@ import java.util.function.ToIntFunction;
 
 /** Shared item operations. Hosts retain inventory transactions, acquisition policy and effect dispatch. */
 public final class EnchantmentItems {
+    /** A known configured level/count limit, distinct from incompatible or unavailable definitions. */
+    public static final class LimitExceededException extends IllegalArgumentException {
+        public LimitExceededException(String message) { super(message); }
+    }
     /** Reuses registered authored-item classifiers without applying anvil-specific acquisition vetoes. */
     public static EnchantmentItemProfile classify(ItemStack item) {
         EnchantmentProviders.requireServerThread();
@@ -167,7 +171,7 @@ public final class EnchantmentItems {
             if (id.startsWith("minecraft:")) {
                 Enchantment enchantment = Registry.ENCHANTMENT.get(Objects.requireNonNull(NamespacedKey.fromString(id)));
                 if (enchantment == null) throw new IllegalArgumentException("Unknown native enchantment: " + id);
-                if (!authored && level > enchantment.getMaxLevel()) throw new IllegalArgumentException("Native level exceeds its limit: " + id);
+                if (!authored && level > enchantment.getMaxLevel()) throw new LimitExceededException("Native level exceeds its limit: " + id);
                 if (!authored && !isBook(snapshot) && !enchantment.canEnchantItem(snapshot))
                     throw new IllegalArgumentException("Native enchantment does not support this item: " + id);
                 vanilla.put(enchantment, level);
@@ -176,7 +180,7 @@ public final class EnchantmentItems {
                 custom.put(id, level);
             }
         }
-        if (custom.size() > EnchantmentItemData.MAX_ENTRIES) throw new IllegalArgumentException("Too many custom enchantments");
+        if (custom.size() > EnchantmentItemData.MAX_ENTRIES) throw new LimitExceededException("Too many custom enchantments");
         Set<String> resultingIds = new java.util.HashSet<>(requested.keySet());
         if (preserveNative) resultingIds.addAll(nativeIds);
         List<String> problems = authored ? List.of() : validateCustom(profile, custom, resultingIds, pinned, isBook(snapshot));
@@ -284,12 +288,13 @@ public final class EnchantmentItems {
                                        Set<String> resultingIds,
                                        Map<String, Resolved> resolved, boolean book) {
         List<String> problems = new ArrayList<>();
+        List<String> limits = new ArrayList<>();
         for (var entry : requested.entrySet()) {
             if (entry.getKey().startsWith("minecraft:")) continue;
             Resolved resolution = resolved.get(entry.getKey());
             if (resolution == null || !resolution.available()) { problems.add("Unavailable enchantment: " + entry.getKey()); continue; }
             EnchantmentDefinition definition = resolution.definition();
-            if (entry.getValue() < 1 || entry.getValue() > definition.maxLevel()) problems.add("Level outside limits: " + entry.getKey());
+            if (entry.getValue() < 1 || entry.getValue() > definition.maxLevel()) limits.add("Level outside limits: " + entry.getKey());
             if (!book) {
                 if (!definition.itemTypes().isEmpty() && !definition.itemTypes().contains(profile.type()))
                     problems.add("Item type does not support " + entry.getKey());
@@ -301,6 +306,8 @@ public final class EnchantmentItems {
             for (String conflict : definition.conflicts())
                 if (resultingIds.contains(conflict)) problems.add("Conflicting enchantments: " + entry.getKey() + " / " + conflict);
         }
+        if (problems.isEmpty() && !limits.isEmpty()) throw new LimitExceededException(String.join("; ", limits));
+        problems.addAll(limits);
         return List.copyOf(problems);
     }
 
