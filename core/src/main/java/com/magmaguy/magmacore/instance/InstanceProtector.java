@@ -107,7 +107,7 @@ public class InstanceProtector implements Listener {
         return world == null ? null : protectedWorlds.get(world.getUID());
     }
 
-    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void removeProtectedInstance(WorldUnloadEvent event) {
         protectedWorlds.remove(event.getWorld().getUID());
     }
