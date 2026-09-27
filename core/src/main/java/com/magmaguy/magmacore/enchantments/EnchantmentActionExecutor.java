@@ -179,6 +179,13 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
         if (event.getPlugin() == plugin) close();
     }
     @EventHandler public void onWorldChange(PlayerChangedWorldEvent event) { stopActor(event.getPlayer().getUniqueId()); }
+    @EventHandler(priority = org.bukkit.event.EventPriority.MONITOR, ignoreCancelled = true)
+    public void onArrowImpact(org.bukkit.event.entity.ProjectileHitEvent event) {
+        if (!(event.getEntity() instanceof org.bukkit.entity.AbstractArrow arrow) || event.getHitBlock() == null) return;
+        if (active.values().stream().noneMatch(running -> running.ownedEntities.containsKey(arrow.getUniqueId()))) return;
+        com.magmaguy.magmacore.scripting.tables.LuaEntityTable.recordArrowAttachment(
+                plugin, arrow, event.getHitBlock());
+    }
     @EventHandler(ignoreCancelled = true) public void onWorldUnload(WorldUnloadEvent event) {
         for (Running running : new ArrayList<>(active.values()))
             if (running.source.world().equals(event.getWorld().getUID())) running.instance.shutdown();
@@ -312,6 +319,7 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
                         if (ownedEntities.containsKey(entity.getUniqueId())) return LuaValue.TRUE;
                         instance.ownCleanup(() -> {
                             ownedEntities.remove(entity.getUniqueId());
+                            com.magmaguy.magmacore.scripting.tables.LuaEntityTable.clearArrowAttachment(plugin, entity);
                             entity.remove();
                         });
                         ownedEntities.put(entity.getUniqueId(), entity);

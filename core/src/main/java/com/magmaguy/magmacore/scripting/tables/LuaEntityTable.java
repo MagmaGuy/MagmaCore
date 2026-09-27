@@ -14,6 +14,36 @@ import java.util.function.BiConsumer;
 public class LuaEntityTable {
 
     private static final List<BiConsumer<LuaTable, Entity>> enrichers = new CopyOnWriteArrayList<>();
+    private static final String ARROW_ATTACHMENT = "nightbreak_owned_arrow_attachment";
+
+    /** Records the actual struck block; the embedded arrow can rest in a diagonal neighbouring cell. */
+    public static void recordArrowAttachment(org.bukkit.plugin.Plugin owner, org.bukkit.entity.AbstractArrow arrow,
+                                             org.bukkit.block.Block block) {
+        var attachment = block.getLocation().add(.5, .5, .5);
+        arrow.setMetadata(ARROW_ATTACHMENT, new org.bukkit.metadata.FixedMetadataValue(owner,
+                List.of(arrow.getLocation(), attachment)));
+    }
+
+    public static void clearArrowAttachment(org.bukkit.plugin.Plugin owner, Entity arrow) {
+        arrow.removeMetadata(ARROW_ATTACHMENT, owner);
+    }
+
+    private static LuaValue arrowAttachment(org.bukkit.entity.AbstractArrow arrow) {
+        for (var value : arrow.getMetadata(ARROW_ATTACHMENT)) {
+            if (value.value() instanceof List<?> locations && locations.size() == 2
+                    && locations.get(0) instanceof org.bukkit.Location impact
+                    && locations.get(1) instanceof org.bukkit.Location attachment) {
+                // Native embedding backs the arrow away by .05 on each moving axis.
+                // A later teleport, release from the block, or world change invalidates this impact.
+                if (arrow.isValid() && arrow.isInBlock() && value.getOwningPlugin().isEnabled()
+                        && arrow.getWorld().equals(impact.getWorld())
+                        && arrow.getLocation().distanceSquared(impact) <= .04)
+                    return LuaTableSupport.locationToTable(attachment);
+            }
+            arrow.removeMetadata(ARROW_ATTACHMENT, value.getOwningPlugin());
+        }
+        return LuaValue.NIL;
+    }
 
     /**
      * Registers an enricher that adds plugin-specific fields (e.g. is_elite, is_modeled,
@@ -81,6 +111,9 @@ public class LuaEntityTable {
             // from that cell puts the destination inside the obstacle being grappled.
             LuaTableSupport.lazyField(table, "attachment_location", () -> !arrow.isInBlock() ? LuaValue.NIL
                     : LuaTableSupport.locationToTable(arrow.getLocation().getBlock().getLocation().add(.5, .5, .5)));
+            // Actual accepted block center for an embedded action-owned arrow; nil otherwise.
+            // This identifies the struck block, separate from the outside movement destination.
+            LuaTableSupport.lazyField(table, "attachment_block", () -> arrowAttachment(arrow));
             table.set("set_pickup", LuaTableSupport.tableMethod(table, args -> {
                 arrow.setPickupStatus(org.bukkit.entity.AbstractArrow.PickupStatus.valueOf(args.checkjstring(1).toUpperCase(java.util.Locale.ROOT)));
                 return LuaValue.NIL;
