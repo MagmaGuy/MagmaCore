@@ -53,6 +53,10 @@ public final class TemporaryBlockManager implements Listener {
         }
 
         private void release(boolean restore) {
+            release(restore, legacyPlacement);
+        }
+
+        private void release(boolean restore, boolean applyPhysics) {
             if (!Bukkit.isPrimaryThread()) throw new IllegalStateException("Block restoration requires the server thread");
             if (closed) return;
             closed = true;
@@ -65,7 +69,7 @@ public final class TemporaryBlockManager implements Listener {
                     .anyMatch(value -> value.getOwningPlugin() == owner && token.equals(value.asString()));
             if (!owned) return;
             block.removeMetadata(OWNED_KEY, owner);
-            if (restore && block.getBlockData().equals(replacement)) block.setBlockData(original, legacyPlacement);
+            if (restore && block.getBlockData().equals(replacement)) block.setBlockData(original, applyPhysics);
         }
     }
 
@@ -191,17 +195,18 @@ public final class TemporaryBlockManager implements Listener {
         removeTemporaryBlock(event.getBlock());
     }
 
-    @EventHandler(ignoreCancelled = true)
+    @EventHandler(ignoreCancelled = true, priority = org.bukkit.event.EventPriority.MONITOR)
     public void onWorldUnload(WorldUnloadEvent event) {
         for (OwnedBlock lease : new java.util.ArrayList<>(ownedBlocks.values()))
-            if (lease.key.world().equals(event.getWorld().getUID())) lease.close();
+            if (lease.key.world().equals(event.getWorld().getUID())) lease.release(true, false);
     }
 
-    @EventHandler(ignoreCancelled = true)
+    @EventHandler(ignoreCancelled = true, priority = org.bukkit.event.EventPriority.MONITOR)
     public void onChunkUnload(org.bukkit.event.world.ChunkUnloadEvent event) {
+        // Restore the stored state without neighbor updates that can load chunks during native unload iteration.
         for (OwnedBlock lease : new java.util.ArrayList<>(ownedBlocks.values()))
             if (lease.key.world().equals(event.getWorld().getUID())
                     && (lease.key.x() >> 4) == event.getChunk().getX() && (lease.key.z() >> 4) == event.getChunk().getZ())
-                lease.close();
+                lease.release(true, false);
     }
 }
