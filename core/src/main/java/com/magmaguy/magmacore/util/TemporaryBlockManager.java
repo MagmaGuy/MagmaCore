@@ -36,15 +36,16 @@ public final class TemporaryBlockManager implements Listener {
         private final BlockData original;
         private BlockData replacement;
         private boolean closed;
-        private boolean legacyPlacement;
+        private final boolean legacyPlacement;
         private BukkitTask expiryTask;
         private long expiryGeneration;
 
-        private OwnedBlock(Block block, BlockData replacement, org.bukkit.plugin.Plugin owner) {
+        private OwnedBlock(Block block, BlockData replacement, org.bukkit.plugin.Plugin owner, boolean legacyPlacement) {
             key = BlockKey.of(block);
             this.owner = owner;
             original = block.getBlockData().clone();
             this.replacement = replacement.clone();
+            this.legacyPlacement = legacyPlacement;
         }
 
         @Override public void close() {
@@ -64,7 +65,7 @@ public final class TemporaryBlockManager implements Listener {
                     .anyMatch(value -> value.getOwningPlugin() == owner && token.equals(value.asString()));
             if (!owned) return;
             block.removeMetadata(OWNED_KEY, owner);
-            if (restore && block.getBlockData().equals(replacement)) block.setBlockData(original, false);
+            if (restore && block.getBlockData().equals(replacement)) block.setBlockData(original, legacyPlacement);
         }
     }
 
@@ -76,14 +77,21 @@ public final class TemporaryBlockManager implements Listener {
     }
 
     public static OwnedBlock replaceOwned(Block block, BlockData replacement, org.bukkit.plugin.Plugin owner) {
+        return replaceOwned(block, replacement, owner, false);
+    }
+
+    private static OwnedBlock replaceOwned(Block block, BlockData replacement, org.bukkit.plugin.Plugin owner,
+                                           boolean legacyPlacement) {
         if (!Bukkit.isPrimaryThread()) throw new IllegalStateException("Block replacement requires the server thread");
         java.util.Objects.requireNonNull(replacement, "replacement");
         java.util.Objects.requireNonNull(owner, "owner");
         if (!owner.isEnabled() || !canOwn(block)) return null;
-        OwnedBlock lease = new OwnedBlock(block, replacement, owner);
+        OwnedBlock lease = new OwnedBlock(block, replacement, owner, legacyPlacement);
         block.setMetadata(OWNED_KEY, new org.bukkit.metadata.FixedMetadataValue(owner, lease.token));
         ownedBlocks.put(lease.key, lease);
-        try { block.setBlockData(replacement, false); }
+        // Timed legacy placements have always notified physics, including fluid flow
+        // and releasing a barrier beside fluid. Explicit owned leases remain inert.
+        try { block.setBlockData(replacement, legacyPlacement); }
         catch (RuntimeException failure) { lease.close(); throw failure; }
         return lease;
     }
@@ -121,9 +129,8 @@ public final class TemporaryBlockManager implements Listener {
         }
         if (lease == null) {
             lease = replaceOwned(block, replacementMaterial.createBlockData(),
-                    MagmaCore.getInstance().getRequestingPlugin());
+                    MagmaCore.getInstance().getRequestingPlugin(), true);
             if (lease == null) return;
-            lease.legacyPlacement = true;
         } else {
             if (lease.expiryTask != null) lease.expiryTask.cancel();
             block.setType(replacementMaterial);
