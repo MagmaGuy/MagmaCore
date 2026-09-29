@@ -152,6 +152,7 @@ final class ConfigurationImportRegistry {
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.BETTERSTRUCTURES, "elitemobs", ConfigurationImporter::getEliteMobsPath);
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.BETTERSTRUCTURES, "custombosses", importer -> importer.getEliteMobsPath().resolve("custombosses"));
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.BETTERSTRUCTURES, "customitems", importer -> importer.getEliteMobsPath().resolve("customitems"));
+        registerPlatformFolder(ConfigurationImporter.PluginPlatform.BETTERSTRUCTURES, "enchantments", importer -> importer.getEliteMobsPath().resolve("enchantments"));
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.BETTERSTRUCTURES, "customtreasurechests", importer -> importer.getEliteMobsPath().resolve("customtreasurechests"));
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.BETTERSTRUCTURES, "powers", importer -> importer.getEliteMobsPath().resolve("powers"));
 
