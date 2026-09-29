@@ -63,6 +63,14 @@ public abstract class MatchInstance implements MatchInstanceInterface {
             return matchInstantiateEvent;
         }
 
+        Bukkit.getPluginManager().callEvent(matchInstantiateEvent);
+        // A listener may cancel or end the match while handling its start event.
+        if (matchInstantiateEvent.isCancelled() || terminal || state != InstanceState.WAITING
+                || tick != null || players.size() < matchInstanceConfiguration.getMinPlayers()) {
+            matchInstantiateEvent.setCancelled(true);
+            return matchInstantiateEvent;
+        }
+
         tick = new TickTask();
         tick.runTaskTimer(MagmaCore.getInstance().getRequestingPlugin(), 0, 1);
 
