@@ -8,8 +8,14 @@ import io.netty.channel.*;
 import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.Connection;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.PacketType;
+import net.minecraft.network.protocol.PacketUtils;
 import net.minecraft.network.protocol.game.ClientboundLevelParticlesPacket;
+import net.minecraft.network.protocol.game.ServerGamePacketListener;
 import net.minecraft.network.protocol.game.ServerboundInteractPacket;
+import net.minecraft.server.RunningOnDifferentThreadException;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.ServerCommonPacketListenerImpl;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
@@ -31,6 +37,7 @@ import java.lang.reflect.Modifier;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Level;
 
 /**
  * Listens for ServerboundInteractPacket to detect when players interact with packet-only entities.
@@ -262,7 +269,7 @@ public class PacketInteractionListener implements Listener {
             }
 
             // Add our handler before the packet_handler
-            channel.pipeline().addBefore("packet_handler", handlerName, new PacketHandler(player));
+            channel.pipeline().addBefore("packet_handler", handlerName, new PacketHandler(player, serverPlayer));
             playerChannels.put(player.getUniqueId(), channel);
 
         } catch (Exception e) {
@@ -299,9 +306,11 @@ public class PacketInteractionListener implements Listener {
      */
     private class PacketHandler extends ChannelDuplexHandler {
         private final Player player;
+        private final ServerPlayer serverPlayer;
 
-        public PacketHandler(Player player) {
+        public PacketHandler(Player player, ServerPlayer serverPlayer) {
             this.player = player;
+            this.serverPlayer = serverPlayer;
         }
 
         @Override
@@ -318,7 +327,7 @@ public class PacketInteractionListener implements Listener {
                                 dispatch.prepare(interactionContext);
                         switch (prepared.decision()) {
                             case ROUTE -> {
-                                Bukkit.getScheduler().runTask(plugin, () -> prepared.route(player));
+                                routeInPacketOrder(packet.type(), prepared);
                                 return;
                             }
                             case CONSUME -> {
@@ -337,6 +346,38 @@ public class PacketInteractionListener implements Listener {
 
             // Pass packet to next handler
             super.channelRead(ctx, msg);
+        }
+
+        private void routeInPacketOrder(
+                PacketType<? extends Packet<ServerGamePacketListener>> packetType,
+                PacketEntityInteractionManager.PreparedInteraction prepared) {
+            Packet<ServerGamePacketListener> routed = new Packet<>() {
+                @Override
+                public PacketType<? extends Packet<ServerGamePacketListener>> type() {
+                    return packetType;
+                }
+
+                @Override
+                public void handle(ServerGamePacketListener listener) {
+                    PacketUtils.ensureRunningOnSameThread(this, listener, (ServerLevel) serverPlayer.level());
+                    if (plugin.isEnabled() && player.isOnline()) {
+                        try {
+                            prepared.route(player);
+                        } catch (Throwable failure) {
+                            // Keep plugin callback failures out of the native packet error path.
+                            plugin.getLogger().log(Level.SEVERE,
+                                    "Failed to route packet entity interaction for " + player.getName(), failure);
+                        }
+                    }
+                }
+            };
+            try {
+                // Join the native packet queue directly. Sending this wrapper through
+                // Netty would hide the original packet type from other plugin handlers.
+                routed.handle(serverPlayer.connection);
+            } catch (RunningOnDifferentThreadException scheduled) {
+                // PacketUtils enqueued the callback, as it does for native packets.
+            }
         }
 
         @Override
