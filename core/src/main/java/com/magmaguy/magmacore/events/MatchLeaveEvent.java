@@ -27,6 +27,10 @@ public class MatchLeaveEvent extends Event implements MatchEvent, MatchPlayerEve
         return handlers;
     }
 
+    public static HandlerList getHandlerList() {
+        return handlers;
+    }
+
     @Override
     public MatchPlayer getMatchPlayer() {
         return matchPlayer;

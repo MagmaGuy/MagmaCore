@@ -30,6 +30,10 @@ public class MatchJoinEvent extends Event implements MatchEvent, Cancellable {
         return handlers;
     }
 
+    public static HandlerList getHandlerList() {
+        return handlers;
+    }
+
     @Override
     public boolean isCancelled() {
         return cancelled;

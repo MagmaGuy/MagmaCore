@@ -25,6 +25,10 @@ public class MatchInstantiateEvent extends Event implements MatchEvent, Cancella
         return handlers;
     }
 
+    public static HandlerList getHandlerList() {
+        return handlers;
+    }
+
     @Override
     public boolean isCancelled() {
         return cancelled;
