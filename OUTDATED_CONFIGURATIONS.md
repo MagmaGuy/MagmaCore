@@ -23,8 +23,8 @@ configuration in the same directory cannot be retired there.
 
 ## Filename-scoped value rules
 
-A `files`/`key`/`value` rule matches an exact string at a dot-separated mapping
-path. For example:
+A `files`/`key`/`value` rule matches an exact string or string list at a
+dot-separated mapping path. For example:
 
 ```yaml
 customquests:
@@ -37,10 +37,25 @@ This archives only that filename in `customquests` or its subdirectories when
 the specified objective still references Scotty. The replacement default must
 omit that objective so it does not match on subsequent starts. Filenames are
 explicit, with no wildcards. Paths traverse mappings only, with no list indexes,
-wildcards, or literal dotted keys. Values must be nonempty strings and match
-exactly, including case. Missing paths and values of other types do not match.
+wildcards, or literal dotted keys. Values must be nonblank strings or nonempty
+lists of nonblank strings and match exactly, including case. List order,
+duplicates and additional entries are significant. Missing paths and values of
+other types do not match.
 The original top-level key rules and `listEntryNames` rules keep their existing
 semantics.
+
+For example, retire Casus's old one-quest assignment with:
+
+```yaml
+npcs:
+  - files: [guide_1.yml]
+    key: questFileName
+    value: [ag_welcome_quest_1.yml]
+```
+
+His current four-quest default does not match. Neither does a customized list
+with additional quests. Other customized settings in a matching file are
+preserved in the archive, but the active replacement uses current defaults.
 
 ## Behavior
 
@@ -75,7 +90,7 @@ resource through Bukkit rather than another shaded library's static registry.
 Matching incoming old YAML is archived after import as well.
 
 Plugins with a separate initialization path can call
-`OutdatedConfigurationArchive.archive(plugin)` before their configuration loaders.
+`OutdatedConfigurationArchive.archiveFor(plugin)` before their configuration loaders.
 The method throws on failure so callers must not continue loading or overwriting
 files after unsuccessful archival. It does not download replacement DLC.
 

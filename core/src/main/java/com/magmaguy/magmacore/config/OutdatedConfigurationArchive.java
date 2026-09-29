@@ -161,7 +161,8 @@ public final class OutdatedConfigurationArchive {
         }
     }
 
-    record ValueRule(Set<String> files, List<String> path, String value) implements Rule {
+    /** Exact string or string-list equality; list order and additional entries are significant. */
+    record ValueRule(Set<String> files, List<String> path, Object value) implements Rule {
         ValueRule {
             files = Set.copyOf(files);
             path = List.copyOf(path);
@@ -221,10 +222,9 @@ public final class OutdatedConfigurationArchive {
                 } else if (rule instanceof Map<?, ?> fields
                         && fields.keySet().equals(Set.of("files", "key", "value"))
                         && fields.get("key") instanceof String key
-                        && key.matches("[A-Za-z0-9_-]+(?:\\.[A-Za-z0-9_-]+)*")
-                        && fields.get("value") instanceof String value && !value.isBlank()) {
+                        && key.matches("[A-Za-z0-9_-]+(?:\\.[A-Za-z0-9_-]+)*")) {
                     Set<String> files = readNames(fields.get("files"), "files", "[A-Za-z0-9_-]+\\.ya?ml");
-                    selected.add(new ValueRule(files, List.of(key.split("\\.")), value));
+                    selected.add(new ValueRule(files, List.of(key.split("\\.")), readValue(fields.get("value"))));
                 } else if (rule instanceof Map<?, ?> fields && fields.keySet().equals(Set.of("lua"))
                         && fields.get("lua") instanceof Map<?, ?> lua
                         && lua.keySet().equals(Set.of("supportedHooks", "retiredHooks"))) {
@@ -240,6 +240,20 @@ public final class OutdatedConfigurationArchive {
             result.put(category, Set.copyOf(selected));
         }
         return Map.copyOf(result);
+    }
+
+    private static Object readValue(Object value) throws IOException {
+        if (value instanceof String text && !text.isBlank()) return text;
+        if (value instanceof List<?> entries && !entries.isEmpty()) {
+            List<String> values = new ArrayList<>(entries.size());
+            for (Object entry : entries) {
+                if (!(entry instanceof String text) || text.isBlank())
+                    throw new IOException("An outdated configuration value list requires nonblank strings");
+                values.add(text);
+            }
+            return List.copyOf(values);
+        }
+        throw new IOException("An outdated configuration value must be a nonblank string or a nonempty string list");
     }
 
     private static Set<String> readNames(Object value, String field, String pattern) throws IOException {
