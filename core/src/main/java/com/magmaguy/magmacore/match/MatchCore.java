@@ -35,6 +35,7 @@ public final class MatchCore {
     public static void enable(JavaPlugin owner) {
         if (plugin != null) return;
         plugin = Objects.requireNonNull(owner, "owner");
+        listen(new MatchListener());
     }
 
     /** Destroys every match of this plugin with {@link LeaveReason#SHUTDOWN}. */

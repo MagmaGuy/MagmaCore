@@ -5,6 +5,7 @@ import org.bukkit.Location;
 import org.bukkit.entity.Player;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -43,6 +44,32 @@ public abstract class Match {
         open = true;
         MatchCore.register(this);
         return true;
+    }
+
+    /** Admits the players together or not at all. Entry teleports happen on the next tick. */
+    public final AdmissionResult admit(Collection<? extends Player> players) {
+        return admit(players, () -> true);
+    }
+
+    /**
+     * As {@link #admit(Collection)}, rechecking {@code stillAuthorized} around the cancellable
+     * callbacks so an external reservation, such as a party ready check, can withdraw admission.
+     */
+    public final AdmissionResult admit(Collection<? extends Player> players, BooleanSupplier stillAuthorized) {
+        return Admission.admit(this, players, stillAuthorized);
+    }
+
+    /** Moves one of this match's players anywhere inside its space, across its worlds. */
+    public final boolean moveParticipant(Player player, Location destination) {
+        return MatchMovement.moveForMatch(this, player, destination, MoveReason.MATCH);
+    }
+
+    /** An active participant who has entered and is waiting for, or counting down to, the start. */
+    final boolean waitingToStart(Player player) {
+        MatchPlayer participant = getMatchPlayer(player);
+        return (phase == MatchPhase.WAITING || phase == MatchPhase.STARTING)
+                && participant != null && participant.role == MatchRole.PLAYER && participant.entered
+                && player.isOnline() && !player.isDead() && contains(player.getLocation());
     }
 
     public final boolean leave(Player player, LeaveReason reason) {
