@@ -2,6 +2,7 @@ package com.magmaguy.magmacore.match;
 
 import com.magmaguy.magmacore.util.Logger;
 import org.bukkit.Bukkit;
+import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitTask;
@@ -75,6 +76,66 @@ final class Admission {
         if (settings.getCountdownSeconds() == 0 && match.phase == MatchPhase.WAITING
                 && match.getActivePlayers().size() >= settings.getMinPlayers())
             match.start();
+        return AdmissionResult.ADMITTED;
+    }
+
+    /**
+     * Admits an outsider as a spectator at the start location. Ported from EliteMobs'
+     * addSpectator for players who were not in the match.
+     */
+    static AdmissionResult admitSpectator(Match match, Player player) {
+        AdmissionResult check = checkSpectator(match, player);
+        if (check != AdmissionResult.ADMITTED) return check;
+        MatchSettings settings = match.getSettings();
+        if (!match.guard("joinAttempt", () -> settings.getApi().joinAttempt(match, player), false))
+            return AdmissionResult.VETOED;
+        check = checkSpectator(match, player);
+        if (check != AdmissionResult.ADMITTED) return check;
+        if (!match.guard("reserveAdmission", match::reserveAdmission, false)) return AdmissionResult.NOT_ACCEPTING;
+
+        List<MatchPlayer> registered = new ArrayList<>();
+        boolean captured = false;
+        boolean admitted = false;
+        try {
+            MatchPlayer participant = register(match, player);
+            registered.add(participant);
+            participant.role = MatchRole.SPECTATOR;
+            participant.lives = 0;
+            settings.getCustody().capture(player);
+            captured = true;
+            player.setGameMode(GameMode.SPECTATOR);
+            Location start = settings.getStart();
+            admitted = start != null && MatchMovement.moveForMatch(match, player, participant, start, MoveReason.ENTRY);
+            participant.entered = admitted;
+        } catch (RuntimeException failure) {
+            Logger.warn("Match " + match.getRuntimeId() + ": spectator admission failed: " + failure);
+        } finally {
+            if (!admitted) {
+                if (captured) match.guard("custody release", () -> settings.getCustody().restore(player));
+                if (!registered.isEmpty()) player.setGameMode(registered.getFirst().getPreviousGameMode());
+                rollback(match, registered);
+            }
+        }
+        if (!admitted) return AdmissionResult.FAILED;
+
+        MatchPlayer participant = registered.getFirst();
+        MatchMessages messages = settings.getMessages();
+        match.guard("spectator feedback", () -> {
+            Feedback.message(player, messages.getSpectatorMessage());
+            Feedback.title(player, messages.getSpectatorTitle(), messages.getSpectatorSubtitle(), 60, 180, 60);
+        });
+        match.guard("onJoin", () -> match.onJoin(participant));
+        match.guard("joined callback", () -> settings.getApi().joined(match, participant));
+        return AdmissionResult.ADMITTED;
+    }
+
+    private static AdmissionResult checkSpectator(Match match, Player player) {
+        if (player == null || !player.isOnline() || !player.isValid()) return AdmissionResult.UNAVAILABLE;
+        if (!match.isOpen()) return AdmissionResult.NOT_ACCEPTING;
+        if (MatchMarker.occupied(player) || MatchCore.participant(player) != null)
+            return AdmissionResult.ALREADY_IN_MATCH;
+        if (!match.guard("acceptsSpectator", () -> match.acceptsSpectator(player), false))
+            return AdmissionResult.NOT_ACCEPTING;
         return AdmissionResult.ADMITTED;
     }
 

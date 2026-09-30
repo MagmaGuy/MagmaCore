@@ -152,6 +152,11 @@ public abstract class Match {
         return Admission.admit(this, players, stillAuthorized);
     }
 
+    /** Admits an outsider as a spectator at the start location, in spectator mode. */
+    public final AdmissionResult admitSpectator(Player player) {
+        return Admission.admitSpectator(this, player);
+    }
+
     /** Moves one of this match's players anywhere inside its space, across its worlds. */
     public final boolean moveParticipant(Player player, Location destination) {
         return MatchMovement.moveForMatch(this, player, destination, MoveReason.MATCH);
@@ -379,6 +384,11 @@ public abstract class Match {
     protected Location intruderDestination(Player player) {
         if (settings.getExit() != null) return settings.getExit();
         return Bukkit.getWorlds().getFirst().getSpawnLocation();
+    }
+
+    /** Whether an outsider may join as a spectator. Players who die become spectators regardless. */
+    protected boolean acceptsSpectator(Player player) {
+        return settings.isSpectatable();
     }
 
     /** Taken after every admission check passes, before anyone is registered. */
