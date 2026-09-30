@@ -379,11 +379,11 @@ public abstract class Match {
         if (outcome == null) outcome = MatchOutcome.NEUTRAL;
         for (MatchPlayer participant : List.copyOf(participants))
             guard("remove " + participant.getPlayer().getName(), () -> leave(participant.getPlayer(), reason));
+        guard("onDestroy", this::onDestroy);
         if (settings.getSpace() instanceof TemporaryWorlds) guard("evacuation", this::evacuateTemporaryWorlds);
         guard("space teardown", settings.getSpace()::teardown);
         MatchCore.unregister(this);
         phase = MatchPhase.DESTROYED;
-        guard("onDestroy", this::onDestroy);
         // The API only hears about matches it saw open.
         if (open) guard("destroyed callback", () -> settings.getApi().destroyed(this));
     }
@@ -509,6 +509,10 @@ public abstract class Match {
     protected void onEnd(MatchOutcome outcome) {
     }
 
+    /**
+     * Runs once, after every participant has left and before the space is torn down, so what
+     * the plugin placed inside temporary worlds can still be removed from them.
+     */
     protected void onDestroy() {
     }
 

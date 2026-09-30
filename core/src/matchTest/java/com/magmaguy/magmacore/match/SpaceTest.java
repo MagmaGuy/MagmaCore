@@ -8,6 +8,7 @@ import org.mockbukkit.mockbukkit.world.WorldMock;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -69,6 +70,20 @@ class SpaceTest extends MatchTestSupport {
 
         assertEquals(List.of(), occupantsAtDeletion);
         assertEquals(at(overworld, 7.5, 64, 7.5), staff.getLocation());
+    }
+
+    // Plugins remove towers, models and forced chunks from inside the world while it still exists.
+    @Test
+    void theSubclassCleansUpBeforeItsTemporaryWorldsAreDeleted() {
+        WorldMock doomed = server.addSimpleWorld("doomed");
+        AtomicReference<TestMatch> holder = new AtomicReference<>();
+        TemporaryWorlds space = new TemporaryWorlds(List.of(doomed), world -> holder.get().hooks.add("deleted"));
+        TestMatch match = openMatch(settings -> settings.space(space));
+        holder.set(match);
+
+        match.destroy();
+
+        assertEquals(List.of("onDestroy", "deleted"), match.hooks);
     }
 
     @Test

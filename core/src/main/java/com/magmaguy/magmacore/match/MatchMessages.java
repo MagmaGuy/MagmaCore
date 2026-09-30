@@ -43,4 +43,24 @@ public final class MatchMessages {
     public static MatchMessages defaults() {
         return builder().build();
     }
+
+    /** Every message null, for plugins that word everything themselves. Add single ones back with toBuilder. */
+    public static MatchMessages none() {
+        return builder()
+                .notAccepting(null)
+                .full(null)
+                .noPermission(null)
+                .alreadyInMatch(null)
+                .joinedMessage(null)
+                .joinedTitle(null)
+                .joinedSubtitle(null)
+                .spectatorMessage(null)
+                .spectatorTitle(null)
+                .spectatorSubtitle(null)
+                .notEnoughPlayers(null)
+                .startingTitle(null)
+                .startingSubtitle(null)
+                .waitingHint(null)
+                .build();
+    }
 }

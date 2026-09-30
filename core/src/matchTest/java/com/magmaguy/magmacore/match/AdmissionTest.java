@@ -107,6 +107,25 @@ class AdmissionTest extends MatchTestSupport {
     }
 
     @Test
+    void silentMessagesLeaveEveryWordToThePlugin() {
+        TestMatch match = openMatch(settings -> settings.players(1, 1).messages(MatchMessages.none()));
+        var alex = player("Alex");
+        var bea = player("Bea");
+        while (alex.nextMessage() != null) {
+        }
+        while (bea.nextMessage() != null) {
+        }
+
+        match.admit(List.of(alex));
+        match.admit(List.of(bea));
+        match.start();
+        server.getScheduler().performTicks(100);
+
+        assertNull(alex.nextMessage());
+        assertNull(bea.nextMessage(), "a refusal is silent too");
+    }
+
+    @Test
     void gameModeFromSettingsIsAppliedOnEntryAndRecorded() {
         TestMatch match = openMatch(settings -> settings.gameMode(GameMode.ADVENTURE));
         var alex = player("Alex");
