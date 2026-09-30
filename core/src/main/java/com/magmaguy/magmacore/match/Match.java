@@ -443,6 +443,11 @@ public abstract class Match {
         return startDestination();
     }
 
+    /** Where an outsider who joins as a spectator is placed. */
+    protected Location spectatorDestination(MatchPlayer player) {
+        return startDestination();
+    }
+
     /** Where players go when the match starts, and the rescue point of last resort. */
     protected Location startDestination() {
         return settings.getStart();

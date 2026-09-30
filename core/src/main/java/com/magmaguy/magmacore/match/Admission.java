@@ -104,8 +104,9 @@ final class Admission {
             settings.getCustody().capture(player);
             captured = true;
             player.setGameMode(GameMode.SPECTATOR);
-            Location start = match.startDestination();
-            admitted = start != null && MatchMovement.moveForMatch(match, player, participant, start, MoveReason.ENTRY);
+            Location destination = match.spectatorDestination(participant);
+            admitted = destination != null
+                    && MatchMovement.moveForMatch(match, player, participant, destination, MoveReason.ENTRY);
             participant.entered = admitted;
         } catch (RuntimeException failure) {
             Logger.warn("Match " + match.getRuntimeId() + ": spectator admission failed: " + failure);

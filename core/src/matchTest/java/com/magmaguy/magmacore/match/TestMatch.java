@@ -20,6 +20,7 @@ class TestMatch extends Match {
     boolean refuseAll;
     Location startOverride;
     String permissionOverride;
+    Location spectatorSpot;
 
     TestMatch(MatchSettings settings) {
         super(settings);
@@ -38,6 +39,11 @@ class TestMatch extends Match {
     @Override
     protected Location startDestination() {
         return startOverride == null ? super.startDestination() : startOverride;
+    }
+
+    @Override
+    protected Location spectatorDestination(MatchPlayer player) {
+        return spectatorSpot == null ? super.spectatorDestination(player) : spectatorSpot;
     }
 
     @Override

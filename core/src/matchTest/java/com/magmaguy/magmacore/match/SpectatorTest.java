@@ -45,6 +45,15 @@ class SpectatorTest extends MatchTestSupport {
     }
 
     @Test
+    void theSpectatorDestinationHookPlacesSpectators() {
+        TestMatch match = openMatch(settings -> settings.spectatable(true).start(null));
+        match.spectatorSpot = at(arena, 25.5, 70, 25.5);
+        var sam = player("Sam");
+        assertEquals(AdmissionResult.ADMITTED, match.admitSpectator(sam));
+        assertEquals(at(arena, 25.5, 70, 25.5), sam.getLocation());
+    }
+
+    @Test
     void spectatorsLeavingGetTheirGameModeBack() {
         TestMatch match = openMatch(settings -> settings.spectatable(true).players(1, 4));
         match.admit(List.of(player("Alex")));
