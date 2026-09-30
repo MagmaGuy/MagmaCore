@@ -13,9 +13,6 @@ import com.magmaguy.magmacore.initialization.PluginInitializationContext;
 import com.magmaguy.magmacore.initialization.PluginInitializationManager;
 import com.magmaguy.magmacore.initialization.PluginInitializationState;
 import com.magmaguy.magmacore.instance.InstanceProtector;
-import com.magmaguy.magmacore.instance.MatchInstance;
-import com.magmaguy.magmacore.instance.MatchInstanceWorld;
-import com.magmaguy.magmacore.instance.MatchPlayer;
 import com.magmaguy.magmacore.match.MatchCore;
 import com.magmaguy.magmacore.menus.AdvancedMenuHandler;
 import com.magmaguy.magmacore.menus.SetupMenu;
@@ -106,28 +103,15 @@ public final class MagmaCore {
 //        commandManager.registerCommand(new LogifyCommand(instance.requestingPlugin));
     }
 
-    public static void enableMatchSystem() {
-        enableMatchSystem(instance.requestingPlugin);
-    }
-
-    public static void enableMatchSystem(JavaPlugin plugin) {
-        Logger.info("Enabling match system...");
-        enableWorldProtections(plugin);
-        Bukkit.getPluginManager().registerEvents(new MatchPlayer.MatchPlayerEvents(), plugin);
-        Bukkit.getPluginManager().registerEvents(new MatchInstance.MatchInstanceEvents(), plugin);
-        Bukkit.getPluginManager().registerEvents(new MatchInstanceWorld.MatchInstanceWorldEvents(), plugin);
-    }
-
     public static void enableWorldProtections() {
         enableWorldProtections(instance.requestingPlugin);
     }
 
     /**
      * Registers {@link InstanceProtector}, the world-scoped protection listener
-     * extracted from EliteMobs' dungeon system. Plugins that use the match
-     * system get this automatically via {@link #enableMatchSystem}. Plugins
-     * that just want protections for their own worlds (no full match system)
-     * call this directly. Safe to call multiple times — only registers once.
+     * extracted from EliteMobs' dungeon system, for the worlds a plugin marks as
+     * protected. Matches are separate: see {@link MatchCore#enable}. Safe to call
+     * multiple times — only registers once.
      */
     public static void enableWorldProtections(JavaPlugin plugin) {
         if (instanceProtectorRegistered) return;
@@ -158,7 +142,6 @@ public final class MagmaCore {
         shutdownNMSAdapter();
         CommandManager.shutdown();
         CustomBiomeCompatibility.shutdown();
-        MatchInstance.shutdown();
         MatchCore.shutdown();
         InstanceProtector.shutdown();
         instanceProtectorRegistered = false;
