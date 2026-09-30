@@ -30,6 +30,8 @@ final class MatchListener implements Listener {
 
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
+        PendingMatch request = MatchCore.pendingOf(event.getPlayer());
+        if (request != null) request.cancel(PendingMatch.CancelReason.QUIT);
         Match match = MatchCore.matchOf(event.getPlayer());
         if (match != null) match.leave(event.getPlayer(), LeaveReason.DISCONNECT);
     }

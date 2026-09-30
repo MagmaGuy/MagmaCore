@@ -48,14 +48,13 @@ public abstract class Match {
     }
 
     /**
-     * Registers the match after asking the plugin API. A vetoed match is destroyed without
-     * ever registering or firing the destroyed callback.
+     * Registers the match after asking the plugin API. A vetoed match is destroyed at once: its
+     * space is torn down and onDestroy runs, but it never registers and the API never hears of it.
      */
     public final boolean open() {
         if (open || destroyed) return open;
         if (!guard("instantiateAttempt", () -> settings.getApi().instantiateAttempt(this), false)) {
-            destroyed = true;
-            phase = MatchPhase.DESTROYED;
+            destroy();
             return false;
         }
         open = true;
@@ -311,7 +310,8 @@ public abstract class Match {
         MatchCore.unregister(this);
         phase = MatchPhase.DESTROYED;
         guard("onDestroy", this::onDestroy);
-        guard("destroyed callback", () -> settings.getApi().destroyed(this));
+        // The API only hears about matches it saw open.
+        if (open) guard("destroyed callback", () -> settings.getApi().destroyed(this));
     }
 
     public UUID getRuntimeId() {

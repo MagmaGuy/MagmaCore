@@ -31,6 +31,7 @@ public final class MatchCore {
     private static final Map<UUID, MatchPlayer> participants = new HashMap<>();
     private static final List<Listener> listeners = new ArrayList<>();
     private static final Set<PlayerCustody> custodies = new LinkedHashSet<>();
+    private static final Map<UUID, PendingMatch> pending = new HashMap<>();
     private static JavaPlugin plugin;
 
     private MatchCore() {
@@ -64,8 +65,11 @@ public final class MatchCore {
     public static void shutdown() {
         if (plugin == null) return;
         try {
+            for (PendingMatch request : List.copyOf(new LinkedHashSet<>(pending.values())))
+                request.cancel(PendingMatch.CancelReason.CANCELLED);
             for (Match match : new ArrayList<>(matches)) match.shutdownDestroy();
         } finally {
+            pending.clear();
             matches.clear();
             participants.clear();
             custodies.clear();
@@ -141,5 +145,17 @@ public final class MatchCore {
 
     static void untrack(MatchPlayer player) {
         participants.remove(player.getUniqueId(), player);
+    }
+
+    static PendingMatch pendingOf(Player player) {
+        return pending.get(player.getUniqueId());
+    }
+
+    static void trackPending(Player player, PendingMatch request) {
+        pending.put(player.getUniqueId(), request);
+    }
+
+    static void untrackPending(Player player, PendingMatch request) {
+        pending.remove(player.getUniqueId(), request);
     }
 }
