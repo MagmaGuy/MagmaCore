@@ -7,10 +7,14 @@ import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
 
+import org.bukkit.scheduler.BukkitTask;
+
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.BooleanSupplier;
 
@@ -26,6 +30,10 @@ public abstract class Match {
     MatchOutcome outcome;
     private boolean open;
     boolean destroyed;
+    private final Set<UUID> startingRoster = new LinkedHashSet<>();
+    private MatchWatchdog watchdog;
+    private BukkitTask countdownTask;
+    private BukkitTask destroyTask;
 
     protected Match(MatchSettings settings) {
         this.settings = Objects.requireNonNull(settings, "settings");
@@ -46,7 +54,83 @@ public abstract class Match {
         }
         open = true;
         MatchCore.register(this);
+        watchdog = MatchWatchdog.start(this);
         return true;
+    }
+
+    /**
+     * Starts the countdown, or the match itself when the countdown is zero. Needs the minimum
+     * number of active players and the plugin API's consent.
+     */
+    public final StartResult start() {
+        if (destroyed || phase != MatchPhase.WAITING) return StartResult.NOT_WAITING;
+        if (getActivePlayers().size() < settings.getMinPlayers()) {
+            for (MatchPlayer participant : participants)
+                Feedback.message(participant.getPlayer(), settings.getMessages().getNotEnoughPlayers(),
+                        "$amount", settings.getMinPlayers());
+            return StartResult.NOT_ENOUGH_PLAYERS;
+        }
+        if (!guard("startAttempt", () -> settings.getApi().startAttempt(this), false)) return StartResult.VETOED;
+        // The callback runs synchronously and may have ended or started the match itself.
+        if (destroyed || phase != MatchPhase.WAITING) return StartResult.NOT_WAITING;
+        if (settings.getCountdownSeconds() == 0) {
+            beginOngoing();
+            return StartResult.STARTED;
+        }
+        phase = MatchPhase.STARTING;
+        countdownTask = Bukkit.getScheduler().runTaskTimer(MatchCore.plugin(), new Countdown(), 0L, 20L);
+        return StartResult.STARTED;
+    }
+
+    private void beginOngoing() {
+        phase = MatchPhase.ONGOING;
+        Location start = settings.getStart();
+        for (MatchPlayer participant : List.copyOf(participants))
+            if (start != null && participant.entered && participant.role == MatchRole.PLAYER)
+                MatchMovement.moveForMatch(this, participant.getPlayer(), participant, start, MoveReason.START);
+        startingRoster.clear();
+        getActivePlayers().forEach(participant -> startingRoster.add(participant.getUniqueId()));
+        try {
+            onStart();
+        } catch (RuntimeException failure) {
+            // A failed start must not leave a half-started match behind.
+            Logger.warn("Match " + runtimeId + ": onStart failed, destroying the match: " + failure);
+            destroy();
+            return;
+        }
+        guard("started callback", () -> settings.getApi().started(this));
+    }
+
+    private void cancelCountdown() {
+        if (countdownTask != null) countdownTask.cancel();
+        countdownTask = null;
+    }
+
+    private final class Countdown implements Runnable {
+        private int counter;
+
+        @Override
+        public void run() {
+            if (destroyed || phase != MatchPhase.STARTING) {
+                cancelCountdown();
+                return;
+            }
+            if (getActivePlayers().size() < settings.getMinPlayers()) {
+                cancelCountdown();
+                end(MatchOutcome.NEUTRAL);
+                return;
+            }
+            counter++;
+            MatchMessages messages = settings.getMessages();
+            int remaining = settings.getCountdownSeconds() - counter;
+            for (MatchPlayer participant : participants)
+                Feedback.title(participant.getPlayer(), messages.getStartingTitle(), messages.getStartingSubtitle(),
+                        0, 20, 0, "$count", remaining);
+            if (counter >= settings.getCountdownSeconds()) {
+                cancelCountdown();
+                beginOngoing();
+            }
+        }
     }
 
     /** Admits the players together or not at all. Entry teleports happen on the next tick. */
@@ -123,6 +207,7 @@ public abstract class Match {
     /** Ends the match once. Participants stay until destroy, after the configured linger. */
     public final void end(MatchOutcome outcome) {
         if (phase == MatchPhase.ENDED || destroyed) return;
+        cancelCountdown();
         this.outcome = outcome;
         phase = MatchPhase.ENDED;
         if (settings.getLingerAfterEndTicks() == 0) destroy();
@@ -140,6 +225,9 @@ public abstract class Match {
     private void destroy(LeaveReason reason) {
         if (destroyed) return;
         destroyed = true;
+        if (watchdog != null) watchdog.cancel();
+        cancelCountdown();
+        if (destroyTask != null) destroyTask.cancel();
         if (outcome == null) outcome = MatchOutcome.NEUTRAL;
         guard("space teardown", settings.getSpace()::teardown);
         MatchCore.unregister(this);
@@ -162,6 +250,11 @@ public abstract class Match {
 
     public final MatchSettings getSettings() {
         return settings;
+    }
+
+    /** The active players when the match went ongoing. */
+    public final Set<UUID> getStartingRoster() {
+        return Set.copyOf(startingRoster);
     }
 
     public final boolean isOpen() {

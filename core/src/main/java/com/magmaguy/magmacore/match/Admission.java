@@ -60,6 +60,10 @@ final class Admission {
         }
 
         registered.forEach(participant -> announce(match, participant));
+        MatchSettings settings = match.getSettings();
+        if (settings.getCountdownSeconds() == 0 && match.phase == MatchPhase.WAITING
+                && match.getActivePlayers().size() >= settings.getMinPlayers())
+            match.start();
         return AdmissionResult.ADMITTED;
     }
 
