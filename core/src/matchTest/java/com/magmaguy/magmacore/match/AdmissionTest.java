@@ -96,6 +96,17 @@ class AdmissionTest extends MatchTestSupport {
     }
 
     @Test
+    void joinMessagesNameThePlayer() {
+        TestMatch match = openMatch(settings -> settings.messages(MatchMessages.builder()
+                .joinedMessage("Welcome, $player! Needs $count.").build()));
+        var alex = player("Alex");
+        while (alex.nextMessage() != null) {
+        }
+        match.admit(List.of(alex));
+        assertEquals("Welcome, Alex! Needs 1.", alex.nextMessage());
+    }
+
+    @Test
     void gameModeFromSettingsIsAppliedOnEntryAndRecorded() {
         TestMatch match = openMatch(settings -> settings.gameMode(GameMode.ADVENTURE));
         var alex = player("Alex");

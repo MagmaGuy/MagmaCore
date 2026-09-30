@@ -121,8 +121,9 @@ final class Admission {
         MatchPlayer participant = registered.getFirst();
         MatchMessages messages = settings.getMessages();
         match.guard("spectator feedback", () -> {
-            Feedback.message(player, messages.getSpectatorMessage());
-            Feedback.title(player, messages.getSpectatorTitle(), messages.getSpectatorSubtitle(), 60, 180, 60);
+            Feedback.message(player, messages.getSpectatorMessage(), "$player", player.getName());
+            Feedback.title(player, messages.getSpectatorTitle(), messages.getSpectatorSubtitle(), 60, 180, 60,
+                    "$player", player.getName());
         });
         match.guard("onJoin", () -> match.onJoin(participant));
         match.guard("joined callback", () -> settings.getApi().joined(match, participant));
@@ -214,8 +215,10 @@ final class Admission {
         MatchMessages messages = settings.getMessages();
         Player player = participant.getPlayer();
         match.guard("join feedback", () -> {
-            Feedback.message(player, messages.getJoinedMessage(), "$count", settings.getMinPlayers());
-            Feedback.title(player, messages.getJoinedTitle(), messages.getJoinedSubtitle(), 60, 180, 60);
+            Feedback.message(player, messages.getJoinedMessage(),
+                    "$count", settings.getMinPlayers(), "$player", player.getName());
+            Feedback.title(player, messages.getJoinedTitle(), messages.getJoinedSubtitle(), 60, 180, 60,
+                    "$count", settings.getMinPlayers(), "$player", player.getName());
         });
         match.guard("onJoin", () -> match.onJoin(participant));
         match.guard("joined callback", () -> settings.getApi().joined(match, participant));

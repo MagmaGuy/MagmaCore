@@ -5,7 +5,8 @@ import lombok.Getter;
 
 /**
  * Player-facing strings. Null means the core stays silent and leaves messaging to the plugin.
- * The core replaces $count and $amount; colour codes use '&amp;'.
+ * The core replaces $count and $amount, and $player in join and spectator messages; colour
+ * codes use '&amp;'.
  */
 @Getter
 @Builder(toBuilder = true)
