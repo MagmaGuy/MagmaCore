@@ -284,6 +284,13 @@ public interface FakeText {
         Builder viewRange(float range);
 
         /**
+         * Sets how many client ticks the text glides toward each new position (TextDisplay on 1.20.2+ only).
+         * Default is 0, which snaps. Text that follows a living entity should use 3, the steps Minecraft
+         * uses to smooth that entity's own movement, so both move together.
+         */
+        Builder teleportDuration(int ticks);
+
+        /**
          * Sets the scale of the text (TextDisplay only).
          * Default is 1.0.
          */

@@ -507,6 +507,12 @@ public abstract class NMSAdapter {
         }
 
         @Override
+        public FakeText.Builder teleportDuration(int ticks) {
+            settings.setTeleportDuration(ticks);
+            return this;
+        }
+
+        @Override
         public FakeText.Builder scale(float scale) {
             settings.setScale(scale);
             return this;

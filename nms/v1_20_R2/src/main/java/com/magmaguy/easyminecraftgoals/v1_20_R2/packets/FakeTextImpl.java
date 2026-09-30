@@ -84,7 +84,7 @@ public class FakeTextImpl implements FakeText {
         td.setBillboard(settings.getBillboard());
         if (settings.hasBackgroundColor()) td.setBackgroundColor(settings.getBackgroundColor() != null ? settings.getBackgroundColor() : Color.fromARGB(settings.getBackgroundArgb()));
         if (settings.getTextOpacity() != (byte) -1) td.setTextOpacity(settings.getTextOpacity());
-        td.setShadowed(settings.hasShadow()); td.setSeeThrough(settings.isSeeThrough()); td.setLineWidth(settings.getLineWidth()); td.setViewRange(settings.getViewRange());
+        td.setShadowed(settings.hasShadow()); td.setSeeThrough(settings.isSeeThrough()); td.setLineWidth(settings.getLineWidth()); td.setViewRange(settings.getViewRange()); td.setTeleportDuration(settings.getTeleportDuration());
         switch (settings.getAlignment()) { case LEFT -> td.setAlignment(TextDisplay.TextAlignment.LEFT); case RIGHT -> td.setAlignment(TextDisplay.TextAlignment.RIGHT); default -> td.setAlignment(TextDisplay.TextAlignment.CENTER); }
         if (settings.getScale() != 1.0f) { var t = td.getTransformation(); td.setTransformation(new org.bukkit.util.Transformation(t.getTranslation(), t.getLeftRotation(), new org.joml.Vector3f(settings.getScale(), settings.getScale(), settings.getScale()), t.getRightRotation())); }
         entity.syncMetadata();

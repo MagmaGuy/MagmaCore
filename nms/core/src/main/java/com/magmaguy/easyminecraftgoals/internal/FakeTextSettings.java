@@ -24,6 +24,7 @@ public class FakeTextSettings {
     private boolean seeThrough = false;
     private int lineWidth = 200;
     private float viewRange = 1.0f;
+    private int teleportDuration = 0;
     private float scale = 1.0f;
     private float translationX = 0f;
     private float translationY = 0f;
@@ -46,6 +47,7 @@ public class FakeTextSettings {
         this.seeThrough = other.seeThrough;
         this.lineWidth = other.lineWidth;
         this.viewRange = other.viewRange;
+        this.teleportDuration = other.teleportDuration;
         this.scale = other.scale;
         this.translationX = other.translationX;
         this.translationY = other.translationY;
@@ -146,6 +148,15 @@ public class FakeTextSettings {
 
     public FakeTextSettings setViewRange(float viewRange) {
         this.viewRange = viewRange;
+        return this;
+    }
+
+    public int getTeleportDuration() {
+        return teleportDuration;
+    }
+
+    public FakeTextSettings setTeleportDuration(int teleportDuration) {
+        this.teleportDuration = Math.max(0, teleportDuration);
         return this;
     }
 

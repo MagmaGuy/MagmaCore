@@ -433,6 +433,8 @@ public class FakeTextImpl implements FakeText, TrackedPacketEntity {
 
         // View range
         textDisplay.setViewRange(settings.getViewRange());
+        // Client ticks spent gliding to each new position; 0 snaps
+        textDisplay.setTeleportDuration(settings.getTeleportDuration());
 
         // Alignment
         switch (settings.getAlignment()) {
