@@ -16,6 +16,7 @@ class TestMatch extends Match {
     RuntimeException throwOnStart;
     RuntimeException throwOnLeave;
     Boolean participantDuringOnLeave;
+    boolean declineAutomaticEnds;
 
     TestMatch(MatchSettings settings) {
         super(settings);
@@ -73,6 +74,17 @@ class TestMatch extends Match {
     @Override
     protected void onDestroy() {
         hooks.add("onDestroy");
+    }
+
+    @Override
+    protected void onReset() {
+        hooks.add("onReset");
+    }
+
+    @Override
+    protected void requestEnd(MatchOutcome outcome) {
+        hooks.add("requestEnd:" + outcome);
+        if (!declineAutomaticEnds) super.requestEnd(outcome);
     }
 
     MatchPlayer participant(Player player) {

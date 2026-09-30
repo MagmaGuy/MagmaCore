@@ -35,6 +35,8 @@ public abstract class Match {
     MatchOutcome outcome;
     private boolean open;
     boolean destroyed;
+    // A reusable match removing its participants between runs.
+    private boolean resetting;
     final Map<Block, ReviveBanner> reviveBanners = new HashMap<>();
     private final Set<UUID> startingRoster = new LinkedHashSet<>();
     private MatchWatchdog watchdog;
@@ -122,7 +124,7 @@ public abstract class Match {
             }
             if (getActivePlayers().size() < settings.getMinPlayers()) {
                 cancelCountdown();
-                end(MatchOutcome.NEUTRAL);
+                requestEnd(MatchOutcome.NEUTRAL);
                 return;
             }
             counter++;
@@ -187,9 +189,9 @@ public abstract class Match {
             if (banner.dead() == participant) banner.clear(false);
         guard("restore " + player.getName(), () -> restore(participant));
 
-        if (!destroyed && getActivePlayers().isEmpty()
+        if (!destroyed && !resetting && getActivePlayers().isEmpty()
                 && (phase == MatchPhase.WAITING || phase == MatchPhase.STARTING || phase == MatchPhase.ONGOING))
-            end(MatchOutcome.DEFEAT);
+            requestEnd(MatchOutcome.DEFEAT);
         return true;
     }
 
@@ -281,6 +283,15 @@ public abstract class Match {
         MatchMovement.moveForMatch(this, player, dead, banner.respawnLocation(), MoveReason.REVIVE);
     }
 
+    /**
+     * Every ending the core decides on its own goes through here: defeat when the last active
+     * player leaves or dies, a neutral end when a countdown loses its minimum. Subclasses may
+     * route, reshape or decline it; the default ends the match.
+     */
+    protected void requestEnd(MatchOutcome outcome) {
+        end(outcome);
+    }
+
     /** Destroys the match after {@code ticks}, replacing any destroy already scheduled. */
     protected final void scheduleDestroy(long ticks) {
         if (destroyed) return;
@@ -288,9 +299,41 @@ public abstract class Match {
         destroyTask = Bukkit.getScheduler().runTaskLater(MatchCore.plugin(), () -> destroy(), ticks);
     }
 
-    /** Removes every participant and tears the space down. Runs once. */
+    /**
+     * Removes every participant and tears the space down. Runs once. A reusable match resets to
+     * waiting instead and stays registered for its next run; {@link #retire()} destroys it.
+     */
     public final void destroy() {
+        if (settings.isReusable() && open && !destroyed) {
+            reset();
+            return;
+        }
         destroy(LeaveReason.MATCH_ENDED);
+    }
+
+    /** Destroys the match for good, reusable or not. */
+    public final void retire() {
+        destroy(LeaveReason.MATCH_ENDED);
+    }
+
+    private void reset() {
+        if (resetting) return;
+        resetting = true;
+        try {
+            cancelCountdown();
+            if (destroyTask != null) destroyTask.cancel();
+            destroyTask = null;
+            for (MatchPlayer participant : List.copyOf(participants))
+                guard("remove " + participant.getPlayer().getName(),
+                        () -> leave(participant.getPlayer(), LeaveReason.MATCH_ENDED));
+            phase = MatchPhase.WAITING;
+            outcome = null;
+            startingRoster.clear();
+            guard("onReset", this::onReset);
+            guard("destroyed callback", () -> settings.getApi().destroyed(this));
+        } finally {
+            resetting = false;
+        }
     }
 
     final void shutdownDestroy() {
@@ -417,6 +460,10 @@ public abstract class Match {
     }
 
     protected void onDestroy() {
+    }
+
+    /** A reusable match finished a run and is waiting again. */
+    protected void onReset() {
     }
 
     /** Runs a plugin or add-on callback so one failure cannot break the lifecycle. */

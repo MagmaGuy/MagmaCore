@@ -25,6 +25,8 @@ public final class MatchSettings {
     /** Holders may use command and plugin teleports inside an ongoing match. Null: nobody. */
     private final String withinTeleportPermission;
     private final long lingerAfterEndTicks;
+    /** Region matches that reset to waiting between runs instead of being destroyed. */
+    private final boolean reusable;
     private final MatchSpace space;
     private final DeathPolicy death;
     private final PlayerCustody custody;
@@ -44,6 +46,7 @@ public final class MatchSettings {
         this.bypassPermission = builder.bypassPermission;
         this.withinTeleportPermission = builder.withinTeleportPermission;
         this.lingerAfterEndTicks = builder.lingerAfterEndTicks;
+        this.reusable = builder.reusable;
         this.space = builder.space;
         this.death = builder.death;
         this.custody = builder.custody;
@@ -84,6 +87,7 @@ public final class MatchSettings {
         private String bypassPermission;
         private String withinTeleportPermission;
         private long lingerAfterEndTicks;
+        private boolean reusable;
         private MatchSpace space;
         private DeathPolicy death = DeathPolicy.eliminate();
         private PlayerCustody custody = PlayerCustody.none();
@@ -153,6 +157,12 @@ public final class MatchSettings {
             return this;
         }
 
+        /** The match resets to waiting after each run, as an arena does. Not for temporary worlds. */
+        public Builder reusable(boolean reusable) {
+            this.reusable = reusable;
+            return this;
+        }
+
         public Builder space(MatchSpace space) {
             this.space = space;
             return this;
@@ -180,6 +190,9 @@ public final class MatchSettings {
 
         public MatchSettings build() {
             Objects.requireNonNull(space, "A match needs a space");
+            // A temporary world is deleted when its match ends, so there is nothing to reuse.
+            if (reusable && space instanceof TemporaryWorlds)
+                throw new IllegalArgumentException("Temporary-world matches cannot be reusable");
             return new MatchSettings(this);
         }
     }
