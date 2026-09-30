@@ -1,5 +1,6 @@
 package com.magmaguy.magmacore.match;
 
+import com.magmaguy.magmacore.util.WorldFolderResolver;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.HandlerList;
@@ -50,6 +51,17 @@ public final class MatchCore {
             listeners.clear();
             plugin = null;
         }
+    }
+
+    /**
+     * Deletes unloaded temporary match worlds this plugin left behind, for example after a crash.
+     * Call once during enable, before creating matches.
+     */
+    public static void sweepLeftoverWorlds() {
+        LeftoverWorlds.sweep(plugin().getName(), WorldFolderResolver.listAllWorldNames(),
+                name -> WorldFolderResolver.resolve(name).toPath(),
+                name -> Bukkit.getWorld(name) != null,
+                WorldFolderResolver::deleteAllLayouts);
     }
 
     public static Collection<Match> matches() {

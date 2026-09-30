@@ -46,5 +46,13 @@ val matchTestTask = tasks.register<Test>("matchTest") {
     testClassesDirs = matchTest.output.classesDirs
     classpath = matchTest.runtimeClasspath
     javaLauncher.set(toolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(25)) })
+    // MockBukkit reports unimplemented operations as skips; an untested behaviour is not a pass.
+    var skipped = 0L
+    afterSuite(KotlinClosure2<TestDescriptor, TestResult, Unit>({ descriptor, result ->
+        if (descriptor.parent == null) skipped = result.skippedTestCount
+    }))
+    doLast {
+        if (skipped > 0) throw GradleException("$skipped match tests were skipped; see the JUnit XML.")
+    }
 }
 tasks.named("check") { dependsOn(matchTestTask) }
