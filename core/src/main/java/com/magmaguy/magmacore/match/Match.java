@@ -210,7 +210,22 @@ public abstract class Match {
         cancelCountdown();
         this.outcome = outcome;
         phase = MatchPhase.ENDED;
-        if (settings.getLingerAfterEndTicks() == 0) destroy();
+        for (MatchPlayer participant : List.copyOf(participants)) {
+            Player player = participant.getPlayer();
+            if (player.isOnline() && !player.isDead()) guard("heal", () -> player.setHealth(maxHealth(player)));
+        }
+        guard("onEnd", () -> onEnd(outcome));
+        guard("ended callback", () -> settings.getApi().ended(this, outcome));
+        // Lingering lets players loot after a win; an empty match has nobody to wait for.
+        if (settings.getLingerAfterEndTicks() == 0 || participants.isEmpty()) destroy();
+        else scheduleDestroy(settings.getLingerAfterEndTicks());
+    }
+
+    /** Destroys the match after {@code ticks}, replacing any destroy already scheduled. */
+    protected final void scheduleDestroy(long ticks) {
+        if (destroyed) return;
+        if (destroyTask != null) destroyTask.cancel();
+        destroyTask = Bukkit.getScheduler().runTaskLater(MatchCore.plugin(), () -> destroy(), ticks);
     }
 
     /** Removes every participant and tears the space down. Runs once. */
@@ -229,6 +244,8 @@ public abstract class Match {
         cancelCountdown();
         if (destroyTask != null) destroyTask.cancel();
         if (outcome == null) outcome = MatchOutcome.NEUTRAL;
+        for (MatchPlayer participant : List.copyOf(participants))
+            guard("remove " + participant.getPlayer().getName(), () -> leave(participant.getPlayer(), reason));
         guard("space teardown", settings.getSpace()::teardown);
         MatchCore.unregister(this);
         phase = MatchPhase.DESTROYED;
