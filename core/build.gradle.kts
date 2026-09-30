@@ -15,3 +15,36 @@ dependencies {
 tasks.withType<Test> {
     useJUnitPlatform()
 }
+
+// Match core tests run on MockBukkit, which needs paper-api 26.2 and Java 25.
+// They get their own source set so the existing spigot-api tests stay as they are.
+val sourceSets = the<SourceSetContainer>()
+val toolchains = extensions.getByType<JavaToolchainService>()
+val matchTest: SourceSet = sourceSets.create("matchTest") {
+    compileClasspath += sourceSets["main"].output
+    runtimeClasspath += sourceSets["main"].output
+}
+configurations[matchTest.implementationConfigurationName].extendsFrom(configurations["implementation"])
+configurations[matchTest.runtimeOnlyConfigurationName].extendsFrom(configurations["runtimeOnly"])
+
+dependencies {
+    "matchTestImplementation"(platform("org.junit:junit-bom:6.1.3"))
+    "matchTestImplementation"("org.junit.jupiter:junit-jupiter")
+    "matchTestImplementation"("org.mockbukkit.mockbukkit:mockbukkit-v26.2:4.116.1")
+    "matchTestImplementation"("io.papermc.paper:paper-api:26.2.build.111-stable")
+    "matchTestRuntimeOnly"("org.junit.platform:junit-platform-launcher")
+}
+
+configurations.matching { it.name in setOf("matchTestCompileClasspath", "matchTestRuntimeClasspath") }
+    .configureEach { attributes.attribute(TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE, 25) }
+tasks.named<JavaCompile>("compileMatchTestJava") {
+    javaCompiler.set(toolchains.compilerFor { languageVersion.set(JavaLanguageVersion.of(25)) })
+}
+val matchTestTask = tasks.register<Test>("matchTest") {
+    description = "Runs the match core tests on MockBukkit."
+    group = "verification"
+    testClassesDirs = matchTest.output.classesDirs
+    classpath = matchTest.runtimeClasspath
+    javaLauncher.set(toolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(25)) })
+}
+tasks.named("check") { dependsOn(matchTestTask) }
