@@ -496,6 +496,15 @@ public abstract class Match {
     protected void onDestroy() {
     }
 
+    /** The permission players need to join; spectators do not need it. */
+    protected String requiredPermission() {
+        return settings.getPermission();
+    }
+
+    /** Admission failed after this player was created; undo anything createPlayer recorded. */
+    protected void onAdmissionRolledBack(MatchPlayer player) {
+    }
+
     /** Whether the match takes players right now, on top of the core's own checks. */
     protected boolean acceptsPlayers() {
         return true;

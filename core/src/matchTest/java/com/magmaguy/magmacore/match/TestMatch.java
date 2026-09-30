@@ -19,6 +19,7 @@ class TestMatch extends Match {
     boolean declineAutomaticEnds;
     boolean refuseAll;
     Location startOverride;
+    String permissionOverride;
 
     TestMatch(MatchSettings settings) {
         super(settings);
@@ -37,6 +38,16 @@ class TestMatch extends Match {
     @Override
     protected Location startDestination() {
         return startOverride == null ? super.startDestination() : startOverride;
+    }
+
+    @Override
+    protected String requiredPermission() {
+        return permissionOverride == null ? super.requiredPermission() : permissionOverride;
+    }
+
+    @Override
+    protected void onAdmissionRolledBack(MatchPlayer player) {
+        hooks.add("rolledBack:" + player.getPlayer().getName());
     }
 
     @Override

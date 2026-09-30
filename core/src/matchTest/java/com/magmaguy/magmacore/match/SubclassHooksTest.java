@@ -90,6 +90,36 @@ class SubclassHooksTest extends MatchTestSupport {
     }
 
     @Test
+    void theRequiredPermissionHookGuardsPlayersButNotSpectators() {
+        TestMatch match = openMatch(settings -> settings.spectatable(true));
+        match.permissionOverride = "test.late";
+        var alex = player("Alex");
+        assertEquals(AdmissionResult.NO_PERMISSION, match.admit(List.of(alex)));
+        assertEquals(AdmissionResult.ADMITTED, match.admitSpectator(alex));
+    }
+
+    @Test
+    void aRolledBackAdmissionIsReportedForEveryRegisteredPlayer() {
+        PlayerCustody failing = new PlayerCustody() {
+            @Override
+            public void capture(org.bukkit.entity.Player player) {
+                if (player.getName().equals("Bea")) throw new IllegalStateException("no");
+            }
+
+            @Override
+            public void restore(org.bukkit.entity.Player player) {
+            }
+
+            @Override
+            public void recover(org.bukkit.entity.Player player) {
+            }
+        };
+        TestMatch match = openMatch(settings -> settings.custody(failing));
+        assertEquals(AdmissionResult.FAILED, match.admit(List.of(player("Alex"), player("Bea"))));
+        assertTrue(match.hooks.containsAll(List.of("rolledBack:Alex", "rolledBack:Bea")));
+    }
+
+    @Test
     void withoutDestroyAfterEndTheSubclassDecidesWhenToDestroy() {
         var alex = player("Alex");
         TestMatch match = ongoing(settings -> settings.destroyAfterEnd(false), alex);

@@ -149,7 +149,8 @@ final class Admission {
             // Either index disagreeing counts as occupied rather than letting one player join two matches.
             if (MatchMarker.occupied(player) || MatchCore.participant(player) != null)
                 return AdmissionResult.ALREADY_IN_MATCH;
-            if (settings.getPermission() != null && !player.hasPermission(settings.getPermission()))
+            String permission = match.requiredPermission();
+            if (permission != null && !player.hasPermission(permission))
                 return AdmissionResult.NO_PERMISSION;
         }
         return AdmissionResult.ADMITTED;
@@ -180,6 +181,7 @@ final class Admission {
 
     static void rollback(Match match, List<MatchPlayer> registered) {
         for (MatchPlayer participant : registered) {
+            match.guard("onAdmissionRolledBack", () -> match.onAdmissionRolledBack(participant));
             match.participants.remove(participant);
             MatchCore.untrack(participant);
             MatchMarker.clear(participant.getPlayer());
