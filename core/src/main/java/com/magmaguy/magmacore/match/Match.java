@@ -319,6 +319,12 @@ public abstract class Match {
         return Bukkit.getWorlds().getFirst().getSpawnLocation();
     }
 
+    /** Where non-participants found inside a running match are sent. */
+    protected Location intruderDestination(Player player) {
+        if (settings.getExit() != null) return settings.getExit();
+        return Bukkit.getWorlds().getFirst().getSpawnLocation();
+    }
+
     /** Taken after every admission check passes, before anyone is registered. */
     protected boolean reserveAdmission() {
         return true;
