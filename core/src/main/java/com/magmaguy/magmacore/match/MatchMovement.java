@@ -8,6 +8,7 @@ import org.bukkit.event.player.PlayerTeleportEvent;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.function.BooleanSupplier;
 
@@ -44,6 +45,65 @@ final class MatchMovement {
                 current, false, match, () -> participant != null
                         ? participant.teleport(destination, reason)
                         : player.teleport(destination, PlayerTeleportEvent.TeleportCause.PLUGIN));
+    }
+
+    /**
+     * Moves a player inside one world without weakening escape protection. For a participant,
+     * both ends must be inside their match and they must be playing or waiting to start.
+     */
+    static boolean moveWithin(Player player, Location destination, PlayerTeleportEvent.TeleportCause cause) {
+        Objects.requireNonNull(player, "player");
+        Objects.requireNonNull(destination, "destination");
+        Objects.requireNonNull(cause, "cause");
+        if (!Bukkit.isPrimaryThread() || !player.isOnline() || !player.isValid()) return false;
+        World source = player.getWorld();
+        if (destination.getWorld() == null || !source.equals(destination.getWorld())) return false;
+        Match match = MatchCore.matchOf(player);
+        if (match != null) {
+            MatchPlayer participant = match.getMatchPlayer(player);
+            if (!match.getSettings().getSpace().worlds().contains(source)
+                    || !(match.phase == MatchPhase.ONGOING || match.waitingToStart(player))
+                    || participant == null || participant.role != MatchRole.PLAYER
+                    || !match.contains(player.getLocation())
+                    || !match.contains(destination))
+                return false;
+        }
+        return teleportAuthorized(player, destination, cause, match, false, null,
+                () -> player.teleport(destination, cause));
+    }
+
+    /** An explicit exit counts as quitting only after Bukkit accepts and completes the teleport. */
+    static boolean moveOut(Player player, Location destination, PlayerTeleportEvent.TeleportCause cause) {
+        Objects.requireNonNull(player, "player");
+        Objects.requireNonNull(destination, "destination");
+        Objects.requireNonNull(cause, "cause");
+        if (!Bukkit.isPrimaryThread() || !player.isOnline() || !player.isValid()
+                || destination.getWorld() == null) return false;
+        Match match = MatchCore.matchOf(player);
+        if (match == null) return player.teleport(destination, cause);
+        if (match.contains(destination)) return false;
+        boolean moved = teleportAuthorized(player, destination, cause, match, true, null,
+                () -> player.teleport(destination, cause));
+        if (moved && MatchCore.matchOf(player) == match && !match.contains(player.getLocation()))
+            match.leave(player, LeaveReason.QUIT);
+        return moved;
+    }
+
+    /** Staff with the match's within-teleport permission may use commands inside an ongoing match. */
+    static boolean permitsStaffMove(PlayerTeleportEvent event, Match match) {
+        Player player = event.getPlayer();
+        Location destination = event.getTo();
+        if (match == null || !match.isOpen() || match.phase != MatchPhase.ONGOING
+                || !player.isOnline() || !player.isValid()) return false;
+        String permission = match.getSettings().getWithinTeleportPermission();
+        if (permission == null || !player.hasPermission(permission)) return false;
+        if (event.getCause() != PlayerTeleportEvent.TeleportCause.COMMAND
+                && event.getCause() != PlayerTeleportEvent.TeleportCause.PLUGIN) return false;
+        return MatchCore.matchOf(player) == match
+                && destination != null && destination.getWorld() != null
+                && destination.getWorld().equals(event.getFrom().getWorld())
+                && match.contains(event.getFrom())
+                && match.contains(destination);
     }
 
     private static boolean permitsLifecycleMovement(Player player, Location destination, Match match, Match current) {

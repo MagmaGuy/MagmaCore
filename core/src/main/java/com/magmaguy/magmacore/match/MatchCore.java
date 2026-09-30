@@ -2,7 +2,9 @@ package com.magmaguy.magmacore.match;
 
 import com.magmaguy.magmacore.util.WorldFolderResolver;
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.entity.Player;
+import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.event.HandlerList;
 import org.bukkit.event.Listener;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -37,6 +39,24 @@ public final class MatchCore {
         if (plugin != null) return;
         plugin = Objects.requireNonNull(owner, "owner");
         listen(new MatchListener());
+        listen(new TeleportGuard());
+    }
+
+    /**
+     * Moves a player inside one world. For a participant, both ends must lie inside their match
+     * and they must be playing or waiting to start; other players move normally. For plugin
+     * mechanics, add-ons and test harnesses that reposition players.
+     */
+    public static boolean moveWithin(Player player, Location destination, PlayerTeleportEvent.TeleportCause cause) {
+        return MatchMovement.moveWithin(player, destination, cause);
+    }
+
+    /**
+     * Moves a player out of their match. It counts as leaving with {@link LeaveReason#QUIT} only
+     * if the teleport completes; a destination inside the match is refused.
+     */
+    public static boolean moveOut(Player player, Location destination, PlayerTeleportEvent.TeleportCause cause) {
+        return MatchMovement.moveOut(player, destination, cause);
     }
 
     /** Destroys every match of this plugin with {@link LeaveReason#SHUTDOWN}. */
