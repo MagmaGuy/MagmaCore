@@ -1,7 +1,10 @@
 package com.magmaguy.magmacore.match;
 
+import com.magmaguy.magmacore.util.AttributeManager;
 import com.magmaguy.magmacore.util.Logger;
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.World;
 import org.bukkit.entity.Player;
 
 import java.util.ArrayList;
@@ -72,9 +75,57 @@ public abstract class Match {
                 && player.isOnline() && !player.isDead() && contains(player.getLocation());
     }
 
+    /**
+     * Removes a participant. {@link #onLeave} runs first, while the player is still a participant,
+     * so plugins can settle rewards from intact state. Returns false if the player was not in.
+     */
     public final boolean leave(Player player, LeaveReason reason) {
         MatchPlayer participant = getMatchPlayer(player);
-        return participant != null;
+        if (participant == null) return false;
+        participant.leaveReason = reason;
+        guard("onLeave", () -> onLeave(participant, reason));
+        guard("left callback", () -> settings.getApi().left(this, participant, reason));
+
+        participants.remove(participant);
+        MatchCore.untrack(participant);
+        MatchMarker.clear(player);
+        guard("restore " + player.getName(), () -> restore(participant));
+
+        if (!destroyed && getActivePlayers().isEmpty()
+                && (phase == MatchPhase.WAITING || phase == MatchPhase.STARTING || phase == MatchPhase.ONGOING))
+            end(MatchOutcome.DEFEAT);
+        return true;
+    }
+
+    private void restore(MatchPlayer participant) {
+        Player player = participant.getPlayer();
+        if (settings.getGameMode() != null || participant.role == MatchRole.SPECTATOR)
+            player.setGameMode(participant.getPreviousGameMode());
+        // Healing only after the match is over mirrors EliteMobs: a mid-match exit keeps its damage.
+        if (phase == MatchPhase.ENDED && player.isOnline() && !player.isDead())
+            player.setHealth(maxHealth(player));
+        // A player who already walked or teleported out keeps where they are.
+        if (player.isOnline() && contains(player.getLocation())) {
+            Location exit = null;
+            try {
+                exit = exitDestination(participant);
+            } catch (RuntimeException failure) {
+                Logger.warn("Match " + runtimeId + ": exitDestination failed: " + failure);
+            }
+            if (exit != null) MatchMovement.moveForMatch(this, player, participant, exit, MoveReason.EXIT);
+        }
+    }
+
+    static double maxHealth(Player player) {
+        return AttributeManager.getAttributeValue(player, "generic_max_health");
+    }
+
+    /** Ends the match once. Participants stay until destroy, after the configured linger. */
+    public final void end(MatchOutcome outcome) {
+        if (phase == MatchPhase.ENDED || destroyed) return;
+        this.outcome = outcome;
+        phase = MatchPhase.ENDED;
+        if (settings.getLingerAfterEndTicks() == 0) destroy();
     }
 
     /** Removes every participant and tears the space down. Runs once. */
@@ -149,8 +200,13 @@ public abstract class Match {
         return settings.getStart();
     }
 
+    /** Settings exit, else where the player came from, else the main world spawn. */
     protected Location exitDestination(MatchPlayer player) {
-        return settings.getExit();
+        if (settings.getExit() != null) return settings.getExit();
+        Location previous = player.getPreviousLocation();
+        World world = previous.getWorld();
+        if (world != null && Bukkit.getWorld(world.getUID()) == world) return previous;
+        return Bukkit.getWorlds().getFirst().getSpawnLocation();
     }
 
     /** Taken after every admission check passes, before anyone is registered. */

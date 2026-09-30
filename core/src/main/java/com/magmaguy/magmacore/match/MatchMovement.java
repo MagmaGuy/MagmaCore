@@ -26,11 +26,20 @@ final class MatchMovement {
 
     /** The match admits, starts, rescues, revives or evacuates one player. */
     static boolean moveForMatch(Match match, Player player, Location destination, MoveReason reason) {
+        Match current = MatchCore.matchOf(player);
+        return moveForMatch(match, player, current == match ? match.getMatchPlayer(player) : null, destination, reason);
+    }
+
+    /**
+     * As above, teleporting through {@code participant} when given. Leaving passes the
+     * participant after it is untracked, so the exit still runs through its teleport override.
+     */
+    static boolean moveForMatch(Match match, Player player, MatchPlayer participant, Location destination,
+                                MoveReason reason) {
         if (!Bukkit.isPrimaryThread() || match == null || destination == null || destination.getWorld() == null
                 || !player.isOnline() || !player.isValid()) return false;
         Match current = MatchCore.matchOf(player);
         if (!permitsLifecycleMovement(player, destination, match, current)) return false;
-        MatchPlayer participant = current == match ? match.getMatchPlayer(player) : null;
         return teleportAuthorized(player, destination, PlayerTeleportEvent.TeleportCause.PLUGIN,
                 current, false, match, () -> participant != null
                         ? participant.teleport(destination, reason)
