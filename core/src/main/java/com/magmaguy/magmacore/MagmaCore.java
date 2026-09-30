@@ -16,6 +16,7 @@ import com.magmaguy.magmacore.instance.InstanceProtector;
 import com.magmaguy.magmacore.instance.MatchInstance;
 import com.magmaguy.magmacore.instance.MatchInstanceWorld;
 import com.magmaguy.magmacore.instance.MatchPlayer;
+import com.magmaguy.magmacore.match.MatchCore;
 import com.magmaguy.magmacore.menus.AdvancedMenuHandler;
 import com.magmaguy.magmacore.menus.SetupMenu;
 import com.magmaguy.magmacore.nightbreak.NightbreakAccount;
@@ -158,6 +159,7 @@ public final class MagmaCore {
         CommandManager.shutdown();
         CustomBiomeCompatibility.shutdown();
         MatchInstance.shutdown();
+        MatchCore.shutdown();
         InstanceProtector.shutdown();
         instanceProtectorRegistered = false;
         TemporaryBlockManager.shutdown();
