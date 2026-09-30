@@ -3,6 +3,7 @@ package com.magmaguy.magmacore.match;
 import org.bukkit.World;
 import org.bukkit.util.BoundingBox;
 import org.junit.jupiter.api.Test;
+import org.mockbukkit.mockbukkit.entity.PlayerMock;
 import org.mockbukkit.mockbukkit.world.WorldMock;
 
 import java.util.ArrayList;
@@ -51,5 +52,33 @@ class SpaceTest extends MatchTestSupport {
         match.destroy();
         assertEquals(List.of(doomed, added), deleted);
         assertTrue(space.worlds().isEmpty());
+    }
+
+    // A loaded world with anyone inside cannot be unloaded, so its folder would never be deleted.
+    @Test
+    void playersStillInsideTemporaryWorldsAreMovedOutBeforeDeletion() {
+        WorldMock doomed = server.addSimpleWorld("doomed");
+        List<String> occupantsAtDeletion = new ArrayList<>();
+        TemporaryWorlds space = new TemporaryWorlds(List.of(doomed),
+                world -> world.getPlayers().forEach(occupant -> occupantsAtDeletion.add(occupant.getName())));
+        TestMatch match = openMatch(settings -> settings.space(space).exit(at(overworld, 7.5, 64, 7.5)));
+        PlayerMock staff = player("Staff");
+        staff.setLocation(at(doomed, 3, 64, 3));
+
+        match.destroy();
+
+        assertEquals(List.of(), occupantsAtDeletion);
+        assertEquals(at(overworld, 7.5, 64, 7.5), staff.getLocation());
+    }
+
+    @Test
+    void regionTeardownLeavesBystandersWhereTheyAre() {
+        TestMatch match = openMatch(settings -> settings.exit(at(overworld, 7.5, 64, 7.5)));
+        PlayerMock bystander = player("Bystander");
+        bystander.setLocation(at(arena, 3, 64, 3));
+
+        match.destroy();
+
+        assertEquals(at(arena, 3, 64, 3), bystander.getLocation());
     }
 }

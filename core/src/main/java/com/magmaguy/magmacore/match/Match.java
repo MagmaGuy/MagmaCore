@@ -8,6 +8,7 @@ import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
+import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.scheduler.BukkitTask;
 
@@ -378,12 +379,22 @@ public abstract class Match {
         if (outcome == null) outcome = MatchOutcome.NEUTRAL;
         for (MatchPlayer participant : List.copyOf(participants))
             guard("remove " + participant.getPlayer().getName(), () -> leave(participant.getPlayer(), reason));
+        if (settings.getSpace() instanceof TemporaryWorlds) guard("evacuation", this::evacuateTemporaryWorlds);
         guard("space teardown", settings.getSpace()::teardown);
         MatchCore.unregister(this);
         phase = MatchPhase.DESTROYED;
         guard("onDestroy", this::onDestroy);
         // The API only hears about matches it saw open.
         if (open) guard("destroyed callback", () -> settings.getApi().destroyed(this));
+    }
+
+    // A world cannot unload with anyone inside, such as staff holding the bypass permission.
+    private void evacuateTemporaryWorlds() {
+        for (World world : settings.getSpace().worlds())
+            for (Player player : List.copyOf(world.getPlayers())) {
+                Location destination = intruderDestination(player);
+                if (destination != null) player.teleport(destination, PlayerTeleportEvent.TeleportCause.PLUGIN);
+            }
     }
 
     public UUID getRuntimeId() {
