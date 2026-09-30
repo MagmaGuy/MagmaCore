@@ -40,10 +40,29 @@ public final class ContentFileSelector {
         return List.copyOf(selected.values());
     }
 
-    private static boolean sameContents(File first, File second) {
+    /**
+     * True when the skipped copy says nothing the selected copy does not already say. Plugins rewrite the file they
+     * load (key order, added defaults), so two YAML copies that shipped identical are compared by value: every value the
+     * skipped copy sets must be present and equal in the selected copy. Other files must match byte for byte.
+     */
+    private static boolean sameContents(File selected, File skipped) {
         try {
-            return java.nio.file.Files.mismatch(first.toPath(), second.toPath()) == -1L;
+            if (java.nio.file.Files.mismatch(selected.toPath(), skipped.toPath()) == -1L) return true;
         } catch (java.io.IOException unreadable) {
+            return false;
+        }
+        String name = skipped.getName().toLowerCase(java.util.Locale.ROOT);
+        if (!name.endsWith(".yml") && !name.endsWith(".yaml")) return false;
+        try {
+            var selectedValues = org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(selected);
+            var skippedValues = org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(skipped).getValues(true);
+            if (skippedValues.isEmpty()) return false;
+            for (Map.Entry<String, Object> entry : skippedValues.entrySet()) {
+                if (entry.getValue() instanceof org.bukkit.configuration.ConfigurationSection) continue;
+                if (!java.util.Objects.equals(selectedValues.get(entry.getKey()), entry.getValue())) return false;
+            }
+            return true;
+        } catch (RuntimeException unreadable) {
             return false;
         }
     }
