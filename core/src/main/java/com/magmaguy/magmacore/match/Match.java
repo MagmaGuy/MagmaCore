@@ -191,6 +191,7 @@ public abstract class Match {
 
     private void restore(MatchPlayer participant) {
         Player player = participant.getPlayer();
+        guard("custody restore", () -> settings.getCustody().restore(player));
         if (settings.getGameMode() != null || participant.role == MatchRole.SPECTATOR)
             player.setGameMode(participant.getPreviousGameMode());
         // Healing only after the match is over mirrors EliteMobs: a mid-match exit keeps its damage.

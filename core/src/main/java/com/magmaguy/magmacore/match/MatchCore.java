@@ -30,6 +30,7 @@ public final class MatchCore {
     private static final Set<Match> matches = new LinkedHashSet<>();
     private static final Map<UUID, MatchPlayer> participants = new HashMap<>();
     private static final List<Listener> listeners = new ArrayList<>();
+    private static final Set<PlayerCustody> custodies = new LinkedHashSet<>();
     private static JavaPlugin plugin;
 
     private MatchCore() {
@@ -67,6 +68,7 @@ public final class MatchCore {
         } finally {
             matches.clear();
             participants.clear();
+            custodies.clear();
             listeners.forEach(HandlerList::unregisterAll);
             listeners.clear();
             plugin = null;
@@ -82,6 +84,23 @@ public final class MatchCore {
                 name -> WorldFolderResolver.resolve(name).toPath(),
                 name -> Bukkit.getWorld(name) != null,
                 WorldFolderResolver::deleteAllLayouts);
+    }
+
+    /**
+     * Registers custody whose leases must be recovered when players join, for example after a
+     * crash. Call at enable, before creating matches; online players not in a match are
+     * recovered at once, since they may have joined while the plugin was still loading.
+     */
+    public static void registerCustody(PlayerCustody custody) {
+        Objects.requireNonNull(custody, "custody");
+        plugin();
+        if (!custodies.add(custody)) return;
+        for (Player player : List.copyOf(Bukkit.getOnlinePlayers()))
+            if (participants.get(player.getUniqueId()) == null && player.isOnline()) custody.recover(player);
+    }
+
+    static Collection<PlayerCustody> custodies() {
+        return List.copyOf(custodies);
     }
 
     public static Collection<Match> matches() {

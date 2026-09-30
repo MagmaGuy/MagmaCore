@@ -10,12 +10,24 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockDamageEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 
 import java.util.List;
 
 /** Player lifecycle events the core reacts to. */
 final class MatchListener implements Listener {
+    // Recovery runs first so nothing else sees a player still wearing their match state.
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onJoin(PlayerJoinEvent event) {
+        Player player = event.getPlayer();
+        if (MatchCore.participant(player) != null) return;
+        for (PlayerCustody custody : MatchCore.custodies()) {
+            if (!player.isOnline()) return;
+            custody.recover(player);
+        }
+    }
+
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
         Match match = MatchCore.matchOf(event.getPlayer());

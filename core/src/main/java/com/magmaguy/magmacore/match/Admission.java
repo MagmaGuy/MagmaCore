@@ -47,20 +47,31 @@ final class Admission {
         if (check != AdmissionResult.ADMITTED) return refuse(match, group, check);
         if (!match.guard("reserveAdmission", match::reserveAdmission, false)) return AdmissionResult.NOT_ACCEPTING;
 
+        MatchSettings settings = match.getSettings();
+        PlayerCustody custody = settings.getCustody();
         List<MatchPlayer> registered = new ArrayList<>();
+        List<MatchPlayer> captured = new ArrayList<>();
         List<BukkitTask> entries = new ArrayList<>();
         try {
             for (Player player : group) registered.add(register(match, player));
+            // Custody must see the player exactly as they were, so it runs before any change.
+            for (MatchPlayer participant : registered) {
+                custody.capture(participant.getPlayer());
+                captured.add(participant);
+            }
+            if (settings.getGameMode() != null)
+                registered.forEach(participant -> participant.getPlayer().setGameMode(settings.getGameMode()));
             for (MatchPlayer participant : registered) entries.add(scheduleEntry(match, participant));
         } catch (RuntimeException failure) {
             entries.forEach(BukkitTask::cancel);
+            for (MatchPlayer participant : captured)
+                match.guard("custody release", () -> custody.restore(participant.getPlayer()));
             rollback(match, registered);
             Logger.warn("Match " + match.getRuntimeId() + ": admission failed: " + failure);
             return AdmissionResult.FAILED;
         }
 
         registered.forEach(participant -> announce(match, participant));
-        MatchSettings settings = match.getSettings();
         if (settings.getCountdownSeconds() == 0 && match.phase == MatchPhase.WAITING
                 && match.getActivePlayers().size() >= settings.getMinPlayers())
             match.start();
@@ -102,7 +113,6 @@ final class Admission {
         match.participants.add(participant);
         MatchCore.track(participant);
         MatchMarker.set(player, match);
-        if (settings.getGameMode() != null) player.setGameMode(settings.getGameMode());
         return participant;
     }
 
