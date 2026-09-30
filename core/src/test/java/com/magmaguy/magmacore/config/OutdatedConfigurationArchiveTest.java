@@ -245,4 +245,39 @@ class OutdatedConfigurationArchiveTest {
             assertThrows(IOException.class, () -> OutdatedConfigurationArchive.readRules(
                     ("customitems:\n  - " + rule + "\n").getBytes(StandardCharsets.UTF_8)));
     }
+
+    @Test void luaSourceRuleArchivesOnlyAnUneditedEarlierBundledScript() throws Exception {
+        String shipped = "local pull=1\r\nreturn {api_version=1}\r\n";
+        String hash = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                .digest(shipped.replace("\r", "").getBytes(StandardCharsets.UTF_8)));
+        var selected = OutdatedConfigurationArchive.readRules(("enchantments:\n  - files: [grappling_hook.lua]\n    sha256: ["
+                + hash + "]\n").getBytes(StandardCharsets.UTF_8));
+        Path script = write("enchantments/grappling_hook.lua", shipped);
+        Path otherName = write("enchantments/earthquake.lua", shipped);
+        Path otherCategory = write("powers/grappling_hook.lua", shipped);
+        List<Path> archived = OutdatedConfigurationArchive.archive(data(), storage(), selected);
+        assertEquals(1, archived.size());
+        assertFalse(Files.exists(script));
+        assertEquals(shipped, Files.readString(archived.getFirst()));
+        assertTrue(Files.exists(otherName) && Files.exists(otherCategory));
+        // The same default saved with LF line endings is still the unedited script.
+        write("enchantments/grappling_hook.lua", shipped.replace("\r", ""));
+        assertEquals(1, OutdatedConfigurationArchive.archive(data(), storage(), selected).size());
+        // Edited copies and the regenerated replacement never match, so nothing is archived twice.
+        for (String kept : List.of("-- my changes\n" + shipped, "local pull=2\nreturn {api_version=1}\n")) {
+            Path current = write("enchantments/grappling_hook.lua", kept);
+            assertTrue(OutdatedConfigurationArchive.archive(data(), storage(), selected).isEmpty());
+            assertEquals(kept, Files.readString(current));
+        }
+    }
+
+    @Test void rejectsMalformedLuaSourceRules() {
+        String hash = "a".repeat(64);
+        for (String rules : List.of("enchantments:\n  - {files: [grappling_hook.yml], sha256: [" + hash + "]}\n",
+                "enchantments:\n  - {files: ['*.lua'], sha256: [" + hash + "]}\n",
+                "enchantments:\n  - {files: [grappling_hook.lua], sha256: [abc]}\n",
+                "enchantments:\n  - {files: [grappling_hook.lua], sha256: []}\n",
+                "config.yml:\n  - {files: [grappling_hook.lua], sha256: [" + hash + "]}\n"))
+            assertThrows(IOException.class, () -> OutdatedConfigurationArchive.readRules(rules.getBytes(StandardCharsets.UTF_8)), rules);
+    }
 }

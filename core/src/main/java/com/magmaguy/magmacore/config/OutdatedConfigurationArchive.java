@@ -118,7 +118,7 @@ public final class OutdatedConfigurationArchive {
         }
     }
 
-    sealed interface Rule permits KeyRule, ListEntryRule, ValueRule, LuaScriptRule {
+    sealed interface Rule permits KeyRule, ListEntryRule, ValueRule, LuaScriptRule, LuaSourceRule {
         boolean matches(String filename, Map<?, ?> yaml);
 
         default boolean appliesTo(String filename) { return true; }
@@ -151,6 +151,29 @@ public final class OutdatedConfigurationArchive {
                 // Syntax errors, unknown fields, bad handlers and evaluation/budget failures
                 // are not evidence of a retired format. Leave them for the normal loader.
                 return false;
+            }
+        }
+    }
+
+    /** An earlier bundled script, compared without carriage returns; any edit keeps the file in place. */
+    record LuaSourceRule(Set<String> files, Set<String> sha256) implements Rule {
+        LuaSourceRule {
+            files = Set.copyOf(files);
+            sha256 = Set.copyOf(sha256);
+        }
+
+        @Override public boolean matches(String filename, Map<?, ?> yaml) { return false; }
+
+        @Override public boolean appliesTo(String filename) { return files.contains(filename); }
+
+        boolean matchesSource(String filename, byte[] source) {
+            if (!files.contains(filename)) return false;
+            byte[] normalized = new String(source, StandardCharsets.UTF_8).replace("\r", "").getBytes(StandardCharsets.UTF_8);
+            try {
+                return sha256.contains(java.util.HexFormat.of().formatHex(
+                        java.security.MessageDigest.getInstance("SHA-256").digest(normalized)));
+            } catch (java.security.NoSuchAlgorithmException unavailable) {
+                throw new IllegalStateException("SHA-256 is unavailable", unavailable);
             }
         }
     }
@@ -235,6 +258,11 @@ public final class OutdatedConfigurationArchive {
                     if (supported.stream().anyMatch(retired::contains))
                         throw new IOException("Supported and retired Lua hooks must not overlap: " + category);
                     selected.add(new LuaScriptRule(supported, retired));
+                } else if (rule instanceof Map<?, ?> fields && fields.keySet().equals(Set.of("files", "sha256"))) {
+                    if (category.endsWith(".yml") || category.endsWith(".yaml"))
+                        throw new IOException("A Lua source retirement rule requires a script directory: " + category);
+                    selected.add(new LuaSourceRule(readNames(fields.get("files"), "files", "[a-z0-9_-]+\\.lua"),
+                            readNames(fields.get("sha256"), "sha256", "[0-9a-f]{64}")));
                 } else throw new IOException("Invalid outdated configuration rule in " + category);
             }
             result.put(category, Set.copyOf(selected));
@@ -293,13 +321,17 @@ public final class OutdatedConfigurationArchive {
                 throw new IOException("Not a regular YAML file: " + category);
             List<LuaScriptRule> luaRules = rule.getValue().stream().filter(LuaScriptRule.class::isInstance)
                     .map(LuaScriptRule.class::cast).toList();
-            List<Rule> yamlRules = rule.getValue().stream().filter(selected -> !(selected instanceof LuaScriptRule)).toList();
+            List<LuaSourceRule> sourceRules = rule.getValue().stream().filter(LuaSourceRule.class::isInstance)
+                    .map(LuaSourceRule.class::cast).toList();
+            List<Rule> yamlRules = rule.getValue().stream()
+                    .filter(selected -> !(selected instanceof LuaScriptRule) && !(selected instanceof LuaSourceRule)).toList();
             try (var paths = Files.walk(category)) {
                 for (Path path : paths.sorted().toList()) {
                     requireNoLinks(path, inspectedPaths);
                     String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
                     if (Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) continue;
-                    boolean lua = name.endsWith(".lua") && !luaRules.isEmpty();
+                    boolean lua = name.endsWith(".lua")
+                            && (!luaRules.isEmpty() || sourceRules.stream().anyMatch(selected -> selected.appliesTo(name)));
                     boolean yaml = (name.endsWith(".yml") || name.endsWith(".yaml"))
                             && yamlRules.stream().anyMatch(selected -> selected.appliesTo(name));
                     if (!lua && !yaml) continue;
@@ -313,7 +345,8 @@ public final class OutdatedConfigurationArchive {
                     }
                     // Classify actual parsed definitions, never comments or text fragments.
                     if (lua) {
-                        if (luaRules.stream().anyMatch(selected -> selected.matchesScript(path, original)))
+                        if (sourceRules.stream().anyMatch(selected -> selected.matchesSource(name, original))
+                                || luaRules.stream().anyMatch(selected -> selected.matchesScript(path, original)))
                             matches.put(path, original);
                     } else if (matchesYaml(name, original, yamlRules, parser)) {
                         matches.put(path, original);
