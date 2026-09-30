@@ -31,12 +31,21 @@ public final class ContentFileSelector {
         for (File file : candidates.stream().sorted(order).toList()) {
             if (OutdatedConfigurationArchive.isArchivePath(file.toPath())) continue;
             File previous = selected.putIfAbsent(filenameKey.apply(file.getName()), file);
-            if (previous != null && !absolutePath(previous).equals(absolutePath(file)))
+            // Content packages may ship the same shared file; a byte-identical copy loads the same definition either way.
+            if (previous != null && !absolutePath(previous).equals(absolutePath(file)) && !sameContents(previous, file))
                 Logger.warn("Duplicate content filename '" + file.getName() + "': selected "
                         + absolutePath(previous) + "; skipped " + absolutePath(file)
                         + ". Only the selected file will be loaded. Resolve the duplicate filenames.");
         }
         return List.copyOf(selected.values());
+    }
+
+    private static boolean sameContents(File first, File second) {
+        try {
+            return java.nio.file.Files.mismatch(first.toPath(), second.toPath()) == -1L;
+        } catch (java.io.IOException unreadable) {
+            return false;
+        }
     }
 
     private static String absolutePath(File file) {
