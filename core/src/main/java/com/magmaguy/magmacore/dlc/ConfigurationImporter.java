@@ -662,6 +662,11 @@ public class ConfigurationImporter {
                 }
                 continue;
             }
+            if (unzippedFile.getName().equalsIgnoreCase("freeminecraftmodels")
+                    && !alignFmmModelsFolder(unzippedFile)) {
+                rejected = true;
+                continue;
+            }
             candidates.add(new ImportCandidate(unzippedFile, targetPath));
         }
         if (rejected || candidates.isEmpty()) {
@@ -706,6 +711,25 @@ public class ConfigurationImporter {
             }
             exception.printStackTrace();
             return false;
+        }
+        return true;
+    }
+
+    /**
+     * Old installs on case-sensitive filesystems keep FMM models in Models/, which FMM reads only while
+     * models/ is absent. Merge a pack's freeminecraftmodels/models into whichever folder FMM reads.
+     */
+    private boolean alignFmmModelsFolder(File fmmFolder) {
+        String modelsName = ConfigurationImportRegistry.resolveFmmModelsFolder(this).getFileName().toString();
+        File[] children = fmmFolder.listFiles(File::isDirectory);
+        if (children == null) return true;
+        for (File child : children) {
+            if (!child.getName().equalsIgnoreCase("models") || child.getName().equals(modelsName)) continue;
+            if (!child.renameTo(new File(fmmFolder, modelsName))) {
+                Logger.warn("Rejecting import because " + child.getPath() + " could not be aligned with FreeMinecraftModels' "
+                        + modelsName + " folder.");
+                return false;
+            }
         }
         return true;
     }
