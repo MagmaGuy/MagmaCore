@@ -366,7 +366,11 @@ public abstract class Match {
         }
     }
 
-    final void shutdownDestroy() {
+    /**
+     * Destroys the match because its plugin or the server is stopping. Participants leave with
+     * {@link LeaveReason#SHUTDOWN}, and a reusable match is destroyed for good.
+     */
+    public final void destroyForShutdown() {
         destroy(LeaveReason.SHUTDOWN);
     }
 

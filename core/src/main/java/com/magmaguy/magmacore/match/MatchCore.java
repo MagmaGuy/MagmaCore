@@ -67,7 +67,7 @@ public final class MatchCore {
         try {
             for (PendingMatch request : List.copyOf(new LinkedHashSet<>(pending.values())))
                 request.cancel(PendingMatch.CancelReason.CANCELLED);
-            for (Match match : new ArrayList<>(matches)) match.shutdownDestroy();
+            for (Match match : new ArrayList<>(matches)) match.destroyForShutdown();
         } finally {
             pending.clear();
             matches.clear();

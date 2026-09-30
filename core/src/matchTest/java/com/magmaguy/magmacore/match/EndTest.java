@@ -78,6 +78,17 @@ class EndTest extends MatchTestSupport {
         MatchCore.enable(plugin);
     }
 
+    // Plugins that stop their own matches on disable still tell participants it was a shutdown.
+    @Test
+    void destroyingForShutdownRemovesParticipantsWithShutdownEvenFromReusableMatches() {
+        TestMatch match = openMatch(settings -> settings.reusable(true));
+        match.admit(List.of(player("Alex")));
+        match.destroyForShutdown();
+        assertTrue(match.hooks.contains("onLeave:Alex:SHUTDOWN"));
+        assertEquals(MatchPhase.DESTROYED, match.getPhase());
+        assertFalse(MatchCore.matches().contains(match));
+    }
+
     @Test
     void aThrowingHookCannotStopTeardown() {
         TestMatch match = openMatch(settings -> { });
