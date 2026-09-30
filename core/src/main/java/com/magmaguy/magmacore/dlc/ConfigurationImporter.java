@@ -54,6 +54,7 @@ public class ConfigurationImporter {
     private File importsFolder;
     private boolean modelsInstalled = false;
     private boolean eliteMobsContentImported = false;
+    private boolean betterStructuresContentImported = false;
 
     public ConfigurationImporter(JavaPlugin ownerPlugin) {
         this.ownerPlugin = ownerPlugin == null ? MagmaCore.getInstance().getRequestingPlugin() : ownerPlugin;
@@ -101,6 +102,45 @@ public class ConfigurationImporter {
                 }
             }
         }
+        if (betterStructuresContentImported) requestBetterStructuresReload();
+    }
+
+    /**
+     * BetterStructures reads its folders only while initializing. Content another plugin's pack placed
+     * there is picked up by a content reload once BetterStructures is past its own startup; a
+     * BetterStructures that has not started yet reads the files itself.
+     */
+    private void requestBetterStructuresReload() {
+        org.bukkit.plugin.Plugin betterStructures = Bukkit.getPluginManager().getPlugin("BetterStructures");
+        if (betterStructures == null || !betterStructures.isEnabled()) return;
+        long deadline = System.nanoTime() + TimeUnit.MINUTES.toNanos(10);
+        new org.bukkit.scheduler.BukkitRunnable() {
+            @Override
+            public void run() {
+                if (!betterStructures.isEnabled()) {
+                    cancel();
+                    return;
+                }
+                var state = MagmaCore.getInitializationState("BetterStructures");
+                if (state == com.magmaguy.magmacore.initialization.PluginInitializationState.INITIALIZING
+                        && System.nanoTime() < deadline) return;
+                cancel();
+                if (state != com.magmaguy.magmacore.initialization.PluginInitializationState.INITIALIZED) {
+                    if (state == com.magmaguy.magmacore.initialization.PluginInitializationState.INITIALIZING)
+                        Logger.warn("BetterStructures was still initializing 10 minutes after "
+                                + ownerPlugin.getName() + " imported its content; run /bs reload to load it.");
+                    return;
+                }
+                try {
+                    // Older BetterStructures builds lack this entrypoint; they keep needing a manual reload.
+                    betterStructures.getClass().getMethod("reloadImportedContent", org.bukkit.command.CommandSender.class)
+                            .invoke(betterStructures, Bukkit.getConsoleSender());
+                } catch (ReflectiveOperationException failure) {
+                    Logger.warn(ownerPlugin.getName() + " imported BetterStructures content, but this BetterStructures "
+                            + "version cannot reload it automatically; run /bs reload.");
+                }
+            }
+        }.runTaskTimer(ownerPlugin, 1L, 20L);
     }
 
     private static boolean deleteDirectory(File file) {
@@ -691,8 +731,11 @@ public class ConfigurationImporter {
 
     private void recordSuccessfulImport(ImportCandidate candidate) {
         String sourceName = candidate.source().getName();
+        // FMM rebuilds models, scripts, enchantments and recipes together in its imported-content reload.
         if (sourceName.equalsIgnoreCase("models") ||
-                sourceName.equalsIgnoreCase("modelengine")) {
+                sourceName.equalsIgnoreCase("modelengine")
+                || candidate.targetPath().normalize().toAbsolutePath()
+                .startsWith(freeMinecraftModelsPath.normalize().toAbsolutePath())) {
             modelsInstalled = true;
         }
         // EliteMobs only reads its config folders on boot/reload, so when another plugin's
@@ -702,6 +745,11 @@ public class ConfigurationImporter {
                 && candidate.targetPath().normalize().toAbsolutePath()
                 .startsWith(eliteMobsPath.normalize().toAbsolutePath())) {
             eliteMobsContentImported = true;
+        }
+        if (!ownerPlugin.getName().equalsIgnoreCase("BetterStructures")
+                && candidate.targetPath().normalize().toAbsolutePath()
+                .startsWith(betterStructuresPath.normalize().toAbsolutePath())) {
+            betterStructuresContentImported = true;
         }
     }
 
@@ -1057,7 +1105,7 @@ public class ConfigurationImporter {
      * no models and silently drop them. Consumers check this flag to re-wait for
      * FreeMinecraftModels only on the boots where an install actually happened.
      *
-     * @return true if this importer moved models into FreeMinecraftModels during this run
+     * @return true if this importer moved models or other FreeMinecraftModels content during this run
      */
     public boolean isModelsInstalled() {
         return modelsInstalled;

@@ -118,6 +118,12 @@ final class ConfigurationImportRegistry {
         // folder silently dropped during extraction with a "Directory scripts was
         // not recognized" warning.
         registerGlobal("scripts", importer -> importer.getFreeMinecraftModelsPath().resolve("scripts"));
+        // Any pack can ship FMM content by its FMM folder layout, e.g. freeminecraftmodels/enchantments
+        // for the freeminecraftmodels: enchantments its items use. A pack's own top-level
+        // enchantments folder belongs to that pack's platform.
+        registerGlobal("freeminecraftmodels", ConfigurationImporter::getFreeMinecraftModelsPath);
+        registerGlobal("elitemobs", ConfigurationImporter::getEliteMobsPath);
+        registerGlobal("betterstructures", ConfigurationImporter::getBetterStructuresPath);
 
         // Definitions and their local Lua belong to the pack's enchantment provider.
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.ELITEMOBS,
@@ -149,7 +155,8 @@ final class ConfigurationImportRegistry {
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.BETTERSTRUCTURES, "components", importer -> importer.getBetterStructuresPath().resolve("components"));
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.BETTERSTRUCTURES, "modules", importer -> importer.getBetterStructuresPath().resolve("modules"));
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.BETTERSTRUCTURES, "module_generators", importer -> importer.getBetterStructuresPath().resolve("module_generators"));
-        registerPlatformFolder(ConfigurationImporter.PluginPlatform.BETTERSTRUCTURES, "elitemobs", ConfigurationImporter::getEliteMobsPath);
+        registerPlatformFolder(ConfigurationImporter.PluginPlatform.BETTERSTRUCTURES, "treasures", importer -> importer.getBetterStructuresPath().resolve("treasures"));
+        registerPlatformFolder(ConfigurationImporter.PluginPlatform.BETTERSTRUCTURES, "generators", importer -> importer.getBetterStructuresPath().resolve("generators"));
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.BETTERSTRUCTURES, "custombosses", importer -> importer.getEliteMobsPath().resolve("custombosses"));
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.BETTERSTRUCTURES, "customitems", importer -> importer.getEliteMobsPath().resolve("customitems"));
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.BETTERSTRUCTURES, "enchantments", importer -> importer.getEliteMobsPath().resolve("enchantments"));
