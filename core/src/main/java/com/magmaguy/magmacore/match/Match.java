@@ -91,7 +91,7 @@ public abstract class Match {
 
     private void beginOngoing() {
         phase = MatchPhase.ONGOING;
-        Location start = settings.getStart();
+        Location start = startDestination();
         for (MatchPlayer participant : List.copyOf(participants))
             if (start != null && participant.entered && participant.role == MatchRole.PLAYER)
                 MatchMovement.moveForMatch(this, participant.getPlayer(), participant, start, MoveReason.START);
@@ -231,6 +231,7 @@ public abstract class Match {
         }
         guard("onEnd", () -> onEnd(outcome));
         guard("ended callback", () -> settings.getApi().ended(this, outcome));
+        if (!settings.isDestroyAfterEnd()) return;
         // Lingering lets players loot after a win; with nobody alive there is nobody to wait for.
         if (settings.getLingerAfterEndTicks() == 0 || getActivePlayers().isEmpty()) destroy();
         else scheduleDestroy(settings.getLingerAfterEndTicks());
@@ -270,6 +271,7 @@ public abstract class Match {
         }
         new ReviveBanner(this, participant, marker);
         player.setGameMode(GameMode.SPECTATOR);
+        guard("onSpectating", () -> onSpectating(participant));
     }
 
     final void revive(ReviveBanner banner) {
@@ -281,6 +283,33 @@ public abstract class Match {
         player.setGameMode(settings.getGameMode() != null ? settings.getGameMode() : GameMode.SURVIVAL);
         player.setHealth(maxHealth(player));
         MatchMovement.moveForMatch(this, player, dead, banner.respawnLocation(), MoveReason.REVIVE);
+        guard("onRevive", () -> onRevive(dead));
+    }
+
+    /**
+     * Clears the dead player's revive banner, reviving them when {@code revive} is true. Returns
+     * false when they have no banner.
+     */
+    protected final boolean releaseReviveBanner(Player dead, boolean revive) {
+        MatchPlayer participant = getMatchPlayer(dead);
+        if (participant == null) return false;
+        for (ReviveBanner banner : List.copyOf(reviveBanners.values()))
+            if (banner.dead() == participant) {
+                banner.clear(revive);
+                return true;
+            }
+        return false;
+    }
+
+    /** Treats the player as killed: the same handling lethal damage gets. */
+    protected final void handleDeath(Player player) {
+        MatchPlayer participant = getMatchPlayer(player);
+        if (participant == null || participant.role != MatchRole.PLAYER) return;
+        if (phase != MatchPhase.ONGOING) {
+            leave(player, LeaveReason.DIED);
+            return;
+        }
+        handleLethalDamage(participant);
     }
 
     /**
@@ -411,6 +440,11 @@ public abstract class Match {
 
     protected Location entryDestination(MatchPlayer player) {
         if (phase == MatchPhase.WAITING && settings.getLobby() != null) return settings.getLobby();
+        return startDestination();
+    }
+
+    /** Where players go when the match starts, and the rescue point of last resort. */
+    protected Location startDestination() {
         return settings.getStart();
     }
 
@@ -460,6 +494,19 @@ public abstract class Match {
     }
 
     protected void onDestroy() {
+    }
+
+    /** Whether the match takes players right now, on top of the core's own checks. */
+    protected boolean acceptsPlayers() {
+        return true;
+    }
+
+    /** The death policy turned an active player into a spectator. */
+    protected void onSpectating(MatchPlayer player) {
+    }
+
+    /** A spectating player was revived and is active again. */
+    protected void onRevive(MatchPlayer player) {
     }
 
     /** A reusable match finished a run and is waiting again. */

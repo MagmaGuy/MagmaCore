@@ -43,7 +43,7 @@ final class MatchWatchdog implements Runnable {
         int attempts = ++participant.consecutiveRescues;
         Location destination = participant.lastSafeLocation;
         if (destination == null || attempts > RESCUE_ATTEMPTS_BEFORE_FALLBACK)
-            destination = match.getSettings().getStart();
+            destination = match.startDestination();
 
         if (attempts == RESCUE_LOOP_WARNING_THRESHOLD && destination != null && destination.getWorld() != null)
             Logger.warn("Player " + player.getName() + " has been rescued from the void " + attempts

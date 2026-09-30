@@ -47,7 +47,7 @@ final class ReviveBanner {
     private Block findBannerLocation(Location location) {
         // A void death passes the air check immediately and would put the banner where nobody
         // can reach it, so anchor it at the start instead.
-        Location start = match.getSettings().getStart();
+        Location start = match.startDestination();
         if (location.getWorld() != null && location.getY() < location.getWorld().getMinHeight() && start != null)
             location = start;
         if (location.getWorld() == null) return null;

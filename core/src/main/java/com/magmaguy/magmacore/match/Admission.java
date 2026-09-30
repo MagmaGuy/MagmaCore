@@ -104,7 +104,7 @@ final class Admission {
             settings.getCustody().capture(player);
             captured = true;
             player.setGameMode(GameMode.SPECTATOR);
-            Location start = settings.getStart();
+            Location start = match.startDestination();
             admitted = start != null && MatchMovement.moveForMatch(match, player, participant, start, MoveReason.ENTRY);
             participant.entered = admitted;
         } catch (RuntimeException failure) {
@@ -141,7 +141,8 @@ final class Admission {
 
     private static AdmissionResult check(Match match, List<Player> group) {
         MatchSettings settings = match.getSettings();
-        if (!match.isOpen() || match.phase != MatchPhase.WAITING) return AdmissionResult.NOT_ACCEPTING;
+        if (!match.isOpen() || match.phase != MatchPhase.WAITING
+                || !match.guard("acceptsPlayers", match::acceptsPlayers, false)) return AdmissionResult.NOT_ACCEPTING;
         if (match.getActivePlayers().size() + group.size() > settings.getMaxPlayers()) return AdmissionResult.FULL;
         for (Player player : group) {
             if (!player.isOnline() || !player.isValid()) return AdmissionResult.UNAVAILABLE;

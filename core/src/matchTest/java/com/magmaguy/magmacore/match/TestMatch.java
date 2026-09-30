@@ -17,6 +17,8 @@ class TestMatch extends Match {
     RuntimeException throwOnLeave;
     Boolean participantDuringOnLeave;
     boolean declineAutomaticEnds;
+    boolean refuseAll;
+    Location startOverride;
 
     TestMatch(MatchSettings settings) {
         super(settings);
@@ -30,6 +32,34 @@ class TestMatch extends Match {
     @Override
     protected Location exitDestination(MatchPlayer player) {
         return exit == null ? super.exitDestination(player) : exit.apply(player);
+    }
+
+    @Override
+    protected Location startDestination() {
+        return startOverride == null ? super.startDestination() : startOverride;
+    }
+
+    @Override
+    protected boolean acceptsPlayers() {
+        return !refuseAll;
+    }
+
+    @Override
+    protected void onSpectating(MatchPlayer player) {
+        hooks.add("onSpectating:" + player.getPlayer().getName());
+    }
+
+    @Override
+    protected void onRevive(MatchPlayer player) {
+        hooks.add("onRevive:" + player.getPlayer().getName());
+    }
+
+    boolean releaseBanner(Player dead, boolean revive) {
+        return releaseReviveBanner(dead, revive);
+    }
+
+    void reportDeath(Player player) {
+        handleDeath(player);
     }
 
     @Override

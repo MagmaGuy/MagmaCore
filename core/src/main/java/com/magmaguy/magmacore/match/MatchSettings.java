@@ -25,6 +25,8 @@ public final class MatchSettings {
     /** Holders may use command and plugin teleports inside an ongoing match. Null: nobody. */
     private final String withinTeleportPermission;
     private final long lingerAfterEndTicks;
+    /** When false the subclass destroys the match itself after it ends. */
+    private final boolean destroyAfterEnd;
     /** Region matches that reset to waiting between runs instead of being destroyed. */
     private final boolean reusable;
     private final MatchSpace space;
@@ -46,6 +48,7 @@ public final class MatchSettings {
         this.bypassPermission = builder.bypassPermission;
         this.withinTeleportPermission = builder.withinTeleportPermission;
         this.lingerAfterEndTicks = builder.lingerAfterEndTicks;
+        this.destroyAfterEnd = builder.destroyAfterEnd;
         this.reusable = builder.reusable;
         this.space = builder.space;
         this.death = builder.death;
@@ -87,6 +90,7 @@ public final class MatchSettings {
         private String bypassPermission;
         private String withinTeleportPermission;
         private long lingerAfterEndTicks;
+        private boolean destroyAfterEnd = true;
         private boolean reusable;
         private MatchSpace space;
         private DeathPolicy death = DeathPolicy.eliminate();
@@ -154,6 +158,12 @@ public final class MatchSettings {
         public Builder lingerAfterEndTicks(long lingerAfterEndTicks) {
             if (lingerAfterEndTicks < 0) throw new IllegalArgumentException("Negative linger");
             this.lingerAfterEndTicks = lingerAfterEndTicks;
+            return this;
+        }
+
+        /** False leaves destroying an ended match to the subclass, which then ignores the linger. */
+        public Builder destroyAfterEnd(boolean destroyAfterEnd) {
+            this.destroyAfterEnd = destroyAfterEnd;
             return this;
         }
 

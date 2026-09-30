@@ -63,7 +63,7 @@ final class MatchListener implements Listener {
 
         // Backup for the per-tick rescue, which a lag spike can let slip below the void line.
         if (event.getCause() == EntityDamageEvent.DamageCause.VOID && participant.role == MatchRole.PLAYER
-                && match.getSettings().getStart() != null) {
+                && match.startDestination() != null) {
             event.setCancelled(true);
             MatchWatchdog.rescue(match, participant);
             return;
