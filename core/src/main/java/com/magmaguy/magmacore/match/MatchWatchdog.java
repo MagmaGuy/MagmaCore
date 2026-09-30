@@ -132,7 +132,7 @@ final class MatchWatchdog implements Runnable {
                 Location destination = null;
                 try {
                     destination = match.intruderDestination(player);
-                } catch (RuntimeException failure) {
+                } catch (RuntimeException | LinkageError failure) {
                     Logger.warn("Match " + match.getRuntimeId() + ": intruderDestination failed: " + failure);
                 }
                 if (destination != null) MatchMovement.moveForMatch(match, player, null, destination, MoveReason.EXIT);

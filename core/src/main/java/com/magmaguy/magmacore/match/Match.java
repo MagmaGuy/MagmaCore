@@ -100,7 +100,7 @@ public abstract class Match {
         getActivePlayers().forEach(participant -> startingRoster.add(participant.getUniqueId()));
         try {
             onStart();
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException | LinkageError failure) {
             // A failed start must not leave a half-started match behind.
             Logger.warn("Match " + runtimeId + ": onStart failed, destroying the match: " + failure);
             destroy();
@@ -209,7 +209,7 @@ public abstract class Match {
             Location exit = null;
             try {
                 exit = exitDestination(participant);
-            } catch (RuntimeException failure) {
+            } catch (RuntimeException | LinkageError failure) {
                 Logger.warn("Match " + runtimeId + ": exitDestination failed: " + failure);
             }
             if (exit != null) MatchMovement.moveForMatch(this, player, participant, exit, MoveReason.EXIT);
@@ -267,7 +267,7 @@ public abstract class Match {
         try {
             ReviveMarker supplied = markers.apply(participant);
             if (supplied != null) marker = supplied;
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException | LinkageError failure) {
             Logger.warn("Match " + runtimeId + ": revive marker failed: " + failure);
         }
         new ReviveBanner(this, participant, marker);
@@ -546,11 +546,14 @@ public abstract class Match {
     protected void onReset() {
     }
 
-    /** Runs a plugin or add-on callback so one failure cannot break the lifecycle. */
+    /**
+     * Runs a plugin or add-on callback so one failure cannot break the lifecycle. A LinkageError,
+     * from a jar built against another version of a dependency, counts as a failure too.
+     */
     final boolean guard(String what, BooleanSupplier call, boolean fallback) {
         try {
             return call.getAsBoolean();
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException | LinkageError failure) {
             Logger.warn("Match " + runtimeId + ": " + what + " failed: " + failure);
             return fallback;
         }

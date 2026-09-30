@@ -84,7 +84,7 @@ final class ReviveBanner {
             match.guard("revive marker", () -> marker.show(candidate, dead, dead.lives));
             markerShown = true;
             return true;
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException | LinkageError failure) {
             clear(false);
             throw failure;
         }

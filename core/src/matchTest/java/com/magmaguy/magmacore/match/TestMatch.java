@@ -13,7 +13,8 @@ class TestMatch extends Match {
     Function<MatchPlayer, Location> entry;
     Function<MatchPlayer, Location> exit;
     boolean refuseReservation;
-    RuntimeException throwOnStart;
+    // A RuntimeException or an Error, such as the NoSuchMethodError an incompatible jar causes.
+    Throwable throwOnStart;
     RuntimeException throwOnLeave;
     Boolean participantDuringOnLeave;
     boolean declineAutomaticEnds;
@@ -98,7 +99,8 @@ class TestMatch extends Match {
     @Override
     protected void onStart() {
         hooks.add("onStart");
-        if (throwOnStart != null) throw throwOnStart;
+        if (throwOnStart instanceof RuntimeException failure) throw failure;
+        if (throwOnStart instanceof Error failure) throw failure;
     }
 
     @Override

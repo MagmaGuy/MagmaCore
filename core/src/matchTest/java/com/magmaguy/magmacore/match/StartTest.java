@@ -99,6 +99,28 @@ class StartTest extends MatchTestSupport {
         assertFalse(api.events.contains("started"));
     }
 
+    // Plugin jars built against a different version of a dependency fail with a LinkageError.
+    @Test
+    void anIncompatibleJarFailingOnStartStillDestroysTheMatch() {
+        TestMatch match = openMatch(settings -> settings.countdownSeconds(0));
+        match.throwOnStart = new NoSuchMethodError("built against another version");
+        var alex = player("Alex");
+        match.admit(List.of(alex));
+        assertEquals(MatchPhase.DESTROYED, match.getPhase());
+        assertNull(MatchCore.matchOf(alex));
+    }
+
+    @Test
+    void anIncompatibleAddOnVetoesInsteadOfBreakingAdmission() {
+        TestMatch match = openMatch(settings -> { });
+        api.duringJoinAttempt = () -> {
+            throw new NoSuchMethodError("add-on built against another version");
+        };
+        var alex = player("Alex");
+        assertEquals(AdmissionResult.VETOED, match.admit(List.of(alex)));
+        assertNull(MatchCore.matchOf(alex));
+    }
+
     @Test
     void lateJoinersAreRefusedOnceStarting() {
         TestMatch match = openMatch(settings -> { });

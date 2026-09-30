@@ -109,7 +109,7 @@ public final class PendingMatch {
     private static void run(Consumer<CancelReason> cleanup, CancelReason reason) {
         try {
             cleanup.accept(reason);
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException | LinkageError failure) {
             Logger.warn("A pending match cleanup failed: " + failure);
         }
     }

@@ -63,7 +63,7 @@ final class Admission {
             if (settings.getGameMode() != null)
                 registered.forEach(participant -> participant.getPlayer().setGameMode(settings.getGameMode()));
             for (MatchPlayer participant : registered) entries.add(scheduleEntry(match, participant));
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException | LinkageError failure) {
             entries.forEach(BukkitTask::cancel);
             for (MatchPlayer participant : captured)
                 match.guard("custody release", () -> custody.restore(participant.getPlayer()));
@@ -108,7 +108,7 @@ final class Admission {
             admitted = destination != null
                     && MatchMovement.moveForMatch(match, player, participant, destination, MoveReason.ENTRY);
             participant.entered = admitted;
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException | LinkageError failure) {
             Logger.warn("Match " + match.getRuntimeId() + ": spectator admission failed: " + failure);
         } finally {
             if (!admitted) {
@@ -200,7 +200,7 @@ final class Admission {
             Location destination = null;
             try {
                 destination = match.entryDestination(participant);
-            } catch (RuntimeException failure) {
+            } catch (RuntimeException | LinkageError failure) {
                 Logger.warn("Match " + match.getRuntimeId() + ": entryDestination failed: " + failure);
             }
             if (destination == null || !MatchMovement.moveForMatch(match, player, destination, MoveReason.ENTRY)) {
