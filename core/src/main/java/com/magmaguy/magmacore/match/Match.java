@@ -3,20 +3,25 @@ package com.magmaguy.magmacore.match;
 import com.magmaguy.magmacore.util.AttributeManager;
 import com.magmaguy.magmacore.util.Logger;
 import org.bukkit.Bukkit;
+import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.World;
+import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
-
+import org.bukkit.potion.PotionEffect;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.BooleanSupplier;
+import java.util.function.Function;
 
 /**
  * Base class for every match. The lifecycle lives here; subclasses add game logic through the
@@ -30,6 +35,7 @@ public abstract class Match {
     MatchOutcome outcome;
     private boolean open;
     boolean destroyed;
+    final Map<Block, ReviveBanner> reviveBanners = new HashMap<>();
     private final Set<UUID> startingRoster = new LinkedHashSet<>();
     private MatchWatchdog watchdog;
     private BukkitTask countdownTask;
@@ -173,6 +179,8 @@ public abstract class Match {
         participants.remove(participant);
         MatchCore.untrack(participant);
         MatchMarker.clear(player);
+        for (ReviveBanner banner : List.copyOf(reviveBanners.values()))
+            if (banner.dead() == participant) banner.clear(false);
         guard("restore " + player.getName(), () -> restore(participant));
 
         if (!destroyed && getActivePlayers().isEmpty()
@@ -216,9 +224,56 @@ public abstract class Match {
         }
         guard("onEnd", () -> onEnd(outcome));
         guard("ended callback", () -> settings.getApi().ended(this, outcome));
-        // Lingering lets players loot after a win; an empty match has nobody to wait for.
-        if (settings.getLingerAfterEndTicks() == 0 || participants.isEmpty()) destroy();
+        // Lingering lets players loot after a win; with nobody alive there is nobody to wait for.
+        if (settings.getLingerAfterEndTicks() == 0 || getActivePlayers().isEmpty()) destroy();
         else scheduleDestroy(settings.getLingerAfterEndTicks());
+    }
+
+    /** Lethal damage to an active participant of an ongoing match, already cancelled. */
+    final void handleLethalDamage(MatchPlayer participant) {
+        Player player = participant.getPlayer();
+        // The damage was cancelled, so Bukkit's own death cleanup never runs.
+        for (PotionEffect effect : player.getActivePotionEffects()) player.removePotionEffect(effect.getType());
+        player.setFireTicks(0);
+        player.setFreezeTicks(0);
+        player.setFallDistance(0);
+        guard("onDeath", () -> onDeath(participant));
+        if (getMatchPlayer(player) != participant) return;
+        boolean handled = guard("death policy", () -> {
+            settings.getDeath().handle(this, participant);
+            return true;
+        }, false);
+        if (!handled && getMatchPlayer(player) == participant) leave(player, LeaveReason.DIED);
+    }
+
+    /** The spectate-and-revive death policy. The last active player dying ends the match. */
+    final void spectateUntilRevived(MatchPlayer participant, Function<MatchPlayer, ReviveMarker> markers) {
+        Player player = participant.getPlayer();
+        participant.role = MatchRole.SPECTATOR;
+        if (getActivePlayers().isEmpty()) {
+            leave(player, LeaveReason.DIED);
+            return;
+        }
+        ReviveMarker marker = ReviveMarker.NONE;
+        try {
+            ReviveMarker supplied = markers.apply(participant);
+            if (supplied != null) marker = supplied;
+        } catch (RuntimeException failure) {
+            Logger.warn("Match " + runtimeId + ": revive marker failed: " + failure);
+        }
+        new ReviveBanner(this, participant, marker);
+        player.setGameMode(GameMode.SPECTATOR);
+    }
+
+    final void revive(ReviveBanner banner) {
+        MatchPlayer dead = banner.dead();
+        Player player = dead.getPlayer();
+        if (destroyed || phase != MatchPhase.ONGOING || getMatchPlayer(player) != dead) return;
+        dead.lives--;
+        dead.role = MatchRole.PLAYER;
+        player.setGameMode(settings.getGameMode() != null ? settings.getGameMode() : GameMode.SURVIVAL);
+        player.setHealth(maxHealth(player));
+        MatchMovement.moveForMatch(this, player, dead, banner.respawnLocation(), MoveReason.REVIVE);
     }
 
     /** Destroys the match after {@code ticks}, replacing any destroy already scheduled. */
