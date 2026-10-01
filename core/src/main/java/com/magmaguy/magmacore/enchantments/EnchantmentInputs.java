@@ -33,7 +33,8 @@ public final class EnchantmentInputs implements Listener {
     private static final String DAMAGE_OBSERVER = "nightbreak_enchantment_damage_observer";
     private final Plugin plugin;
     private final String namespace;
-    private final Set<UUID> warned = new HashSet<>();
+    // One line per player and reason: a new kind of rejection still reaches the log after an earlier one was reported.
+    private final Set<String> warned = new HashSet<>();
 
     EnchantmentInputs(Plugin plugin, String namespace) { this.plugin = plugin; this.namespace = namespace; }
     void clearWarnings() { warned.clear(); }
@@ -217,10 +218,14 @@ public final class EnchantmentInputs implements Listener {
     public void shoot(EntityShootBowEvent event) {
         if (!(event.getEntity() instanceof Player player) || !(event.getProjectile() instanceof Projectile projectile) || !elected()) return;
         EquipmentSlot hand = event.getHand();
+        // The bow and the consumed ammunition are separate sources: a bow that cannot be captured (for example one
+        // carrying an enchantment that is no longer registered) must not silently cancel the ammunition's own effects.
         try {
             var captured = capture(player, event.getBow(), slot(hand), inventorySlot(player, hand),
                     event.shouldConsumeItem() ? event.getConsumable() : null, "", projectile.getUniqueId());
             projectile.setMetadata(SHOT, new FixedMetadataValue(plugin, captured));
+        } catch (RuntimeException invalid) { warn(player, invalid); }
+        try {
             if (event.shouldConsumeItem() && projectile instanceof AbstractArrow) {
                 var ammunition = capture(player, event.getConsumable(), slot(hand), inventorySlot(player, hand),
                         event.getConsumable(), "", projectile.getUniqueId());
@@ -354,7 +359,10 @@ public final class EnchantmentInputs implements Listener {
         }
     }
 
-    @EventHandler public void quit(PlayerQuitEvent event) { warned.remove(event.getPlayer().getUniqueId()); }
+    @EventHandler public void quit(PlayerQuitEvent event) {
+        String prefix = event.getPlayer().getUniqueId() + "|";
+        warned.removeIf(key -> key.startsWith(prefix));
+    }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void chat(AsyncPlayerChatEvent event) {
@@ -415,7 +423,8 @@ public final class EnchantmentInputs implements Listener {
         return false;
     }
     private void warn(Player player, RuntimeException failure) {
-        if (warned.add(player.getUniqueId())) plugin.getLogger().warning("Enchantment input rejected for " + player.getName() + ": " + failure.getMessage());
+        if (warned.add(player.getUniqueId() + "|" + failure.getMessage()))
+            plugin.getLogger().warning("Enchantment input rejected for " + player.getName() + ": " + failure.getMessage());
     }
     private static EnchantmentDefinition.Slot slot(EquipmentSlot hand) {
         return hand == EquipmentSlot.HAND ? EnchantmentDefinition.Slot.MAINHAND : EnchantmentDefinition.Slot.OFFHAND;
