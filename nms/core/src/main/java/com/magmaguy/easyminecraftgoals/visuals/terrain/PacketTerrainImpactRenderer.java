@@ -45,8 +45,10 @@ import java.util.UUID;
 
 /**
  * Packet-only renderer for the shared cracked-terrain impact. The real world is never mutated:
- * viewers receive temporary air block changes while packet BlockDisplays carry the copied block
- * appearance through a small, deterministic scale-and-tilt animation.
+ * viewers receive temporary barrier block changes while packet BlockDisplays carry the copied block
+ * appearance through a small, deterministic scale-and-tilt animation. Barriers render invisible but
+ * keep the full-cube collision of the eligible surface blocks, so players standing in the impact
+ * do not fall into a client-side hole and get pulled back by the server every tick.
  */
 public final class PacketTerrainImpactRenderer implements TerrainImpactRenderer, Listener {
     private static final int VIEWER_RECONCILIATION_INTERVAL = 2;
@@ -60,7 +62,7 @@ public final class PacketTerrainImpactRenderer implements TerrainImpactRenderer,
     private final TerrainImpactPlanner planner = new TerrainImpactPlanner();
     private final Map<UUID, ActiveImpact> impacts = new LinkedHashMap<>();
     private final Map<UUID, ViewerState> viewerStates = new HashMap<>();
-    private final BlockData air;
+    private final BlockData mask;
     private final BukkitTask tickTask;
     private long tick;
     private long nextWarningNanos;
@@ -69,7 +71,7 @@ public final class PacketTerrainImpactRenderer implements TerrainImpactRenderer,
     public PacketTerrainImpactRenderer(Plugin plugin, NMSAdapter adapter) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.adapter = Objects.requireNonNull(adapter, "adapter");
-        this.air = Material.AIR.createBlockData();
+        this.mask = Material.BARRIER.createBlockData();
         Bukkit.getPluginManager().registerEvents(this, plugin);
         this.tickTask = Bukkit.getScheduler().runTaskTimer(plugin, this::tick, 1L, 1L);
     }
@@ -311,7 +313,7 @@ public final class PacketTerrainImpactRenderer implements TerrainImpactRenderer,
     private void mask(Player player, BlockKey key) {
         if (!canSendBlockChange(player, key)) return;
         World world = player.getWorld();
-        player.sendBlockChange(key.location(world), air);
+        player.sendBlockChange(key.location(world), mask);
     }
 
     private void restore(Player player, BlockKey key) {
