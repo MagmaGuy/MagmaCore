@@ -36,6 +36,12 @@ val packagePath = "com.magmaguy.shaded"
 tasks.shadowJar {
     relocate("org.luaj", "$packagePath.luaj")
     relocate("org.reflections", "$packagePath.reflections")
+    // Reflections' own dependencies. Left at their original names, every plugin ships the
+    // same classes, and Bukkit's cross-plugin lookup lets another plugin (WorldEdit, for
+    // javax.annotation) bind to whichever copy loaded first, which pins that plugin's old
+    // class loader after a restart-free update. JSR-305 is compile-time only.
+    relocate("javassist", "$packagePath.javassist")
+    exclude("javax/annotation/**")
     archiveBaseName.set("MagmaCore")
     archiveClassifier.set(null as String?)
     archiveVersion.set(project.version.toString())
