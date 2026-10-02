@@ -53,7 +53,8 @@ public final class NightbreakPluginUpdater {
     private static final List<String> AUTO_DOWNLOAD_CONFIG_COMMENTS = List.of(
             "When true, this plugin automatically downloads available plugin updates",
             "and content update files on startup. Downloaded plugin and content",
-            "updates are used after the server restarts.",
+            "updates are used after the server restarts, unless",
+            NightbreakPluginHotSwap.APPLY_MODE_CONFIG_PATH + " applies plugin updates sooner.",
             "Automatic plugin downloads require a valid account token and an active supporter",
             "Patreon membership. Leave this false if you prefer to use the in-game update button.");
     private static final Map<String, PluginUpdateCheck> CACHED_UPDATE_CHECKS = new ConcurrentHashMap<>();
@@ -192,8 +193,18 @@ public final class NightbreakPluginUpdater {
         // edits made since boot. Re-read from disk, and only write when the key is missing.
         plugin.reloadConfig();
         FileConfiguration config = plugin.getConfig();
-        if (config.isSet(AUTO_DOWNLOAD_CONFIG_PATH)) return;
-        setAutoDownloadConfigDefault(config);
+        boolean changed = false;
+        if (!config.isSet(AUTO_DOWNLOAD_CONFIG_PATH)) {
+            setAutoDownloadConfigDefault(config);
+            changed = true;
+        }
+        if (!config.isSet(NightbreakPluginHotSwap.APPLY_MODE_CONFIG_PATH)) {
+            config.addDefault(NightbreakPluginHotSwap.APPLY_MODE_CONFIG_PATH, NightbreakPluginHotSwap.MODE_NEVER);
+            config.setComments(NightbreakPluginHotSwap.APPLY_MODE_CONFIG_PATH,
+                    NightbreakPluginHotSwap.APPLY_MODE_CONFIG_COMMENTS);
+            changed = true;
+        }
+        if (!changed) return;
         config.options().copyDefaults(true);
         plugin.saveConfig();
     }
@@ -211,7 +222,8 @@ public final class NightbreakPluginUpdater {
             if (!isCurrentGeneration(plugin, generation) || !plugin.isEnabled()) return;
             plugin.getLogger().info("Automatic update downloads are enabled.");
             downloadPluginUpdateAsync(plugin, spec, Bukkit.getConsoleSender(), result -> {
-                if (isCurrentGeneration(plugin, generation) && result.downloaded()) {
+                if (isCurrentGeneration(plugin, generation) && result.downloaded()
+                        && NightbreakPluginHotSwap.MODE_NEVER.equals(NightbreakPluginHotSwap.applyMode(plugin))) {
                     plugin.getLogger().info("Downloaded " + spec.displayName() + " " + result.remoteVersion() + ". Restart the server to use it.");
                 }
             });
@@ -410,11 +422,12 @@ public final class NightbreakPluginUpdater {
                     if (!isCurrentGeneration(plugin, generation)) return;
                     Bukkit.getScheduler().runTask(plugin, () -> {
                         if (!isCurrentGeneration(plugin, generation)) return;
-                        sendDownloadResult(sender, spec, result);
-                        if (result.downloaded()) {
+                        sendDownloadResult(sender, plugin, spec, result);
+                        if (callback != null) callback.accept(result);
+                        if (result.downloaded()
+                                && !NightbreakPluginHotSwap.applyDownloadedUpdate(plugin, sender)) {
                             NightbreakPluginUpdateMessages.broadcastRestartRequired(plugin, spec, result, sender);
                         }
-                        if (callback != null) callback.accept(result);
                     });
                 } finally {
                     work.close();
@@ -614,10 +627,11 @@ public final class NightbreakPluginUpdater {
     }
 
     public static void sendDownloadResult(CommandSender sender,
+                                          JavaPlugin plugin,
                                           NightbreakPluginSpec spec,
                                           PluginUpdateDownload result) {
         if (!canMessage(sender)) return;
-        NightbreakPluginUpdateMessages.sendResult(sender, spec, result);
+        NightbreakPluginUpdateMessages.sendResult(sender, plugin, spec, result);
     }
 
     private static DownloadStatus downloadStatusFor(NightbreakAccount.PluginDownloadResult downloadResult) {
@@ -743,6 +757,10 @@ public final class NightbreakPluginUpdater {
         String pluginName = plugin == null ? "" : plugin.getName();
         String slug = spec == null ? "" : spec.pluginSlug();
         return pluginName.toLowerCase(Locale.ROOT) + ":" + slug.toLowerCase(Locale.ROOT);
+    }
+
+    static File updateFolder(JavaPlugin plugin) {
+        return resolveUpdateFolder(plugin);
     }
 
     private static File resolveUpdateFolder(JavaPlugin plugin) {

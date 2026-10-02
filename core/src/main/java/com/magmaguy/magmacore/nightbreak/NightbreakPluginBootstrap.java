@@ -83,6 +83,7 @@ public final class NightbreakPluginBootstrap {
         AtomicBoolean guard = NightbreakPluginStateRegistry.getBulkOperationGuard(plugin);
         commandManager.registerCommand(new NightbreakRecommendedPluginsCommand(plugin, pluginSpec));
         commandManager.registerCommand(new NightbreakDownloadPluginUpdateCommand(plugin, pluginSpec));
+        commandManager.registerCommand(new NightbreakApplyPluginUpdateCommand(plugin, pluginSpec));
         commandManager.registerCommand(new NightbreakDownloadEverythingCommand<>(plugin, pluginSpec, packagesSupplier, guard, reloadAction));
         if (pluginSpec.hasContentPackages()) {
             commandManager.registerCommand(new NightbreakDownloadContentCommand<>(plugin, pluginSpec, packagesSupplier, guard, reloadAction, false));
