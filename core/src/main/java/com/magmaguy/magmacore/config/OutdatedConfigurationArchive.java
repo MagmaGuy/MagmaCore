@@ -200,6 +200,10 @@ public final class OutdatedConfigurationArchive {
                 if (!(current instanceof Map<?, ?> mapping)) return false;
                 current = mapping.get(key);
             }
+            // YAML may load the same whole number as an Integer or a Long.
+            if (value instanceof Number expected)
+                return current instanceof Number actual
+                        && new java.math.BigDecimal(expected.toString()).compareTo(new java.math.BigDecimal(actual.toString())) == 0;
             return value.equals(current);
         }
     }
@@ -272,6 +276,7 @@ public final class OutdatedConfigurationArchive {
 
     private static Object readValue(Object value) throws IOException {
         if (value instanceof String text && !text.isBlank()) return text;
+        if (value instanceof Integer || value instanceof Long) return value;
         if (value instanceof List<?> entries && !entries.isEmpty()) {
             List<String> values = new ArrayList<>(entries.size());
             for (Object entry : entries) {
@@ -281,7 +286,7 @@ public final class OutdatedConfigurationArchive {
             }
             return List.copyOf(values);
         }
-        throw new IOException("An outdated configuration value must be a nonblank string or a nonempty string list");
+        throw new IOException("An outdated configuration value must be a nonblank string, a whole number or a nonempty string list");
     }
 
     private static Set<String> readNames(Object value, String field, String pattern) throws IOException {

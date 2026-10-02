@@ -223,13 +223,27 @@ class OutdatedConfigurationArchiveTest {
         assertFalse(Files.exists(storage()));
     }
 
+    @Test void wholeNumberValueRuleArchivesOnlyTheRetiredDefault() throws Exception {
+        var selected = OutdatedConfigurationArchive.readRules((
+                "menus:\n  - {files: [skill_bonus_menu.yml], key: wandsSlot, value: 25}\n").getBytes(StandardCharsets.UTF_8));
+        Path retired = write("menus/skill_bonus_menu.yml", "wandsSlot: 25\nname: Weapons\n");
+        assertEquals(1, OutdatedConfigurationArchive.archive(data(), storage(), selected).size());
+        assertFalse(Files.exists(retired));
+        for (String yaml : List.of("wandsSlot: 24\n", "wandsSlot: '25'\n", "wandsSlot: 25.5\n", "# wandsSlot: 25\n")) {
+            Path kept = write("menus/skill_bonus_menu.yml", yaml);
+            assertTrue(OutdatedConfigurationArchive.archive(data(), storage(), selected).isEmpty(), yaml);
+            assertEquals(yaml, Files.readString(kept));
+        }
+    }
+
     @Test void rejectsUnboundedOrMalformedValueRules() {
         for (String rule : List.of("{key: a.b, value: old}",
                 "{files: ['*.yml'], key: a.b, value: old}",
                 "{files: [quest.yml], key: a..b, value: old}",
                 "{files: [quest.yml], key: a.*.b, value: old}",
                 "{files: [quest.yml], key: a.b, value: null}",
-                "{files: [quest.yml], key: a.b, value: 1}",
+                "{files: [quest.yml], key: a.b, value: 1.5}",
+                "{files: [quest.yml], key: a.b, value: true}",
                 "{files: [quest.yml], key: a.b, value: ''}",
                 "{files: [quest.yml], key: a.b, value: old, typo: true}"))
             assertThrows(IOException.class, () -> OutdatedConfigurationArchive.readRules(
