@@ -277,4 +277,52 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
         if (rotation == null) return;
         setLeftRotation(rotation);
     }
+
+    @Override
+    public void setBillboard(org.bukkit.entity.Display.Billboard billboard) {
+        entity.setBillboardConstraints(switch (billboard) {
+            case FIXED -> Display.BillboardConstraints.FIXED;
+            case VERTICAL -> Display.BillboardConstraints.VERTICAL;
+            case HORIZONTAL -> Display.BillboardConstraints.HORIZONTAL;
+            case CENTER -> Display.BillboardConstraints.CENTER;
+        });
+    }
+
+    @Override
+    public void setBrightness(int blockLight, int skyLight) {
+        entity.setBrightnessOverride(new net.minecraft.util.Brightness(blockLight, skyLight));
+    }
+
+    @Override
+    public void setViewRange(float range) {
+        entity.setViewRange(range);
+    }
+
+    @Override
+    public void setTransformation(Vector3f translation, Quaternionf leftRotation, Vector3f scale, int interpolationTicks) {
+        entity.setTransformation(new Transformation(translation, leftRotation, scale, new Quaternionf()));
+        entity.setTransformationInterpolationDuration(interpolationTicks);
+        // Clients restart interpolation only when the start delay arrives with the update, and an
+        // unchanged value is not resent. Flipping it marks it dirty without reflection.
+        entity.setTransformationInterpolationDelay(-1);
+        entity.setTransformationInterpolationDelay(0);
+    }
+
+    @Override
+    public void setItemModel(String modelID, Color tint) {
+        if (carrierItem == null) return;
+        ItemMeta meta = carrierItem.getItemMeta();
+        meta.setItemModel(NamespacedKey.fromString(modelID));
+        CustomModelDataComponent cmd = meta.getCustomModelDataComponent();
+        cmd.setColors(List.of(tint));
+        meta.setCustomModelDataComponent(cmd);
+        carrierItem.setItemMeta(meta);
+        nmsCarrierItem = CraftItemStack.asNMSCopy(carrierItem);
+        itemDisplay.setItemStack(nmsCarrierItem);
+    }
+
+    @Override
+    public void queueMetadataUpdate(AbstractPacketBundle packetBundle) {
+        packetBundle.addPacket(createEntityDataPacket(), getViewersAsPlayers());
+    }
 }
