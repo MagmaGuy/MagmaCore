@@ -300,6 +300,21 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
     }
 
     @Override
+    public void setTeleportDuration(int ticks) {
+        int clamped = Math.max(0, Math.min(59, ticks));
+        // The setter is private: Mojang name on Paper, obfuscated "d" on Spigot.
+        for (String name : List.of("setPosRotInterpolationDuration", "d")) {
+            try {
+                Method setter = Display.class.getDeclaredMethod(name, int.class);
+                setter.setAccessible(true);
+                setter.invoke(entity, clamped);
+                return;
+            } catch (ReflectiveOperationException ignored) {
+            }
+        }
+    }
+
+    @Override
     public void setTransformation(Vector3f translation, Quaternionf leftRotation, Vector3f scale, int interpolationTicks) {
         entity.setTransformation(new Transformation(translation, leftRotation, scale, new Quaternionf()));
         entity.setTransformationInterpolationDuration(interpolationTicks);

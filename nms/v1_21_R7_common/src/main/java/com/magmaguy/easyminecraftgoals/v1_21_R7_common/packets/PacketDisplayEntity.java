@@ -296,6 +296,11 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
     }
 
     @Override
+    public void setTeleportDuration(int ticks) {
+        CraftBukkitBridge.setDisplayTeleportDuration(entity, Math.max(0, Math.min(59, ticks)));
+    }
+
+    @Override
     public void setTransformation(Vector3f translation, Quaternionf leftRotation, Vector3f scale, int interpolationTicks) {
         entity.setTransformation(new Transformation(translation, leftRotation, scale, new Quaternionf()));
         entity.setTransformationInterpolationDuration(interpolationTicks);

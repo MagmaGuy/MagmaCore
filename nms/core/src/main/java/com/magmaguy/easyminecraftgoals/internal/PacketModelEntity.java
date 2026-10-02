@@ -45,6 +45,10 @@ public interface PacketModelEntity extends PacketEntityInterface {
     default void setViewRange(float range) {
     }
 
+    /** How many ticks viewers take to glide to a new position after a move. */
+    default void setTeleportDuration(int ticks) {
+    }
+
     /**
      * Sets translation, left rotation and scale. Viewers interpolate from what they show now to
      * this target over {@code interpolationTicks}; 0 snaps.
