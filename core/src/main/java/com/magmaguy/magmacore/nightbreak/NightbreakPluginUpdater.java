@@ -180,31 +180,30 @@ public final class NightbreakPluginUpdater {
         ASYNC_WORK.awaitQuiescence(pluginName, activeWork);
     }
 
+    /**
+     * Registers the shared update keys as defaults. Every plugin's config loader calls
+     * this and then saves, so comment changes reach existing config files on the next
+     * load without touching their values.
+     */
     public static boolean setAutoDownloadConfigDefault(FileConfiguration fileConfiguration) {
         boolean value = fileConfiguration.getBoolean(AUTO_DOWNLOAD_CONFIG_PATH, false);
         fileConfiguration.addDefault(AUTO_DOWNLOAD_CONFIG_PATH, false);
         fileConfiguration.setComments(AUTO_DOWNLOAD_CONFIG_PATH, AUTO_DOWNLOAD_CONFIG_COMMENTS);
+        fileConfiguration.addDefault(NightbreakPluginHotSwap.APPLY_MODE_CONFIG_PATH, NightbreakPluginHotSwap.MODE_NEVER);
+        fileConfiguration.setComments(NightbreakPluginHotSwap.APPLY_MODE_CONFIG_PATH,
+                NightbreakPluginHotSwap.APPLY_MODE_CONFIG_COMMENTS);
         return value;
     }
 
     public static void ensureAutoDownloadConfigDefault(JavaPlugin plugin) {
         // JavaPlugin caches getConfig() from its first call, and plugin "reloads" reuse the
         // same plugin instance — saving that cached snapshot here would clobber any config.yml
-        // edits made since boot. Re-read from disk, and only write when the key is missing.
+        // edits made since boot. Re-read from disk, and only write when a key is missing.
         plugin.reloadConfig();
         FileConfiguration config = plugin.getConfig();
-        boolean changed = false;
-        if (!config.isSet(AUTO_DOWNLOAD_CONFIG_PATH)) {
-            setAutoDownloadConfigDefault(config);
-            changed = true;
-        }
-        if (!config.isSet(NightbreakPluginHotSwap.APPLY_MODE_CONFIG_PATH)) {
-            config.addDefault(NightbreakPluginHotSwap.APPLY_MODE_CONFIG_PATH, NightbreakPluginHotSwap.MODE_NEVER);
-            config.setComments(NightbreakPluginHotSwap.APPLY_MODE_CONFIG_PATH,
-                    NightbreakPluginHotSwap.APPLY_MODE_CONFIG_COMMENTS);
-            changed = true;
-        }
-        if (!changed) return;
+        if (config.isSet(AUTO_DOWNLOAD_CONFIG_PATH)
+                && config.isSet(NightbreakPluginHotSwap.APPLY_MODE_CONFIG_PATH)) return;
+        setAutoDownloadConfigDefault(config);
         config.options().copyDefaults(true);
         plugin.saveConfig();
     }
