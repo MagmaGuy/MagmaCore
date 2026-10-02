@@ -43,6 +43,7 @@ public final class PluginHotSwapRoutine implements Runnable {
     private final String[] loadOrder;
     private final File[] loadFiles;
     private final File stagedJar;
+    private final File[] heldBack;
     private final File workDirectory;
     private final File routineDirectory;
     private final CommandSender sender;
@@ -52,6 +53,7 @@ public final class PluginHotSwapRoutine implements Runnable {
                                 String[] loadOrder,
                                 File[] loadFiles,
                                 File stagedJar,
+                                File[] heldBack,
                                 File workDirectory,
                                 File routineDirectory,
                                 CommandSender sender) {
@@ -60,6 +62,7 @@ public final class PluginHotSwapRoutine implements Runnable {
         this.loadOrder = loadOrder;
         this.loadFiles = loadFiles;
         this.stagedJar = stagedJar;
+        this.heldBack = heldBack;
         this.workDirectory = workDirectory;
         this.routineDirectory = routineDirectory;
         this.sender = sender;
@@ -113,8 +116,14 @@ public final class PluginHotSwapRoutine implements Runnable {
 
         // Both servers apply a jar staged in the update folder whenever they load a
         // plugin, so the update leaves that folder before anything is loaded again.
-        // Otherwise a rollback would load the failed update a second time.
+        // Otherwise a rollback would load the failed update a second time, and a
+        // dependent would pick up its own staged update.
         boolean taken = workDirectory.isDirectory() || workDirectory.mkdirs();
+        File[] heldBackCopies = new File[heldBack.length];
+        for (int i = 0; i < heldBack.length; i++) {
+            File aside = new File(workDirectory, heldBack[i].getName() + ".held");
+            if (moveQuietly(heldBack[i], aside)) heldBackCopies[i] = aside;
+        }
         taken = taken && moveQuietly(stagedJar, incomingJar);
         boolean replaced = taken
                 && copyQuietly(targetJar, previousJar)
@@ -141,6 +150,9 @@ public final class PluginHotSwapRoutine implements Runnable {
             if (dependent == null || !dependent.isEnabled()) {
                 report("§c" + loadOrder[i] + " did not enable again after the swap. Check the console.");
             }
+        }
+        for (int i = 0; i < heldBack.length; i++) {
+            if (heldBackCopies[i] != null) moveQuietly(heldBackCopies[i], heldBack[i]);
         }
         syncCommands();
 

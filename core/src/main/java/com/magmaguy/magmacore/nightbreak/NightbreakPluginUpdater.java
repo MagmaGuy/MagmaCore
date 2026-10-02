@@ -57,6 +57,12 @@ public final class NightbreakPluginUpdater {
             NightbreakPluginHotSwap.APPLY_MODE_CONFIG_PATH + " applies plugin updates sooner.",
             "Automatic plugin downloads require a valid account token and an active supporter",
             "Patreon membership. Leave this false if you prefer to use the in-game update button.");
+    private static final List<String> RESTART_ONLY_AUTO_DOWNLOAD_CONFIG_COMMENTS = List.of(
+            "When true, this plugin automatically downloads available plugin updates",
+            "and content update files on startup. Downloaded plugin and content",
+            "updates are used after the server restarts.",
+            "Automatic plugin downloads require a valid account token and an active supporter",
+            "Patreon membership. Leave this false if you prefer to use the in-game update button.");
     private static final Map<String, PluginUpdateCheck> CACHED_UPDATE_CHECKS = new ConcurrentHashMap<>();
     private static final Map<String, Long> CACHED_UPDATE_CHECK_TIMES = new ConcurrentHashMap<>();
     private static final Set<String> RUNNING_UPDATE_CHECKS = ConcurrentHashMap.newKeySet();
@@ -186,8 +192,21 @@ public final class NightbreakPluginUpdater {
      * load without touching their values.
      */
     public static boolean setAutoDownloadConfigDefault(FileConfiguration fileConfiguration) {
+        return setAutoDownloadConfigDefault(fileConfiguration, true);
+    }
+
+    /**
+     * @param offerRestartFreeUpdates false for a plugin registered with
+     *                                {@link NightbreakPluginHotSwap#requireRestartForUpdates}
+     */
+    public static boolean setAutoDownloadConfigDefault(FileConfiguration fileConfiguration,
+                                                       boolean offerRestartFreeUpdates) {
         boolean value = fileConfiguration.getBoolean(AUTO_DOWNLOAD_CONFIG_PATH, false);
         fileConfiguration.addDefault(AUTO_DOWNLOAD_CONFIG_PATH, false);
+        if (!offerRestartFreeUpdates) {
+            fileConfiguration.setComments(AUTO_DOWNLOAD_CONFIG_PATH, RESTART_ONLY_AUTO_DOWNLOAD_CONFIG_COMMENTS);
+            return value;
+        }
         fileConfiguration.setComments(AUTO_DOWNLOAD_CONFIG_PATH, AUTO_DOWNLOAD_CONFIG_COMMENTS);
         fileConfiguration.addDefault(NightbreakPluginHotSwap.APPLY_MODE_CONFIG_PATH, NightbreakPluginHotSwap.MODE_NEVER);
         fileConfiguration.setComments(NightbreakPluginHotSwap.APPLY_MODE_CONFIG_PATH,
@@ -201,9 +220,10 @@ public final class NightbreakPluginUpdater {
         // edits made since boot. Re-read from disk, and only write when a key is missing.
         plugin.reloadConfig();
         FileConfiguration config = plugin.getConfig();
+        boolean offerRestartFreeUpdates = NightbreakPluginHotSwap.offersRestartFreeUpdates(plugin);
         if (config.isSet(AUTO_DOWNLOAD_CONFIG_PATH)
-                && config.isSet(NightbreakPluginHotSwap.APPLY_MODE_CONFIG_PATH)) return;
-        setAutoDownloadConfigDefault(config);
+                && (!offerRestartFreeUpdates || config.isSet(NightbreakPluginHotSwap.APPLY_MODE_CONFIG_PATH))) return;
+        setAutoDownloadConfigDefault(config, offerRestartFreeUpdates);
         config.options().copyDefaults(true);
         plugin.saveConfig();
     }

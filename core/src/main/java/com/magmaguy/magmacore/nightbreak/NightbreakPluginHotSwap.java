@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
@@ -53,6 +54,7 @@ public final class NightbreakPluginHotSwap {
     private static final String ROUTINE_DIRECTORY_PREFIX = "routine-";
     private static final String OWN_MAIN_CLASS_PREFIX = "com.magmaguy.";
     private static final long WHEN_EMPTY_CHECK_TICKS = 20L * 30L;
+    private static final java.util.Map<String, String> RESTART_ONLY = new ConcurrentHashMap<>();
 
     private NightbreakPluginHotSwap() {
     }
@@ -63,13 +65,27 @@ public final class NightbreakPluginHotSwap {
                 File stagedJar,
                 File workDirectory,
                 List<String> loadOrder,
-                List<File> loadFiles) {
+                List<File> loadFiles,
+                List<File> heldBack) {
     }
 
     record PlanResult(Plan plan, String refusal) {
         static PlanResult refused(String refusal) {
             return new PlanResult(null, refusal);
         }
+    }
+
+    /**
+     * Keeps this plugin's updates waiting for a restart, for example because part of
+     * it runs outside Bukkit and cannot reload. Call before update checks start. The
+     * plugin still reloads with its current jar when a plugin it depends on is swapped.
+     */
+    public static void requireRestartForUpdates(JavaPlugin plugin, String reason) {
+        RESTART_ONLY.put(plugin.getName(), reason);
+    }
+
+    static boolean offersRestartFreeUpdates(JavaPlugin plugin) {
+        return !RESTART_ONLY.containsKey(plugin.getName());
     }
 
     public static boolean hasStagedUpdate(JavaPlugin plugin) {
@@ -153,6 +169,7 @@ public final class NightbreakPluginHotSwap {
     }
 
     static String applyMode(JavaPlugin plugin) {
+        if (!offersRestartFreeUpdates(plugin)) return MODE_NEVER;
         File configFile = new File(plugin.getDataFolder(), "config.yml");
         if (!configFile.exists()) return MODE_NEVER;
         String mode = YamlConfiguration.loadConfiguration(configFile)
@@ -168,6 +185,10 @@ public final class NightbreakPluginHotSwap {
     static PlanResult plan(JavaPlugin plugin) {
         if (!Bukkit.isPrimaryThread()) {
             return PlanResult.refused("Plugin swaps must start on the server thread.");
+        }
+        String restartReason = RESTART_ONLY.get(plugin.getName());
+        if (restartReason != null) {
+            return PlanResult.refused(plugin.getName() + " updates need a server restart: " + restartReason);
         }
         File pluginJar = findPluginJar(plugin);
         if (pluginJar == null) {
@@ -234,6 +255,18 @@ public final class NightbreakPluginHotSwap {
             loadFiles.add(candidateJar);
         }
 
+        // Loading a plugin also applies any update staged for it. Only the target may
+        // change version, so every other staged jar for these plugins waits aside.
+        List<File> heldBack = new ArrayList<>();
+        File[] staged = stagedJar.getParentFile().listFiles();
+        if (staged != null) {
+            for (File file : staged) {
+                if (file.equals(stagedJar) || !file.getName().toLowerCase(Locale.ROOT).endsWith(".jar")) continue;
+                PluginDescriptionFile description = readDescription(file);
+                if (description != null && members.contains(description.getName())) heldBack.add(file);
+            }
+        }
+
         File workDirectory = new File(pluginJar.getParentFile(), WORK_DIRECTORY);
         return new PlanResult(new Plan(plugin.getName(),
                 runningVersion,
@@ -241,7 +274,8 @@ public final class NightbreakPluginHotSwap {
                 stagedJar,
                 workDirectory,
                 List.copyOf(loadOrder),
-                List.copyOf(loadFiles)), null);
+                List.copyOf(loadFiles),
+                List.copyOf(heldBack)), null);
     }
 
     private static boolean dependsOnAny(Plugin candidate, Set<String> names) {
@@ -284,12 +318,13 @@ public final class NightbreakPluginHotSwap {
         }
         return (Runnable) routineClass.getConstructor(
                         String.class, String[].class, String[].class, File[].class,
-                        File.class, File.class, File.class, CommandSender.class)
+                        File.class, File[].class, File.class, File.class, CommandSender.class)
                 .newInstance(plan.targetName(),
                         unloadOrder,
                         loadOrder.toArray(new String[0]),
                         plan.loadFiles().toArray(new File[0]),
                         plan.stagedJar(),
+                        plan.heldBack().toArray(new File[0]),
                         plan.workDirectory(),
                         routineDirectory.toFile(),
                         sender);
