@@ -64,9 +64,15 @@ public final class EnchantmentInputs implements Listener {
         events.put(event, Boolean.TRUE);
     }
 
-    private static boolean isExplicitDamage(EntityDamageByEntityEvent event) {
-        return event.getDamager().getMetadata(OWNED_DAMAGE_EVENTS).stream()
-                .anyMatch(value -> value.value() instanceof Map<?, ?> events && events.containsKey(event));
+    /**
+     * Whether a plugin applied this hit on purpose (a burn, an arc, a counter) rather than the player
+     * swinging or shooting. Input owners use it so programmatic damage is never read as an attack.
+     */
+    public static boolean isExplicitDamage(EntityDamageByEntityEvent event) {
+        if (event.getDamager().getMetadata(OWNED_DAMAGE_EVENTS).stream()
+                .anyMatch(value -> value.value() instanceof Map<?, ?> events && events.containsKey(event))) return true;
+        Player actor = damageActor(event);
+        return actor != null && actor.hasMetadata(EXPLICIT_DAMAGE);
     }
 
     /** Uses the elected native input observer; a cancelled or absent hit is not an applied effect. */
@@ -299,7 +305,7 @@ public final class EnchantmentInputs implements Listener {
                 @SuppressWarnings("unchecked") var typed = (java.util.function.Consumer<EntityDamageByEntityEvent>) observer;
                 typed.accept(event);
             }
-        if (isExplicitDamage(event) || actor.hasMetadata(EXPLICIT_DAMAGE)) return;
+        if (isExplicitDamage(event)) return;
         if (event.isCancelled() || event.getFinalDamage() <= 0 || !(event.getEntity() instanceof LivingEntity target)) return;
         if (event.getDamager() instanceof Player player) {
             fire(player, player.getInventory().getItemInMainHand(), EnchantmentDefinition.Slot.MAINHAND,
