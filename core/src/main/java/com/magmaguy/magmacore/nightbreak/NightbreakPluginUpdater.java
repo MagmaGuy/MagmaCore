@@ -202,29 +202,58 @@ public final class NightbreakPluginUpdater {
     public static boolean setAutoDownloadConfigDefault(FileConfiguration fileConfiguration,
                                                        boolean offerRestartFreeUpdates) {
         boolean value = fileConfiguration.getBoolean(AUTO_DOWNLOAD_CONFIG_PATH, false);
-        fileConfiguration.addDefault(AUTO_DOWNLOAD_CONFIG_PATH, false);
-        if (!offerRestartFreeUpdates) {
-            fileConfiguration.setComments(AUTO_DOWNLOAD_CONFIG_PATH, RESTART_ONLY_AUTO_DOWNLOAD_CONFIG_COMMENTS);
-            return value;
-        }
-        fileConfiguration.setComments(AUTO_DOWNLOAD_CONFIG_PATH, AUTO_DOWNLOAD_CONFIG_COMMENTS);
-        fileConfiguration.addDefault(NightbreakPluginHotSwap.APPLY_MODE_CONFIG_PATH, NightbreakPluginHotSwap.MODE_NEVER);
-        fileConfiguration.setComments(NightbreakPluginHotSwap.APPLY_MODE_CONFIG_PATH,
-                NightbreakPluginHotSwap.APPLY_MODE_CONFIG_COMMENTS);
+        writeSharedKeys(fileConfiguration, offerRestartFreeUpdates);
         return value;
+    }
+
+    /** @return whether the configuration content changed */
+    private static boolean writeSharedKeys(FileConfiguration configuration, boolean offerRestartFreeUpdates) {
+        boolean changed = writeSharedKey(configuration, AUTO_DOWNLOAD_CONFIG_PATH, false,
+                offerRestartFreeUpdates ? AUTO_DOWNLOAD_CONFIG_COMMENTS : RESTART_ONLY_AUTO_DOWNLOAD_CONFIG_COMMENTS);
+        if (offerRestartFreeUpdates) {
+            changed |= writeSharedKey(configuration, NightbreakPluginHotSwap.APPLY_MODE_CONFIG_PATH,
+                    NightbreakPluginHotSwap.MODE_NEVER, NightbreakPluginHotSwap.APPLY_MODE_CONFIG_COMMENTS);
+        }
+        return changed;
+    }
+
+    /**
+     * Writes a missing value explicitly rather than only as a default, because Bukkit
+     * drops comments on a path that exists only in the defaults. Existing values stay;
+     * comments are replaced when their wording changed.
+     */
+    private static boolean writeSharedKey(FileConfiguration configuration, String path, Object defaultValue,
+                                          List<String> comments) {
+        configuration.addDefault(path, defaultValue);
+        boolean changed = false;
+        if (!configuration.isSet(path)) {
+            configuration.set(path, defaultValue);
+            changed = true;
+        }
+        if (!sameComments(configuration.getComments(path), comments)) {
+            configuration.setComments(path, comments);
+            changed = true;
+        }
+        return changed;
+    }
+
+    private static boolean sameComments(List<String> current, List<String> expected) {
+        if (current == null || current.size() != expected.size()) return false;
+        for (int i = 0; i < expected.size(); i++) {
+            String line = current.get(i);
+            if (line == null || !line.trim().equals(expected.get(i).trim())) return false;
+        }
+        return true;
     }
 
     public static void ensureAutoDownloadConfigDefault(JavaPlugin plugin) {
         // JavaPlugin caches getConfig() from its first call, and plugin "reloads" reuse the
         // same plugin instance — saving that cached snapshot here would clobber any config.yml
-        // edits made since boot. Re-read from disk, and only write when a key is missing.
+        // edits made since boot. Re-read from disk, and only write when a shared key or its
+        // comment is missing or outdated.
         plugin.reloadConfig();
         FileConfiguration config = plugin.getConfig();
-        boolean offerRestartFreeUpdates = NightbreakPluginHotSwap.offersRestartFreeUpdates(plugin);
-        if (config.isSet(AUTO_DOWNLOAD_CONFIG_PATH)
-                && (!offerRestartFreeUpdates || config.isSet(NightbreakPluginHotSwap.APPLY_MODE_CONFIG_PATH))) return;
-        setAutoDownloadConfigDefault(config, offerRestartFreeUpdates);
-        config.options().copyDefaults(true);
+        if (!writeSharedKeys(config, NightbreakPluginHotSwap.offersRestartFreeUpdates(plugin))) return;
         plugin.saveConfig();
     }
 
