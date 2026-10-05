@@ -5,20 +5,28 @@ import com.magmaguy.magmacore.util.SpigotMessage;
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
+import org.bukkit.plugin.InvalidDescriptionException;
+import org.bukkit.plugin.PluginDescriptionFile;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
 
 public final class NightbreakPluginInstaller {
     private static final Set<String> RUNNING_INSTALLS =
@@ -137,25 +145,35 @@ public final class NightbreakPluginInstaller {
             return new InstallResult(InstallStatus.NO_TOKEN, entry, versionInfo.version, null, null);
         }
 
-        File updateFolder = resolveUpdateFolder(ownerPlugin);
-        if (!updateFolder.exists() && !updateFolder.mkdirs()) {
-            return new InstallResult(InstallStatus.DOWNLOAD_FAILED, entry, versionInfo.version, null,
-                    "Could not create update folder: " + updateFolder.getPath());
-        }
-
         String targetFileName = targetFileName(entry, versionInfo.fileName);
         if (targetFileName == null) {
             return new InstallResult(InstallStatus.DOWNLOAD_FAILED, entry,
                     versionInfo.version, null,
                     "The update service returned an unsafe plugin filename.");
         }
+        File pluginsFolder = ownerPlugin.getDataFolder().getParentFile();
+        if (pluginsFolder == null) {
+            return new InstallResult(InstallStatus.DOWNLOAD_FAILED, entry, versionInfo.version, null,
+                    "Could not find the plugins folder.");
+        }
+        // Bukkit and Paper load a jar from the update folder only to replace a jar already in
+        // the plugins folder. A plugin with no jar there goes straight into the plugins folder.
+        File existingJar = findExistingJar(pluginsFolder, targetFileName, entry.allPluginNames());
+        boolean newInstall = existingJar == null;
+        File destinationFolder = newInstall ? pluginsFolder : resolveUpdateFolder(ownerPlugin);
+        String destinationName = newInstall ? targetFileName : existingJar.getName();
+        if (!destinationFolder.exists() && !destinationFolder.mkdirs()) {
+            return new InstallResult(InstallStatus.DOWNLOAD_FAILED, entry, versionInfo.version, null,
+                    "Could not create folder: " + destinationFolder.getPath());
+        }
+
         File tempFile = new File(
-                updateFolder,
-                targetFileName + "." + generation + "."
+                destinationFolder,
+                destinationName + "." + generation + "."
                         + UUID.randomUUID() + ".download");
-        File targetFile = new File(updateFolder, targetFileName);
+        File targetFile = new File(destinationFolder, destinationName);
         File legacyTempFile =
-                new File(updateFolder, targetFileName + ".download");
+                new File(destinationFolder, destinationName + ".download");
         if (legacyTempFile.exists() && !legacyTempFile.delete()) {
             return new InstallResult(
                     InstallStatus.DOWNLOAD_FAILED,
@@ -222,7 +240,10 @@ public final class NightbreakPluginInstaller {
                     NightbreakPluginUpdater.publishIfLifecycleCurrent(
                             ownerPlugin,
                             generation,
-                            () -> moveReplacing(tempFile, targetFile));
+                            () -> {
+                                if (newInstall) moveWithoutReplacing(tempFile, targetFile);
+                                else moveReplacing(tempFile, targetFile);
+                            });
             if (!published) {
                 tempFile.delete();
                 return new InstallResult(
@@ -232,6 +253,10 @@ public final class NightbreakPluginInstaller {
                         null,
                         "Plugin lifecycle changed before the install could be published.");
             }
+        } catch (FileAlreadyExistsException exception) {
+            tempFile.delete();
+            return new InstallResult(InstallStatus.DOWNLOAD_FAILED, entry, versionInfo.version, null,
+                    targetFile.getName() + " appeared in the plugins folder during the download and was left unchanged.");
         } catch (IOException exception) {
             tempFile.delete();
             return new InstallResult(InstallStatus.DOWNLOAD_FAILED, entry, versionInfo.version, null, exception.getMessage());
@@ -372,6 +397,64 @@ public final class NightbreakPluginInstaller {
         }
         File pluginsFolder = plugin.getDataFolder().getParentFile();
         return new File(pluginsFolder, "update");
+    }
+
+    /**
+     * The jar already in the plugins folder for this entry: its catalog filename, or any jar
+     * that declares one of its plugin names. Null when the plugin has no jar there.
+     */
+    private static File findExistingJar(File pluginsFolder, String catalogFileName, List<String> pluginNames) {
+        File catalogJar = new File(pluginsFolder, catalogFileName);
+        if (catalogJar.exists()) return catalogJar;
+        File[] jars = pluginsFolder.listFiles((folder, name) -> name.toLowerCase(Locale.ROOT).endsWith(".jar"));
+        if (jars == null) return null;
+        for (File jar : jars) {
+            String declaredName = declaredPluginName(jar);
+            if (declaredName == null) continue;
+            for (String pluginName : pluginNames) {
+                // Bukkit stores plugin names with spaces replaced by underscores.
+                if (declaredName.equalsIgnoreCase(pluginName.replace(' ', '_'))) return jar;
+            }
+        }
+        return null;
+    }
+
+    private static String declaredPluginName(File jar) {
+        if (!jar.isFile()) return null;
+        try (JarFile jarFile = new JarFile(jar)) {
+            JarEntry descriptor = jarFile.getJarEntry("plugin.yml");
+            if (descriptor == null) return null;
+            try (InputStream input = jarFile.getInputStream(descriptor)) {
+                return new PluginDescriptionFile(input).getName();
+            }
+        } catch (IOException | InvalidDescriptionException | RuntimeException exception) {
+            return null;
+        }
+    }
+
+    /**
+     * Publishes a download under a name the plugins folder does not have. A hard link appears
+     * at once and fails if the name exists, whereas ATOMIC_MOVE replaces the target on Windows
+     * and Linux.
+     */
+    private static void moveWithoutReplacing(File source, File target) throws IOException {
+        Path sourcePath = source.toPath();
+        Path targetPath = target.toPath();
+        try {
+            Files.createLink(targetPath, sourcePath);
+        } catch (FileAlreadyExistsException exists) {
+            throw exists;
+        } catch (UnsupportedOperationException | IOException linkFailed) {
+            // Without hard links, a move without REPLACE_EXISTING still refuses an existing target.
+            Files.move(sourcePath, targetPath);
+            return;
+        }
+        try {
+            Files.deleteIfExists(sourcePath);
+        } catch (IOException ignored) {
+            // The jar is published. A leftover .download file is not loaded as a plugin.
+            source.deleteOnExit();
+        }
     }
 
     private static void moveReplacing(File source, File target) throws IOException {

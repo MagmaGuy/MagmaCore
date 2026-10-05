@@ -12,6 +12,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public final class NightbreakSetupControls {
@@ -53,15 +54,19 @@ public final class NightbreakSetupControls {
 
     public static MenuButton setupInfoButton(NightbreakPluginSpec spec, String wikiUrl, String discordUrl) {
         String recommendedCommand = "/" + spec.rootCommand() + " recommendedplugins";
+        List<String> lore = new ArrayList<>();
+        lore.add("&2To setup the optional/recommended content for " + spec.displayName() + ":");
+        lore.add("&6- &fConnect your Nightbreak token from &anightbreak.io/account");
+        if (NightbreakSubcommands.isRegistered(null, spec, NightbreakSubcommands.RECOMMENDED_PLUGINS)) {
+            lore.add("&6- &fCheck recommended plugins with &a" + recommendedCommand);
+        }
+        lore.add("&6- &fCheck out MagmaGuy's other plugins");
+        lore.add("&f  with &a/nightbreak plugins");
+        lore.add("&2That's it!");
+        lore.add("&6Click for more info and links!");
         return new MenuButton(ItemStackGenerator.generateSkullItemStack("magmaguy",
                 "&2Installation tips:",
-                List.of("&2To setup the optional/recommended content for " + spec.displayName() + ":",
-                        "&6- &fConnect your Nightbreak token from &anightbreak.io/account",
-                        "&6- &fCheck recommended plugins with &a" + recommendedCommand,
-                        "&6- &fCheck out MagmaGuy's other plugins",
-                        "&f  with &a/nightbreak plugins",
-                        "&2That's it!",
-                        "&6Click for more info and links!"))) {
+                lore)) {
             @Override
             public void onClick(Player player) {
                 player.closeInventory();
@@ -82,22 +87,26 @@ public final class NightbreakSetupControls {
                         SpigotMessage.hoverLinkMessage("&a" + wikiUrl,
                                 "&7Click to open the setup documentation.",
                                 wikiUrl));
-                player.spigot().sendMessage(
-                        SpigotMessage.commandHoverMessage("&2&lRecommended plugins: &a" + recommendedCommand,
-                                "&7Click to see plugins that work well with " + spec.displayName() + ".",
-                                recommendedCommand));
+                if (NightbreakSubcommands.isRegistered(null, spec, NightbreakSubcommands.RECOMMENDED_PLUGINS)) {
+                    player.spigot().sendMessage(
+                            SpigotMessage.commandHoverMessage("&2&lRecommended plugins: &a" + recommendedCommand,
+                                    "&7Click to see plugins that work well with " + spec.displayName() + ".",
+                                    recommendedCommand));
+                }
                 player.spigot().sendMessage(
                         SpigotMessage.commandHoverMessage("&2&lPlugin catalog: &a/nightbreak plugins",
                                 "&7Click to browse MagmaGuy's plugins.",
                                 "/nightbreak plugins"));
-                player.spigot().sendMessage(
-                        SpigotMessage.commandHoverMessage((spec.hasContentPackages()
-                                        ? "&2&lUpdate plugin & content: &a/"
-                                        : "&2&lUpdate plugin: &a/") + spec.rootCommand() + " downloadall",
-                                spec.hasContentPackages()
-                                        ? "&7Click to download a plugin update if available and install content."
-                                        : "&7Click to download a plugin update if available.",
-                                "/" + spec.rootCommand() + " downloadall"));
+                if (NightbreakSubcommands.isRegistered(null, spec, NightbreakSubcommands.DOWNLOAD_ALL)) {
+                    player.spigot().sendMessage(
+                            SpigotMessage.commandHoverMessage((spec.hasContentPackages()
+                                            ? "&2&lUpdate plugin & content: &a/"
+                                            : "&2&lUpdate plugin: &a/") + spec.rootCommand() + " downloadall",
+                                    spec.hasContentPackages()
+                                            ? "&7Click to download a plugin update if available and install content."
+                                            : "&7Click to download a plugin update if available.",
+                                    "/" + spec.rootCommand() + " downloadall"));
+                }
                 Logger.sendSimpleMessage(player, NightbreakSetupMenuHelper.getSeparator());
             }
         };
@@ -149,7 +158,11 @@ public final class NightbreakSetupControls {
                 lore = List.of("&7Installed: &f" + check.localVersion(),
                         "&7Available: &a" + check.remoteVersion(),
                         "&7Click to download the plugin update.",
-                        "&7Restart the server to use it.");
+                        switch (NightbreakPluginHotSwap.applyMode(plugin)) {
+                            case NightbreakPluginHotSwap.MODE_IMMEDIATELY -> "&7It is applied without a restart once downloaded.";
+                            case NightbreakPluginHotSwap.MODE_WHEN_EMPTY -> "&7It is applied the next time no players are online.";
+                            default -> "&7Restart the server to use it.";
+                        });
             } else if (check.remoteVersion() == null || check.remoteVersion().isBlank()) {
                 material = Material.ORANGE_STAINED_GLASS_PANE;
                 name = "&6Could Not Check Plugin Update";
@@ -211,18 +224,34 @@ public final class NightbreakSetupControls {
         public ItemStack getItemstack() {
             boolean enabled = NightbreakPluginUpdater.isAutoDownloadPluginUpdatesEnabled(plugin);
             boolean hasContent = spec.hasContentPackages();
+            String applyMode = NightbreakPluginHotSwap.applyMode(plugin);
+            List<String> lore = new ArrayList<>();
+            if (enabled) {
+                lore.add("&7" + spec.displayName() + " checks on startup.");
+                lore.add(hasContent ? "&7Plugin and content updates download automatically." : "&7Plugin updates download automatically.");
+                switch (applyMode) {
+                    case NightbreakPluginHotSwap.MODE_IMMEDIATELY -> lore.add("&7Plugin updates apply as soon as they download.");
+                    case NightbreakPluginHotSwap.MODE_WHEN_EMPTY -> lore.add("&7Plugin updates apply when no players are online.");
+                    default -> lore.add("&7Restart the server to use updates.");
+                }
+                if (hasContent && !NightbreakPluginHotSwap.MODE_NEVER.equals(applyMode)) {
+                    lore.add("&7Downloaded content is used after a restart.");
+                }
+                lore.add("&eClick to turn this off.");
+            } else {
+                lore.add("&7Default: off.");
+                lore.add("&7Click to let " + spec.displayName());
+                lore.add(hasContent ? "&7download plugin and content updates on startup." : "&7download plugin updates on startup.");
+                lore.add(switch (applyMode) {
+                    case NightbreakPluginHotSwap.MODE_IMMEDIATELY -> "&7Plugin updates then apply as soon as they download.";
+                    case NightbreakPluginHotSwap.MODE_WHEN_EMPTY -> "&7Plugin updates then apply when no players are online.";
+                    default -> "&7Restart is still required.";
+                });
+            }
             ItemStack itemStack = ItemStackGenerator.generateItemStack(
                     enabled ? Material.LIME_STAINED_GLASS_PANE : Material.RED_STAINED_GLASS_PANE,
                     enabled ? "&aAutomatic Updates: ON" : "&cAutomatic Updates: OFF",
-                    enabled
-                            ? List.of("&7" + spec.displayName() + " checks on startup.",
-                            hasContent ? "&7Plugin and content updates download automatically." : "&7Plugin updates download automatically.",
-                            "&7Restart the server to use updates.",
-                            "&eClick to turn this off.")
-                            : List.of("&7Default: off.",
-                            "&7Click to let " + spec.displayName(),
-                            hasContent ? "&7download plugin and content updates on startup." : "&7download plugin updates on startup.",
-                            "&7Restart is still required."));
+                    lore);
             NightbreakSetupIcons.applyItemModel(itemStack,
                     enabled ? NightbreakSetupIcons.MODEL_CHECKMARK : NightbreakSetupIcons.MODEL_RED_CROSS);
             return itemStack;
@@ -241,9 +270,14 @@ public final class NightbreakSetupControls {
             Logger.sendSimpleMessage(player, newValue
                     ? "<g:#77dd77:#d4ff9d>Automatic updates enabled</g>&7 for &f" + spec.displayName() + "&7."
                     : "<g:#ff8a8a:#ffd1d1>Automatic updates disabled</g>&7 for &f" + spec.displayName() + "&7.");
-            Logger.sendSimpleMessage(player, spec.hasContentPackages()
-                    ? "&7This downloads plugin and content updates on startup. Restart the server to use a downloaded plugin update."
-                    : "&7This downloads plugin updates on startup. Restart the server to use a downloaded plugin update.");
+            Logger.sendSimpleMessage(player, (spec.hasContentPackages()
+                    ? "&7This downloads plugin and content updates on startup. "
+                    : "&7This downloads plugin updates on startup. ")
+                    + switch (NightbreakPluginHotSwap.applyMode(plugin)) {
+                        case NightbreakPluginHotSwap.MODE_IMMEDIATELY -> "A downloaded plugin update is applied without a restart as soon as it downloads.";
+                        case NightbreakPluginHotSwap.MODE_WHEN_EMPTY -> "A downloaded plugin update is applied the next time no players are online.";
+                        default -> "Restart the server to use a downloaded plugin update.";
+                    });
             Logger.sendSimpleMessage(player, NightbreakSetupMenuHelper.getSeparator());
         }
     }

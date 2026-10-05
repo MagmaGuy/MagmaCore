@@ -55,7 +55,7 @@ final class NightbreakPluginUpdateMessages {
             Logger.sendSimpleMessage(sender, "&eThe update will be applied the next time no players are online.");
         } else {
             Logger.sendSimpleMessage(sender, "&eRestart the server to use the update.");
-            if (NightbreakPluginHotSwap.offersRestartFreeUpdates(plugin)) {
+            if (offersApplyCommand(plugin, spec)) {
                 Logger.sendSimpleMessage(sender, "&7Or apply it now without a restart: &a/" + spec.rootCommand() + " applypluginupdate");
             }
             Logger.sendSimpleMessage(sender, "&cDo not use other plugin reloaders for this. The running server is still using the old jar.");
@@ -81,7 +81,7 @@ final class NightbreakPluginUpdateMessages {
             Logger.sendSimpleMessage(player, "&7Downloaded version &a" + result.remoteVersion()
                     + " &7over the running version &f" + result.localVersion() + "&7.");
             Logger.sendSimpleMessage(player, "&eRestart the server now to use the updated plugin jar.");
-            if (NightbreakPluginHotSwap.offersRestartFreeUpdates(plugin)) {
+            if (offersApplyCommand(plugin, spec)) {
                 Logger.sendSimpleMessage(player, "&7Or apply it without a restart: &a/" + spec.rootCommand() + " applypluginupdate");
             }
             Logger.sendSimpleMessage(player, "&cUntil the restart, " + spec.displayName()
@@ -91,6 +91,11 @@ final class NightbreakPluginUpdateMessages {
             }
             sendSeparator(player);
         }
+    }
+
+    private static boolean offersApplyCommand(JavaPlugin plugin, NightbreakPluginSpec spec) {
+        return NightbreakPluginHotSwap.offersRestartFreeUpdates(plugin)
+                && NightbreakSubcommands.isRegistered(plugin, spec, NightbreakSubcommands.APPLY_PLUGIN_UPDATE);
     }
 
     private static boolean shouldReceiveRestartNotice(Player player, JavaPlugin plugin, NightbreakPluginSpec spec) {
