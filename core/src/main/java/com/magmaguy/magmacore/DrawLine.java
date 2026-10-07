@@ -5,6 +5,7 @@ import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.entity.BlockDisplay;
 import org.bukkit.entity.Display;
+import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.Transformation;
@@ -36,6 +37,15 @@ public class DrawLine {
     }
 
     public static LineData drawLine(Location start, Location end, float width, Material material, int tickDuration) {
+        return spawnLine(start, end, width, material, tickDuration, null);
+    }
+
+    /** Draws a line that only {@code viewer} can see, e.g. for editor previews. */
+    public static LineData drawLine(Location start, Location end, float width, Material material, int tickDuration, Player viewer) {
+        return spawnLine(start, end, width, material, tickDuration, viewer);
+    }
+
+    private static LineData spawnLine(Location start, Location end, float width, Material material, int tickDuration, Player viewer) {
         float height = (float) start.distance(end);
         if (height <= 0f) return null;
 
@@ -60,6 +70,8 @@ public class DrawLine {
         spawnLoc.add(worldCenterOffset.x, worldCenterOffset.y, worldCenterOffset.z);
 
         BlockDisplay display = spawnLoc.getWorld().spawn(spawnLoc, BlockDisplay.class, entity -> {
+            // Hidden before the spawn is broadcast, so other players never see it, even for a tick
+            if (viewer != null) entity.setVisibleByDefault(false);
             entity.setBlock(Bukkit.createBlockData(material));
             entity.setInterpolationDuration(0);
             entity.setViewRange(128);
@@ -72,6 +84,8 @@ public class DrawLine {
                     new Quaternionf()
             ));
         });
+
+        if (viewer != null) viewer.showEntity(MagmaCore.getInstance().getRequestingPlugin(), display);
 
         if (tickDuration > 0) {
             pendingRemovals.add(new PendingRemoval(display, tickDuration));
