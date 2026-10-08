@@ -525,6 +525,12 @@ public abstract class Match {
         return settings.getPermission();
     }
 
+    /** Whether this player may join past {@link #requiredPermission()}; hosts can add their own exemptions. */
+    protected boolean hasJoinPermission(Player player) {
+        String permission = requiredPermission();
+        return permission == null || player.hasPermission(permission);
+    }
+
     /** Admission failed after this player was created; undo anything createPlayer recorded. */
     protected void onAdmissionRolledBack(MatchPlayer player) {
     }

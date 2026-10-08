@@ -151,9 +151,7 @@ final class Admission {
             // Either index disagreeing counts as occupied rather than letting one player join two matches.
             if (MatchMarker.occupied(player) || MatchCore.participant(player) != null)
                 return AdmissionResult.ALREADY_IN_MATCH;
-            String permission = match.requiredPermission();
-            if (permission != null && !player.hasPermission(permission))
-                return AdmissionResult.NO_PERMISSION;
+            if (!match.hasJoinPermission(player)) return AdmissionResult.NO_PERMISSION;
         }
         return AdmissionResult.ADMITTED;
     }
