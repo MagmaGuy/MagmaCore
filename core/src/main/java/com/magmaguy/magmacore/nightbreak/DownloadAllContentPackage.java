@@ -101,6 +101,7 @@ public class DownloadAllContentPackage<T extends NightbreakManagedContent> exten
             String slug = contentPackage.getNightbreakSlug();
             if (slug == null || slug.isEmpty()) continue;
             if (!seenSlugs.add(slug)) continue;
+            if (NightbreakContentManager.isKnownUnpublished(slug)) continue;
             if (!contentPackage.isDownloaded()
                     && (contentPackage.getCachedAccessInfo() == null
                     || contentPackage.getCachedAccessInfo().hasAccess)) {
@@ -144,6 +145,7 @@ public class DownloadAllContentPackage<T extends NightbreakManagedContent> exten
         for (T contentPackage : packagesSupplier.get()) {
             String slug = contentPackage.getNightbreakSlug();
             if (slug == null || slug.isEmpty()) continue;
+            if (NightbreakContentManager.isKnownUnpublished(slug)) continue;
             if (!contentPackage.isDownloaded()
                     && (contentPackage.getCachedAccessInfo() == null
                     || contentPackage.getCachedAccessInfo().hasAccess)) {

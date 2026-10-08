@@ -417,6 +417,7 @@ public class ConfigurationImporter {
         }
         transaction.prepareFile(normalizedDestination);
         copyFileAtomicallyWithRetry(normalizedSource, normalizedDestination);
+        transaction.recordInstalled(normalizedDestination);
     }
 
     private static void copyFileAtomicallyWithRetry(Path source, Path destination) throws IOException {
@@ -599,7 +600,7 @@ public class ConfigurationImporter {
             }
             long started = System.nanoTime();
             try {
-                installed = processUnzippedFile(unzippedFolder);
+                installed = processUnzippedFile(unzippedFolder, source.getName());
             } finally {
                 installationMillis = elapsedMillis(started);
             }
@@ -619,7 +620,7 @@ public class ConfigurationImporter {
         }
     }
 
-    private boolean processUnzippedFile(File unzippedFolder) {
+    private boolean processUnzippedFile(File unzippedFolder, String archiveName) {
         PluginPlatform platform = pluginPlatform;
         File[] unzippedFiles;
         try {
@@ -686,6 +687,10 @@ public class ConfigurationImporter {
             exception.printStackTrace();
             return false;
         }
+        ImportManifests manifests = new ImportManifests(ownerPlugin.getDataFolder().getParentFile().toPath());
+        String packageKey = ImportManifests.packageKey(archiveName);
+        List<String> installedFiles = new ArrayList<>();
+        List<String> archivedFiles;
         try {
             for (ImportCandidate candidate : candidates) {
                 moveUnzippedFiles(
@@ -693,6 +698,13 @@ public class ConfigurationImporter {
                         candidate.targetPath(),
                         transaction);
             }
+            for (Path installedFile : transaction.installedFiles()) {
+                String relative = manifests.relativize(installedFile);
+                if (relative != null) installedFiles.add(relative);
+            }
+            archivedFiles = packageKey == null
+                    ? List.of()
+                    : archiveDroppedFiles(manifests, packageKey, installedFiles, transaction);
             transaction.commit();
             for (ImportCandidate candidate : candidates) {
                 recordSuccessfulImport(candidate);
@@ -712,7 +724,54 @@ public class ConfigurationImporter {
             exception.printStackTrace();
             return false;
         }
+        if (packageKey != null) {
+            try {
+                manifests.save(packageKey, archiveName, installedFiles);
+            } catch (IOException exception) {
+                Logger.warn("Imported " + archiveName + ", but could not record its installed files; the next"
+                        + " update of this package cannot clean up files it stops shipping: " + exception.getMessage());
+            }
+        }
+        if (!archivedFiles.isEmpty()) {
+            Logger.info("Moved " + archivedFiles.size() + " file(s) that " + archiveName
+                    + " no longer ships to plugins/MagmaCore/" + com.magmaguy.magmacore.config.OutdatedConfigurationArchive.DIRECTORY
+                    + ": " + String.join(", ", archivedFiles.subList(0, Math.min(10, archivedFiles.size())))
+                    + (archivedFiles.size() > 10 ? " and " + (archivedFiles.size() - 10) + " more." : "."));
+        }
         return true;
+    }
+
+    /**
+     * Moves files the previous version of this package installed, but this version no longer ships, out of
+     * the live content folders. They are archived rather than deleted because plugins rewrite the configs
+     * they load, so an administrator's edits cannot be told apart from that by content.
+     */
+    private static List<String> archiveDroppedFiles(
+            ImportManifests manifests,
+            String packageKey,
+            List<String> installedFiles,
+            ImportTransaction transaction) {
+        List<String> dropped;
+        try {
+            dropped = manifests.droppedFiles(packageKey, installedFiles);
+        } catch (IOException exception) {
+            Logger.warn("Could not read the import record for " + packageKey
+                    + "; files it no longer ships stay in place: " + exception.getMessage());
+            return List.of();
+        }
+        if (dropped.isEmpty()) return dropped;
+        String batch = ImportManifests.batchName(packageKey);
+        List<String> archived = new ArrayList<>();
+        for (String path : dropped) {
+            try {
+                transaction.archiveFile(manifests.resolve(path), manifests.archiveDestination(path, batch));
+                archived.add(path);
+            } catch (IOException exception) {
+                Logger.warn("Could not move " + path + ", which " + packageKey
+                        + " no longer ships; it stays in place: " + exception.getMessage());
+            }
+        }
+        return archived;
     }
 
     /**
@@ -822,6 +881,8 @@ public class ConfigurationImporter {
                 new LinkedHashMap<>();
         private final Set<Path> createdFiles = new LinkedHashSet<>();
         private final Set<Path> createdDirectories = new LinkedHashSet<>();
+        private final Set<Path> installedFiles = new LinkedHashSet<>();
+        private final Map<Path, Path> archivedFiles = new LinkedHashMap<>();
         private int nextBackupId;
         private boolean closed;
 
@@ -905,6 +966,38 @@ public class ConfigurationImporter {
             }
         }
 
+        void recordInstalled(Path file) {
+            installedFiles.add(file.normalize().toAbsolutePath());
+        }
+
+        Set<Path> installedFiles() {
+            return Collections.unmodifiableSet(installedFiles);
+        }
+
+        /**
+         * Moves a file this import no longer ships into its archive location. Rollback moves it back.
+         */
+        void archiveFile(Path source, Path destination) throws IOException {
+            ensureOpen();
+            Path normalizedSource = source.normalize().toAbsolutePath();
+            Path normalizedDestination = destination.normalize().toAbsolutePath();
+            if (fileBackups.containsKey(normalizedSource) || createdFiles.contains(normalizedSource)) {
+                throw new IOException("This import also writes " + normalizedSource);
+            }
+            if (Files.isSymbolicLink(normalizedSource) ||
+                    !Files.isRegularFile(normalizedSource, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                throw new IOException("Not a safe regular file: " + normalizedSource);
+            }
+            if (Files.exists(normalizedDestination, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                throw new IOException("Archive destination already exists: " + normalizedDestination);
+            }
+            Path parent = normalizedDestination.getParent();
+            if (parent == null) throw new IOException("Archive destination has no parent: " + normalizedDestination);
+            prepareDirectory(parent);
+            moveWithAtomicFallback(normalizedSource, normalizedDestination);
+            archivedFiles.put(normalizedSource, normalizedDestination);
+        }
+
         void displaceDirectory(Path directory) throws IOException {
             ensureOpen();
             Path normalized = directory.normalize().toAbsolutePath();
@@ -955,6 +1048,18 @@ public class ConfigurationImporter {
                                 backup.getValue(),
                                 backup.getKey()));
             }
+            List<Map.Entry<Path, Path>> archived =
+                    new ArrayList<>(archivedFiles.entrySet());
+            Collections.reverse(archived);
+            for (Map.Entry<Path, Path> moved : archived) {
+                rollbackFailure = collectFailure(
+                        rollbackFailure,
+                        () -> {
+                            Path parent = moved.getKey().getParent();
+                            if (parent != null) Files.createDirectories(parent);
+                            moveWithAtomicFallback(moved.getValue(), moved.getKey());
+                        });
+            }
             for (Path created : reverseByDepth(createdDirectories)) {
                 rollbackFailure = collectFailure(
                         rollbackFailure,
@@ -988,6 +1093,8 @@ public class ConfigurationImporter {
                         Logger.warn("Import recovery file: " + backup + " -> " + destination));
                 displacedDirectories.forEach((destination, backup) ->
                         Logger.warn("Import recovery directory: " + backup + " -> " + destination));
+                archivedFiles.forEach((original, archivedCopy) ->
+                        Logger.warn("Import recovery file: " + archivedCopy + " -> " + original));
                 rollbackFailure.addSuppressed(originalFailure);
                 throw new IOException("Import rollback failed; recovery copies retained at "
                         + backupRoot, rollbackFailure);

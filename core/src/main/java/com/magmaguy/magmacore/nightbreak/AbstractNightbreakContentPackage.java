@@ -85,6 +85,10 @@ public abstract class AbstractNightbreakContentPackage extends ContentPackage im
             NightbreakSetupMenuHelper.sendNoTokenPrompt(player, getPluginDisplayName(), getContentPageUrl());
             return;
         }
+        if (NightbreakContentManager.isKnownUnpublished(slug)) {
+            Logger.sendSimpleMessage(player, "&e" + getDisplayName() + "&e hasn't been released on Nightbreak yet.");
+            return;
+        }
 
         JavaPlugin plugin = getOwnerPlugin();
         NightbreakContentManager.OperationGate lifecycleGate =

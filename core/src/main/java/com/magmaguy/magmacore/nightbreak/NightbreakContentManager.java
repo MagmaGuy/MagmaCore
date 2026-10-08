@@ -61,6 +61,14 @@ public class NightbreakContentManager {
     }
 
     /**
+     * True when the published Nightbreak catalog is loaded and does not list this slug: a plugin already
+     * offers the package, but it has not been released yet. False whenever the catalog is unavailable.
+     */
+    public static boolean isKnownUnpublished(String slug) {
+        return slug != null && !slug.isEmpty() && !versionCache.isEmpty() && !versionCache.containsKey(slug);
+    }
+
+    /**
      * Clears all caches.
      */
     public static void clearCache() {

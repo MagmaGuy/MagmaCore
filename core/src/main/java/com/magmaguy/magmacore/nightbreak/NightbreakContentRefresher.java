@@ -140,6 +140,11 @@ public class NightbreakContentRefresher {
                 }
                 String slug = contentPackage.getNightbreakSlug();
                 if (slug == null || slug.isEmpty()) continue;
+                if (!versionInfoBySlug.isEmpty() && !versionInfoBySlug.containsKey(slug)) {
+                    // Not released on Nightbreak yet, so an access check could only answer DLC_NOT_FOUND.
+                    contentPackage.setCachedAccessInfo(null);
+                    continue;
+                }
 
                 NightbreakAccount iterationAccount = NightbreakAccount.getInstance();
                 if (iterationAccount != null) {

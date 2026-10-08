@@ -264,6 +264,7 @@ public final class NightbreakBulkDownloader {
             String slug = pkg.getNightbreakSlug();
             if (slug == null || slug.isEmpty()) continue;
             if (!seenSlugs.add(slug)) continue;
+            if (NightbreakContentManager.isKnownUnpublished(slug)) continue;
             if (mode == DownloadMode.FORCE_REINSTALL) {
                 downloadable.add(pkg);
             } else if (mode == DownloadMode.UPDATE) {

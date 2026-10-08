@@ -869,6 +869,7 @@ public class NightbreakAccount {
     // until the token is replaced — there's no point reporting them per slug.
     // Network failures (IOException): rate-limit to one summary per window;
     // counts of suppressed entries are flushed when the window resets.
+    private static final java.util.Set<String> unpublishedDlcReported = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private static volatile boolean suppressAuthFailureLogs = false;
     private static volatile int lastAuthFailureStatus = 0;
     private static volatile String lastAuthFailureBody = null;
@@ -937,6 +938,12 @@ public class NightbreakAccount {
                     + ": " + body
                     + ". Get a new token at https://nightbreak.io/account/ and run "
                     + "/nightbreaklogin <token>, then try again. Further token errors will be hidden until the token changes.");
+            return;
+        }
+        // A plugin can offer a package before it is released on Nightbreak. That is expected, not an error.
+        if (responseCode == 404 && errorResponse != null && errorResponse.contains("\"DLC_NOT_FOUND\"")) {
+            if (unpublishedDlcReported.add(urlString))
+                Logger.info("Nightbreak has not released " + urlString + " yet.");
             return;
         }
         // Other HTTP errors are rare enough to log every time.
