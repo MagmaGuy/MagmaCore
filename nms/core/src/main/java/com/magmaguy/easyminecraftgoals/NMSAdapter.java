@@ -293,6 +293,22 @@ public abstract class NMSAdapter {
     }
 
     /**
+     * Sends one viewer the passengers of a packet-only vehicle. The server's own entities do not change,
+     * so a seated player still has no vehicle on the server.
+     */
+    public void sendPacketPassengers(org.bukkit.entity.Player viewer, int vehicleEntityId, int[] passengerEntityIds) {
+        throw new UnsupportedOperationException("Packet passengers are not supported by this adapter");
+    }
+
+    /**
+     * Moves a player on the server without sending the client a position or firing movement events.
+     * For riders of packet-only vehicles: their clients follow the vehicle and report no position.
+     */
+    public void setServerPosition(org.bukkit.entity.Player player, Location location) {
+        throw new UnsupportedOperationException("Server-side player positioning is not supported by this adapter");
+    }
+
+    /**
      * Creates a packet-only custom visual entity. Java viewers receive the carrier
      * entity packets directly; Bedrock viewers first receive the registered custom
      * Bedrock definition id through the active BedrockCustomEntityBridge.

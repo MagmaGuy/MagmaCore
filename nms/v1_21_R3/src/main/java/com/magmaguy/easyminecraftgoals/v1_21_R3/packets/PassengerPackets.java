@@ -14,10 +14,10 @@ import java.util.List;
 import java.util.UUID;
 
 /** Copies passenger packets per recipient; never changes a packet shared with another player. */
-final class PassengerPackets {
+public final class PassengerPackets {
     private PassengerPackets() { }
 
-    static ClientboundSetPassengersPacket create(int vehicle, int[] passengers) {
+    public static ClientboundSetPassengersPacket create(int vehicle, int[] passengers) {
         FriendlyByteBuf buffer = new FriendlyByteBuf(Unpooled.buffer());
         try {
             buffer.writeVarInt(vehicle);

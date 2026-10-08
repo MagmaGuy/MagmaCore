@@ -286,6 +286,21 @@ public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter {
     }
 
     @Override
+    public void sendPacketPassengers(org.bukkit.entity.Player viewer, int vehicleEntityId, int[] passengerEntityIds) {
+        ((org.bukkit.craftbukkit.v1_21_R5.entity.CraftPlayer) viewer).getHandle().connection.send(
+                com.magmaguy.easyminecraftgoals.v1_21_R5.packets.PassengerPackets.create(vehicleEntityId, passengerEntityIds));
+    }
+
+    @Override
+    public void setServerPosition(org.bukkit.entity.Player player, Location location) {
+        net.minecraft.server.level.ServerPlayer handle = ((org.bukkit.craftbukkit.v1_21_R5.entity.CraftPlayer) player).getHandle();
+        handle.setPos(location.getX(), location.getY(), location.getZ());
+        // The next movement check starts from here, and chunks follow the player as if it had walked.
+        handle.connection.resetPosition();
+        ((net.minecraft.server.level.ServerLevel) handle.level()).getChunkSource().move(handle);
+    }
+
+    @Override
     public FakeText createFakeText(Location location, FakeTextSettings settings) {
         return new FakeTextImpl(location, settings);
     }

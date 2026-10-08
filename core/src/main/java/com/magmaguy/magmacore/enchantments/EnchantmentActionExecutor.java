@@ -437,6 +437,16 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
                         lease.close();
                         return LuaValue.TRUE;
                     }));
+                    // The ride is this action's owned work: it ends the action when it ends, and stopping
+                    // the action (including replace_previous) gets the player off.
+                    table.set("ride_rails", LuaTableSupport.tableMethod(table, args -> {
+                        if (!(getBukkitEntity() instanceof Player player) || !isScriptOwnerActive()) return LuaValue.FALSE;
+                        var ride = com.magmaguy.magmacore.rails.RailRide.start(plugin, player, args.checkdouble(1));
+                        if (ride == null) return LuaValue.FALSE;
+                        instance.ownCleanup(ride::close);
+                        instance.ownRepeating(1, 1, () -> { if (!ride.tick()) instance.shutdown(); });
+                        return LuaValue.TRUE;
+                    }));
                     yield table;
                 }
                 default -> LuaValue.NIL;

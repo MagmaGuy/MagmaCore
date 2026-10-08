@@ -1,7 +1,9 @@
 package com.magmaguy.easyminecraftgoals;
 
 import com.magmaguy.easyminecraftgoals.internal.PacketEntityTracker;
+import com.magmaguy.easyminecraftgoals.internal.PacketSeatImpl;
 import com.magmaguy.easyminecraftgoals.visuals.terrain.PacketTerrainImpactRenderer;
+import com.magmaguy.magmacore.rails.PacketSeats;
 import com.magmaguy.magmacore.visuals.terrain.TerrainImpactService;
 import lombok.Getter;
 import org.bukkit.Bukkit;
@@ -67,6 +69,8 @@ public class NMSManager {
                         "Packet terrain impacts are unavailable: {0}",
                         terrainImpactFailure.getMessage());
             }
+            NMSAdapter installed = adapter;
+            PacketSeats.install((rider, vehicle, location) -> new PacketSeatImpl(installed, rider, vehicle, location));
         } catch (ClassNotFoundException e) {
             plugin.getLogger().log(Level.SEVERE, "Class not found: {0}", e.getMessage());
         } catch (ReflectiveOperationException e) {
@@ -102,6 +106,7 @@ public class NMSManager {
         com.magmaguy.easyminecraftgoals.internal.pathfinding.LongRangePathfindingHandle.shutdownPlanning();
         // Terrain displays must be removed while the adapter is still available to send packets.
         TerrainImpactService.shutdown();
+        PacketSeats.shutdown();
         if (adapter != null) {
             adapter.shutdownMindHost();
             adapter.shutdownPacketInteractionListener();
