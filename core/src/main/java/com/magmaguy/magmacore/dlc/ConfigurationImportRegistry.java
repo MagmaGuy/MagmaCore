@@ -179,13 +179,26 @@ final class ConfigurationImportRegistry {
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.EXTRACTIONCRAFT, "components", importer -> importer.getBetterStructuresPath().resolve("components"));
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.EXTRACTIONCRAFT, "modules", importer -> importer.getBetterStructuresPath().resolve("modules"));
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.EXTRACTIONCRAFT, "module_generators", importer -> importer.getBetterStructuresPath().resolve("module_generators"));
+        // The rest of a match map's BetterStructures and EliteMobs content: shrine schematics, chest
+        // treasures, world generators, and what its bosses, items and NPCs name.
+        registerPlatformFolder(ConfigurationImporter.PluginPlatform.EXTRACTIONCRAFT, "schematics", importer -> importer.getBetterStructuresPath().resolve("schematics"));
+        registerPlatformFolder(ConfigurationImporter.PluginPlatform.EXTRACTIONCRAFT, "treasures", importer -> importer.getBetterStructuresPath().resolve("treasures"));
+        registerPlatformFolder(ConfigurationImporter.PluginPlatform.EXTRACTIONCRAFT, "generators", importer -> importer.getBetterStructuresPath().resolve("generators"));
+        registerPlatformFolder(ConfigurationImporter.PluginPlatform.EXTRACTIONCRAFT, "enchantments", importer -> importer.getEliteMobsPath().resolve("enchantments"));
+        registerPlatformFolder(ConfigurationImporter.PluginPlatform.EXTRACTIONCRAFT, "npc_scripts", importer -> importer.getEliteMobsPath().resolve("npc_scripts"));
+        registerPlatformFolder(ConfigurationImporter.PluginPlatform.EXTRACTIONCRAFT, "behaviors", importer -> importer.getEliteMobsPath().resolve("behaviors"));
 
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.ETERNALTD, "npcs", importer -> importer.getEternalTDPath().resolve("npcs"));
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.ETERNALTD, "levels", importer -> importer.getEternalTDPath().resolve("levels"));
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.ETERNALTD, "waves", importer -> importer.getEternalTDPath().resolve("waves"));
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.ETERNALTD, "worlds", importer -> importer.getEternalTDPath().resolve("worlds"));
+        // EternalTD lists packages from content_packages/ in /etd setup and reads their install markers from content_markers/.
+        registerPlatformFolder(ConfigurationImporter.PluginPlatform.ETERNALTD, "content_packages", importer -> importer.getEternalTDPath().resolve("content_packages"));
+        registerPlatformFolder(ConfigurationImporter.PluginPlatform.ETERNALTD, "content_markers", importer -> importer.getEternalTDPath().resolve("content_markers"));
 
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.MEGABLOCKSURVIVORS, "content_packages", importer -> importer.getMegaBlockSurvivorsPath().resolve("content_packages"));
+        // Lobby NPCs (match starter, meta progression).
+        registerPlatformFolder(ConfigurationImporter.PluginPlatform.MEGABLOCKSURVIVORS, "npcs", importer -> importer.getMegaBlockSurvivorsPath().resolve("npcs"));
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.MEGABLOCKSURVIVORS, "schematics", importer -> importer.getMegaBlockSurvivorsPath().resolve("schematics"));
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.MEGABLOCKSURVIVORS, "worlds", importer -> importer.getMegaBlockSurvivorsPath().resolve("worlds"));
         registerPlatformFolder(ConfigurationImporter.PluginPlatform.MEGABLOCKSURVIVORS, "megablocksurvivors", ConfigurationImporter::getMegaBlockSurvivorsPath);
