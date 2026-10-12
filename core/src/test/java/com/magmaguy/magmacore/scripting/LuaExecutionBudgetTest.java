@@ -9,9 +9,14 @@ import java.io.File;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongSupplier;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTimeout;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -125,6 +130,51 @@ class LuaExecutionBudgetTest {
 
         assertTrue(error.getMessage().contains("elapsed-time fallback budget exceeded"));
         assertTrue(error.getMessage().contains("current-thread CPU time unavailable"));
+    }
+
+    @Test
+    void measuredInvocationInsideAnotherHostsCallbackUsesItsOwnFrame() {
+        // A Mind tick's attack fires a synchronous damage event, whose enchantment query is measured.
+        Globals globals = LuaEnvironmentFactory.createGlobals();
+        LuaValue sum = globals.load(
+                "return function(n) local total = 0; for i = 1, n do total = total + i end; return total end"
+        ).call();
+        AtomicReference<LuaExecutionBudget.Measurement<LuaValue>> nested = new AtomicReference<>();
+
+        LuaValue outer = LuaExecutionBudget.run(() -> {
+            nested.set(LuaExecutionBudget.measure(() -> sum.call(LuaValue.valueOf(5_000)),
+                    TimeUnit.MILLISECONDS.toNanos(10), 100_000L));
+            // The outer limit only fits the outer loop, so the nested loop must not be charged to it.
+            return sum.call(LuaValue.valueOf(5_000));
+        }, TimeUnit.MILLISECONDS.toNanos(LuaExecutionBudget.MAX_CPU_MILLIS), 15_000L);
+
+        assertNull(nested.get().failure());
+        assertEquals(12_502_500, nested.get().value().checkint());
+        assertTrue(nested.get().instructions() >= 5_000L, "the nested frame counts its own instructions");
+        assertEquals(12_502_500, outer.checkint());
+    }
+
+    @Test
+    void nestedMeasurementTimeIsNotChargedToTheOuterHost() {
+        long limit = TimeUnit.MILLISECONDS.toNanos(LuaExecutionBudget.MAX_CPU_MILLIS);
+        AtomicLong outerClock = new AtomicLong();
+
+        assertDoesNotThrow(() -> LuaExecutionBudget.run(() -> {
+            var nested = LuaExecutionBudget.measure(() -> outerClock.addAndGet(limit * 2),
+                    TimeUnit.MILLISECONDS.toNanos(10), 1_000L);
+            assertNull(nested.failure());
+            return outerClock.addAndGet(limit / 2);
+        }, clock(LuaExecutionBudget.ClockKind.THREAD_CPU_TIME, outerClock::get)));
+    }
+
+    @Test
+    void measuredInvocationStillRefusesToReenterItsOwnHost() {
+        var outer = LuaExecutionBudget.measure(() -> LuaExecutionBudget.run(() ->
+                        LuaExecutionBudget.measure(() -> 1, 1_000_000L, 1_000L)),
+                1_000_000L, 1_000L);
+
+        assertInstanceOf(IllegalStateException.class, outer.failure());
+        assertTrue(outer.failure().getMessage().contains("cannot reenter its host"));
     }
 
     private static LuaError runWithAdvancingClock(

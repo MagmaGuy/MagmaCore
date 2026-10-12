@@ -8,6 +8,7 @@ import com.magmaguy.magmacore.ai.MindActionSink;
 import com.magmaguy.magmacore.ai.MindBodyCapabilities;
 import com.magmaguy.magmacore.ai.MindBodyLocomotion;
 import com.magmaguy.magmacore.ai.MindBodyProfile;
+import com.magmaguy.magmacore.ai.MindBodyRejectedException;
 import com.magmaguy.magmacore.ai.MindFailure;
 import com.magmaguy.magmacore.ai.MindFailureListener;
 import com.magmaguy.magmacore.ai.MindHandle;
@@ -148,7 +149,7 @@ public final class NativeMindHost implements MindHost {
                 throw new IllegalStateException("Mind body was removed during preparation");
             }
             if (!level.addFreshEntity(mob, org.bukkit.event.entity.CreatureSpawnEvent.SpawnReason.CUSTOM)) {
-                throw new IllegalStateException("Minecraft rejected the native mind body spawn");
+                throw new MindBodyRejectedException("Minecraft rejected the native mind body spawn");
             }
             published = true;
             return body;

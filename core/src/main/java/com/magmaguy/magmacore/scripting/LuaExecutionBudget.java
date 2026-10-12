@@ -48,16 +48,25 @@ public final class LuaExecutionBudget {
      * pass the remaining allowance of a cross-provider batch. Nested engine calls share it.
      * Elapsed usage is charged at least at one fifth, matching the existing fallback allowance.
      * This also bounds clocks whose CPU resolution is coarser than an individual invocation.
+     * <p>
+     * Another host's callback can synchronously cause a measured invocation, for example when a
+     * Mind tick's attack fires a damage event that evaluates an enchantment query. The measured
+     * invocation then runs in its own frame, and its time is not charged to the interrupted
+     * frame. A measured invocation can still not reenter itself.
      */
     public static <T> Measurement<T> measure(java.util.function.Supplier<T> call,
                                             long maxCpuNanos, long maxInstructions) {
         if (maxCpuNanos <= 0 || maxCpuNanos > TimeUnit.MILLISECONDS.toNanos(MAX_CPU_MILLIS)
                 || maxInstructions <= 0 || maxInstructions > MAX_INSTRUCTIONS)
             throw new IllegalArgumentException("Lua allowance exceeds the engine ceiling");
-        if (ACTIVE_BUDGET.get() != null)
+        Budget interrupted = ACTIVE_BUDGET.get();
+        if (interrupted != null && interrupted.measured)
             throw new IllegalStateException("A measured Lua invocation cannot reenter its host");
         Budget budget = new Budget(new LimitedExecutionClock(SYSTEM_CLOCK, maxCpuNanos, maxCpuNanos * 5), maxInstructions);
+        budget.measured = true;
         budget.enforceElapsedCeiling = true;
+        long interruptedClockMark = interrupted == null ? 0L : interrupted.clock.nanoTime();
+        long interruptedElapsedMark = System.nanoTime();
         ACTIVE_BUDGET.set(budget);
         T value = null;
         RuntimeException failure = null;
@@ -66,7 +75,12 @@ public final class LuaExecutionBudget {
         } catch (RuntimeException exception) {
             failure = exception;
         } finally {
-            ACTIVE_BUDGET.remove();
+            if (interrupted == null) {
+                ACTIVE_BUDGET.remove();
+            } else {
+                ACTIVE_BUDGET.set(interrupted);
+                interrupted.exclude(interruptedClockMark, interruptedElapsedMark);
+            }
         }
         try {
             if (budget.instructions > budget.instructionLimit)
@@ -222,10 +236,11 @@ public final class LuaExecutionBudget {
         private ExecutionClock clock;
         private final ExecutionClock fallbackClock;
         private long clockStartNanos;
-        private final long elapsedStartNanos;
+        private long elapsedStartNanos;
         private final long instructionLimit;
         private long instructions;
         private boolean enforceElapsedCeiling;
+        private boolean measured;
 
         private Budget(ExecutionClock requestedClock, long instructionLimit) {
             elapsedStartNanos = System.nanoTime();
@@ -243,6 +258,13 @@ public final class LuaExecutionBudget {
         private void useElapsedFallback() {
             clock = fallbackClock;
             clockStartNanos = elapsedStartNanos;
+        }
+
+        /** Moves this frame's start past a nested measured invocation so it is not charged here. */
+        private void exclude(long clockMark, long elapsedMark) {
+            long clockNow = clock.nanoTime();
+            if (clockMark >= 0L && clockNow >= clockMark) clockStartNanos += clockNow - clockMark;
+            elapsedStartNanos += Math.max(0L, System.nanoTime() - elapsedMark);
         }
     }
 

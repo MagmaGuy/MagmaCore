@@ -34,6 +34,9 @@ public interface MindHost {
      * Prepares the marked carrier before publishing its CreatureSpawnEvent. The callback may bind
      * its Mind and configure the entity. Rejection or failure closes any attached Mind and removes
      * the unpublished body. Callers retain responsibility for their own external bookkeeping.
+     *
+     * @throws MindBodyRejectedException when the world refuses the prepared body, for example
+     *                                   through a cancelled CreatureSpawnEvent
      */
     MobBody spawnBody(Location location, MindBodyProfile profile, Consumer<MobBody> preparation);
 
