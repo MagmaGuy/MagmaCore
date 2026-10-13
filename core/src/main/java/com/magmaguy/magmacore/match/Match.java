@@ -201,8 +201,10 @@ public abstract class Match {
         guard("custody restore", () -> settings.getCustody().restore(player));
         if (settings.getGameMode() != null || participant.role == MatchRole.SPECTATOR)
             player.setGameMode(participant.getPreviousGameMode());
-        // Healing only after the match is over mirrors EliteMobs: a mid-match exit keeps its damage.
-        if (phase == MatchPhase.ENDED && player.isOnline() && !player.isDead())
+        // A mid-match exit keeps its damage, as in EliteMobs, but a death heals as a real one would.
+        // It heals before the exit move, which can remove a max-health bonus and keep the ratio.
+        if ((phase == MatchPhase.ENDED || participant.leaveReason == LeaveReason.DIED)
+                && player.isOnline() && !player.isDead())
             player.setHealth(maxHealth(player));
         // A player who already walked or teleported out keeps where they are.
         if (player.isOnline() && contains(player.getLocation())) {

@@ -2,9 +2,13 @@ package com.magmaguy.magmacore.match;
 
 import org.bukkit.GameMode;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeModifier;
 import org.bukkit.block.Block;
 import org.bukkit.event.block.BlockDamageEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.inventory.EquipmentSlotGroup;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.junit.jupiter.api.Test;
@@ -57,6 +61,47 @@ class DeathTest extends MatchTestSupport {
 
         lethal(bea, EntityDamageEvent.DamageCause.CUSTOM);
         assertEquals(MatchOutcome.DEFEAT, match.getOutcome());
+    }
+
+    // A real death resets health. The heal must land before the exit move, because plugins such as
+    // EliteMobs remove max-health bonuses on the way out while keeping the health ratio.
+    @Test
+    void theLastActivePlayerDyingLeavesAtFullHealthBeforeTheExitMove() {
+        var alex = player("Alex");
+        TestMatch match = ongoing(settings -> settings.death(DeathPolicy.spectateAndRevive(3)), alex);
+        alex.getAttribute(Attribute.MAX_HEALTH).addModifier(new AttributeModifier(
+                new NamespacedKey("matchtest", "bonus"), 30, AttributeModifier.Operation.ADD_NUMBER,
+                EquipmentSlotGroup.ANY));
+        alex.setHealth(18);
+        List<Double> healthAtExit = new ArrayList<>();
+        match.exit = participant -> {
+            healthAtExit.add(participant.getPlayer().getHealth());
+            return at(overworld, 0.5, 64, 0.5);
+        };
+
+        assertTrue(lethal(alex, EntityDamageEvent.DamageCause.CUSTOM).isCancelled());
+
+        assertTrue(match.hooks.contains("onLeave:Alex:DIED"));
+        assertEquals(MatchOutcome.DEFEAT, match.getOutcome());
+        assertEquals(List.of(50.0), healthAtExit);
+        assertEquals(50.0, alex.getHealth());
+        assertEquals(overworld, alex.getWorld());
+    }
+
+    @Test
+    void aPlayerEliminatedWhileOthersPlayOnLeavesAtFullHealth() {
+        var alex = player("Alex");
+        var bea = player("Bea");
+        TestMatch match = ongoing(settings -> settings.death(DeathPolicy.eliminate()), alex, bea);
+        alex.setHealth(5);
+        bea.setHealth(7);
+
+        lethal(alex, EntityDamageEvent.DamageCause.CUSTOM);
+
+        assertNull(MatchCore.matchOf(alex));
+        assertEquals(20.0, alex.getHealth());
+        assertEquals(MatchPhase.ONGOING, match.getPhase());
+        assertEquals(7.0, bea.getHealth());
     }
 
     @Test
