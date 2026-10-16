@@ -61,7 +61,7 @@ public final class StackedText {
         if (removed || anchor == null || anchor.getWorld() == null) return;
         if (this.anchor != null && !this.anchor.getWorld().equals(anchor.getWorld())) clearViewers();
         this.anchor = anchor.clone();
-        for (Viewer viewer : viewers.values()) moveRows(viewer);
+        for (Map.Entry<UUID, Viewer> entry : viewers.entrySet()) moveRows(entry.getKey(), entry.getValue());
     }
 
     /**
@@ -82,7 +82,8 @@ public final class StackedText {
                 || this.vehicle.getEntityId() != vehicle.getEntityId());
         this.vehicle = vehicle;
         if (!changed) return;
-        for (Viewer viewer : viewers.values()) {
+        for (Map.Entry<UUID, Viewer> entry : viewers.entrySet()) {
+            Viewer viewer = entry.getValue();
             if (viewer.bedrock || viewer.rows.size() != lines.size()) continue;
             for (int i = 0; i < viewer.rows.size(); i++) {
                 FakeText row = viewer.rows.get(i);
@@ -94,7 +95,7 @@ public final class StackedText {
                     row.teleport(rowLocation(viewer, i));
                 }
             }
-            if (vehicle != null) moveRows(viewer);
+            if (vehicle != null) moveRows(entry.getKey(), viewer);
         }
     }
 
@@ -141,7 +142,7 @@ public final class StackedText {
                 for (int i = 0; i < lines.size(); i++)
                     if (!Objects.equals(viewer.rows.get(i).getText(), lines.get(i))) viewer.rows.get(i).setText(lines.get(i));
             }
-            moveRows(viewer);
+            moveRows(id, viewer);
         }
         Iterator<Map.Entry<UUID, Viewer>> iterator = viewers.entrySet().iterator();
         while (iterator.hasNext()) {
@@ -170,15 +171,21 @@ public final class StackedText {
         return anchor.clone().add(0, up - (viewer.bedrock ? 0.5 : 0), 0);
     }
 
-    private void moveRows(Viewer viewer) {
+    private void moveRows(UUID id, Viewer viewer) {
         // A text change can precede the next primary-thread reconciliation.
         if (viewer.rows.size() != lines.size()) return;
         org.bukkit.entity.Entity vehicle = this.vehicle;
         if (vehicle != null && !viewer.bedrock) {
-            // Riders get no position of their own: the row's height above the seat travels in its translation.
+            // Riders get no position of their own, so the row's height above the seat travels in its translation.
+            // A centred billboard applies that translation in the camera's frame, where world-up is tilted back
+            // by the viewer's pitch; without the tilt the text would float toward whoever looks down at it.
+            Player player = Bukkit.getPlayer(id);
+            double pitch = Math.toRadians(player == null ? 0 : Math.round(player.getLocation().getPitch() / 2f) * 2f);
             double seatY = vehicle.getLocation().getY() + seatOffsetY;
-            for (int i = 0; i < viewer.rows.size(); i++)
-                viewer.rows.get(i).setTranslation(0, (float) (rowLocation(viewer, i).getY() - seatY), 0);
+            for (int i = 0; i < viewer.rows.size(); i++) {
+                double height = rowLocation(viewer, i).getY() - seatY;
+                viewer.rows.get(i).setTranslation(0, (float) (height * Math.cos(pitch)), (float) (height * Math.sin(pitch)));
+            }
             return;
         }
         for (int i = 0; i < viewer.rows.size(); i++) {
