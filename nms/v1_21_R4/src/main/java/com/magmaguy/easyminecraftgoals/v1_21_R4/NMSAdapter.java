@@ -190,6 +190,31 @@ public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter {
     }
 
     @Override
+    public void sendNameTagTeam(org.bukkit.entity.Player viewer, String teamName, String member, boolean create) {
+        // A team that exists only on the viewer's client: the client shows a team member's name under the
+        // team's rule even while something rides them, which a team-less vehicle's name is not.
+        net.minecraft.world.scores.PlayerTeam team = new net.minecraft.world.scores.PlayerTeam(new net.minecraft.world.scores.Scoreboard(), teamName);
+        net.minecraft.network.protocol.game.ClientboundSetPlayerTeamPacket packet;
+        if (create) {
+            team.setNameTagVisibility(net.minecraft.world.scores.Team.Visibility.ALWAYS);
+            team.getPlayers().add(member);
+            packet = net.minecraft.network.protocol.game.ClientboundSetPlayerTeamPacket.createAddOrModifyPacket(team, true);
+        } else {
+            packet = net.minecraft.network.protocol.game.ClientboundSetPlayerTeamPacket.createRemovePacket(team);
+        }
+        ((org.bukkit.craftbukkit.v1_21_R4.entity.CraftPlayer) viewer).getHandle().connection.send(packet);
+    }
+
+    @Override
+    public org.bukkit.util.Vector getPassengerSeatOffset(Entity vehicle, int passengerIndex) {
+        net.minecraft.world.entity.Entity nmsEntity = ((CraftEntity) vehicle).getHandle();
+        // Dimensions carry the synced scale, and getClamped falls back to the last seat like the client.
+        net.minecraft.world.phys.Vec3 seat = nmsEntity.getDimensions(nmsEntity.getPose()).attachments()
+                .getClamped(net.minecraft.world.entity.EntityAttachment.PASSENGER, Math.max(0, passengerIndex), nmsEntity.getYRot());
+        return new org.bukkit.util.Vector(seat.x, seat.y, seat.z);
+    }
+
+    @Override
     public boolean move(LivingEntity livingEntity, double speedModifier, Location location) {
         PathfinderMob pathfinderMob;
         if (((CraftLivingEntity) livingEntity).getHandle() instanceof PathfinderMob pathfinderMob1)

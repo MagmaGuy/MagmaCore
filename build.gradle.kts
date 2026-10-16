@@ -6,7 +6,8 @@ plugins {
     id("com.gradleup.shadow") version "9.0.0-beta12" apply false
 }
 
-val projectVersion = "2.2.0-SNAPSHOT"
+// -PprojectVersion=... publishes a branch build beside the shared snapshot instead of over it.
+val projectVersion = (findProperty("projectVersion") as String?) ?: "2.2.0-SNAPSHOT"
 
 allprojects {
     group = "com.magmaguy"

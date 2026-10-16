@@ -174,6 +174,8 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
         );
 
         entity.setTransformation(transformation);
+        // A ridden pass may have left viewers interpolating; free poses snap like before.
+        if (entity.getTransformationInterpolationDuration() != 0) entity.setTransformationInterpolationDuration(0);
 
         // Per-tick metadata: send only the changed (dirty) data values instead of the full
         // non-default snapshot, which re-serializes the entire item-display item blob every
@@ -189,6 +191,38 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
         }
 
         return packetBundle;
+    }
+
+    @Override
+    public boolean supportsRiddenPlacement() {
+        return true;
+    }
+
+    @Override
+    public void generateRiddenTransformationPackets(AbstractPacketBundle packetBundle, Location seat, Vector3f translation,
+                                                    EulerAngle eulerAngle, float scaleX, float scaleY, float scaleZ,
+                                                    int interpolationTicks) {
+        // Viewers put this passenger at the seat themselves; the server copy only spawns there.
+        if (entity.getX() != seat.getX() || entity.getY() != seat.getY() || entity.getZ() != seat.getZ())
+            entity.setPos(seat.getX(), seat.getY(), seat.getZ());
+        entity.setTransformation(new Transformation(
+                translation,
+                eulerToQuaternion(eulerAngle.getX(), eulerAngle.getY(), eulerAngle.getZ()),
+                new Vector3f(scaleX, scaleY, scaleZ),
+                entity.getEntityData().get(RIGHT_ROTATION)));
+        entity.setTransformationInterpolationDuration(interpolationTicks);
+        if (interpolationTicks > 0) {
+            // Each pose restarts the glide from what the viewer shows now; see setTransformation.
+            entity.setTransformationInterpolationDelay(-1);
+            entity.setTransformationInterpolationDelay(0);
+        }
+        List<Player> updateViewers = getViewersAsPlayers();
+        if (com.magmaguy.easyminecraftgoals.internal.PacketEntityTuning.useDeltaMetadataUpdates) {
+            net.minecraft.network.protocol.Packet<?> dirty = createDirtyEntityDataPacket();
+            if (dirty != null) packetBundle.addPacket(dirty, updateViewers);
+        } else {
+            packetBundle.addPacket(createEntityDataPacket(), updateViewers);
+        }
     }
 
     @Override

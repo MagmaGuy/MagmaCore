@@ -178,6 +178,8 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
         );
 
         entity.setTransformation(transformation);
+        // A ridden pass may have left viewers interpolating; free poses snap like before.
+        if (entity.getTransformationInterpolationDuration() != 0) entity.setTransformationInterpolationDuration(0);
         if (com.magmaguy.easyminecraftgoals.internal.PacketEntityTuning.useDeltaMetadataUpdates) {
             java.util.List<net.minecraft.network.syncher.SynchedEntityData.DataValue<?>> dirty = entity.getEntityData().packDirty();
             if (dirty != null && !dirty.isEmpty()) {
@@ -188,6 +190,42 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
         }
 
         return packetBundle;
+    }
+
+    @Override
+    public boolean supportsRiddenPlacement() {
+        return true;
+    }
+
+    @Override
+    public void generateRiddenTransformationPackets(AbstractPacketBundle packetBundle, Location seat, Vector3f translation,
+                                                    EulerAngle eulerAngle, float scaleX, float scaleY, float scaleZ,
+                                                    int interpolationTicks) {
+        // Viewers put this passenger at the seat themselves; the server copy only spawns there.
+        if (entity.getX() != seat.getX() || entity.getY() != seat.getY() || entity.getZ() != seat.getZ())
+            entity.setPos(seat.getX(), seat.getY(), seat.getZ());
+        entity.setTransformation(new Transformation(
+                translation,
+                eulerToQuaternion(
+                        Math.toDegrees(eulerAngle.getX()),
+                        Math.toDegrees(eulerAngle.getY()),
+                        Math.toDegrees(eulerAngle.getZ())),
+                new Vector3f(scaleX, scaleY, scaleZ),
+                getTransformation().getRightRotation()));
+        entity.setTransformationInterpolationDuration(interpolationTicks);
+        if (interpolationTicks > 0) {
+            // Each pose restarts the glide from what the viewer shows now; see setTransformation.
+            entity.setTransformationInterpolationDelay(-1);
+            entity.setTransformationInterpolationDelay(0);
+        }
+        if (com.magmaguy.easyminecraftgoals.internal.PacketEntityTuning.useDeltaMetadataUpdates) {
+            java.util.List<net.minecraft.network.syncher.SynchedEntityData.DataValue<?>> dirty = entity.getEntityData().packDirty();
+            if (dirty != null && !dirty.isEmpty()) {
+                packetBundle.addPacket(new net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket(entity.getId(), dirty), getViewersAsPlayers());
+            }
+        } else {
+            packetBundle.addPacket(createEntityDataPacket(), getViewersAsPlayers());
+        }
     }
 
     @Override

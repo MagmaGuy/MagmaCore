@@ -275,12 +275,23 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
         if (currentVehicleId == -1) return;
         for (UUID viewer : viewers) detachPassengerFor(viewer);
         currentVehicleId = -1;
+        vehicleHandle = null;
     }
 
+    // Bones mount and dismount from an asynchronous model clock, and Spigot refuses entity lookups off the
+    // main thread. The vehicle is resolved on the main thread once and kept; off-thread calls without it
+    // report null so no passenger list is sent that would unseat the vehicle's real riders.
+    private Entity vehicleHandle;
+
     private int[] nativePassengerIds() {
-        Entity vehicle = entity.level().getEntity(currentVehicleId);
-        return vehicle == null ? new int[0]
-                : vehicle.getPassengers().stream().mapToInt(Entity::getId).toArray();
+        Entity vehicle = vehicleHandle;
+        if (vehicle == null || vehicle.getId() != currentVehicleId || vehicle.isRemoved()) {
+            if (!Bukkit.isPrimaryThread()) return null;
+            vehicle = entity.level().getEntity(currentVehicleId);
+            vehicleHandle = vehicle;
+            if (vehicle == null) return null;
+        }
+        return vehicle.getPassengers().stream().mapToInt(Entity::getId).toArray();
     }
 
     private void refreshPassengerFor(UUID viewer) {
@@ -291,17 +302,20 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
             return;
         }
         PacketPassengerRegistry.attach(viewer, currentVehicleId, EntityID);
+        int[] nativePassengers = nativePassengerIds();
+        if (nativePassengers == null) return; // The next main-thread display or remount sends it.
         sendPacketToPlayer(player, PassengerPackets.create(currentVehicleId,
-                PacketPassengerRegistry.compose(viewer, currentVehicleId, nativePassengerIds())));
+                PacketPassengerRegistry.compose(viewer, currentVehicleId, nativePassengers)));
     }
 
     private void detachPassengerFor(UUID viewer) {
         if (currentVehicleId == -1) return;
         PacketPassengerRegistry.detach(viewer, currentVehicleId, EntityID);
         Player player = Bukkit.getPlayer(viewer);
-        if (player != null) {
+        int[] nativePassengers = player == null ? null : nativePassengerIds();
+        if (nativePassengers != null) {
             sendPacketToPlayer(player, PassengerPackets.create(currentVehicleId,
-                    PacketPassengerRegistry.compose(viewer, currentVehicleId, nativePassengerIds())));
+                    PacketPassengerRegistry.compose(viewer, currentVehicleId, nativePassengers)));
         }
     }
 

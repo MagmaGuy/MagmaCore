@@ -226,6 +226,23 @@ public abstract class NMSAdapter {
 
     public abstract float getBodyRotation(Entity entity);
 
+    /**
+     * Where the client seats the passenger at {@code passengerIndex} on {@code vehicle}, relative to the
+     * vehicle's position: its passenger attachment for that index, scaled with the entity and rotated by its
+     * yaw, exactly as the client's {@code positionRider} computes it. Null when this version cannot tell.
+     */
+    public org.bukkit.util.Vector getPassengerSeatOffset(Entity vehicle, int passengerIndex) {
+        return null;
+    }
+
+    /**
+     * Sends {@code viewer} a client-only scoreboard team named {@code teamName} whose single member is
+     * {@code member} with name tags always visible, which keeps that player's name while something rides
+     * them; {@code create} false removes the team again. Versions without the packet do nothing.
+     */
+    public void sendNameTagTeam(org.bukkit.entity.Player viewer, String teamName, String member, boolean create) {
+    }
+
     public abstract PacketModelEntity createPacketArmorStandEntity(Location location);
 
     public abstract PacketModelEntity createPacketDisplayEntity(Location location);

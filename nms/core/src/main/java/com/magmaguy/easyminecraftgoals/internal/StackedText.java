@@ -23,6 +23,10 @@ public final class StackedText {
     private boolean visible = true;
     private boolean removed;
     private Location anchor;
+    // While riding, Java rows are packet passengers of the vehicle and carry their height above its seat in their
+    // translation, so viewers place them from the same smoothed entity position as everything else riding it.
+    private org.bukkit.entity.Entity vehicle;
+    private double seatOffsetY;
 
     public synchronized void setLines(List<String> text) {
         List<String> normalized = new ArrayList<>();
@@ -57,7 +61,42 @@ public final class StackedText {
         if (removed || anchor == null || anchor.getWorld() == null) return;
         if (this.anchor != null && !this.anchor.getWorld().equals(anchor.getWorld())) clearViewers();
         this.anchor = anchor.clone();
-        for (Viewer viewer : viewers.values()) moveRows(viewer);
+        for (Map.Entry<UUID, Viewer> entry : viewers.entrySet()) moveRows(entry.getKey(), entry.getValue());
+    }
+
+    /**
+     * Rides {@code vehicle}: Java rows become its packet passengers at its next free seat and keep only their
+     * height above that seat, so they move with the entity exactly as its riders do instead of chasing it by
+     * teleports (the anchor's horizontal offset is dropped while riding). Null places the rows freely again.
+     * Bedrock rows keep teleporting. Call on the primary thread; {@link #move} keeps the height current.
+     */
+    public synchronized void ride(org.bukkit.entity.Entity vehicle) {
+        if (!Bukkit.isPrimaryThread()) throw new IllegalStateException("Text riding must change on the primary thread");
+        if (vehicle != null && (!vehicle.isValid() || NMSManager.getAdapter() == null)) vehicle = null;
+        if (vehicle != null) {
+            org.bukkit.util.Vector seat = NMSManager.getAdapter().getPassengerSeatOffset(vehicle, vehicle.getPassengers().size());
+            if (seat == null) vehicle = null;
+            else seatOffsetY = seat.getY();
+        }
+        boolean changed = this.vehicle != vehicle && (this.vehicle == null || vehicle == null
+                || this.vehicle.getEntityId() != vehicle.getEntityId());
+        this.vehicle = vehicle;
+        if (!changed) return;
+        for (Map.Entry<UUID, Viewer> entry : viewers.entrySet()) {
+            Viewer viewer = entry.getValue();
+            if (viewer.bedrock || viewer.rows.size() != lines.size()) continue;
+            for (int i = 0; i < viewer.rows.size(); i++) {
+                FakeText row = viewer.rows.get(i);
+                if (vehicle != null) row.mountTo(vehicle);
+                else {
+                    // A freed row is wherever its seat left it; put it back under its own position at once.
+                    row.dismount();
+                    row.setTranslation(0, 0, 0);
+                    row.teleport(rowLocation(viewer, i));
+                }
+            }
+            if (vehicle != null) moveRows(entry.getKey(), viewer);
+        }
     }
 
     /** Reconciles membership and current text/style without recreating unchanged rows. */
@@ -92,6 +131,7 @@ public final class StackedText {
                                         .setBackgroundArgb(0).setShadow(false).setLineWidth(Integer.MAX_VALUE));
                         viewer.rows.add(row);
                         row.displayTo(player);
+                        if (vehicle != null && !bedrock) row.mountTo(vehicle);
                     }
                     viewers.put(id, viewer);
                 } catch (RuntimeException | Error failure) {
@@ -102,7 +142,7 @@ public final class StackedText {
                 for (int i = 0; i < lines.size(); i++)
                     if (!Objects.equals(viewer.rows.get(i).getText(), lines.get(i))) viewer.rows.get(i).setText(lines.get(i));
             }
-            moveRows(viewer);
+            moveRows(id, viewer);
         }
         Iterator<Map.Entry<UUID, Viewer>> iterator = viewers.entrySet().iterator();
         while (iterator.hasNext()) {
@@ -131,9 +171,23 @@ public final class StackedText {
         return anchor.clone().add(0, up - (viewer.bedrock ? 0.5 : 0), 0);
     }
 
-    private void moveRows(Viewer viewer) {
+    private void moveRows(UUID id, Viewer viewer) {
         // A text change can precede the next primary-thread reconciliation.
         if (viewer.rows.size() != lines.size()) return;
+        org.bukkit.entity.Entity vehicle = this.vehicle;
+        if (vehicle != null && !viewer.bedrock) {
+            // Riders get no position of their own, so the row's height above the seat travels in its translation.
+            // A centred billboard applies that translation in the camera's frame, where world-up is tilted back
+            // by the viewer's pitch; without the tilt the text would float toward whoever looks down at it.
+            Player player = Bukkit.getPlayer(id);
+            double pitch = Math.toRadians(player == null ? 0 : Math.round(player.getLocation().getPitch() / 2f) * 2f);
+            double seatY = vehicle.getLocation().getY() + seatOffsetY;
+            for (int i = 0; i < viewer.rows.size(); i++) {
+                double height = rowLocation(viewer, i).getY() - seatY;
+                viewer.rows.get(i).setTranslation(0, (float) (height * Math.cos(pitch)), (float) (height * Math.sin(pitch)));
+            }
+            return;
+        }
         for (int i = 0; i < viewer.rows.size(); i++) {
             Location target = rowLocation(viewer, i);
             Location previous = viewer.rows.get(i).getLocation();
