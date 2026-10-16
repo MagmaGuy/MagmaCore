@@ -27,6 +27,8 @@ public final class NightbreakDevUpdateSource {
     // System properties survive the plugin reload a swap performs; this class's statics do not.
     private static final String ATTEMPT_PREFIX = "nightbreak.devUpdateSource.attempt.";
     private static final String SKIPPED_PREFIX = "nightbreak.devUpdateSource.skipped.";
+    // A build a restart-only plugin can only take at the next boot; test harnesses restart for it.
+    private static final String NEEDS_RESTART_PREFIX = "nightbreak.devUpdateSource.needsRestart.";
     private static final long POLL_TICKS = 40L;
 
     private NightbreakDevUpdateSource() {
@@ -100,6 +102,13 @@ public final class NightbreakDevUpdateSource {
                 String refusal = describeRefusal(build.source());
                 if (refusal != null) {
                     skip(hash, refusal);
+                    return;
+                }
+                if (!NightbreakPluginHotSwap.offersRestartFreeUpdates(plugin)) {
+                    System.setProperty(SKIPPED_PREFIX + plugin.getName(), hash);
+                    System.setProperty(NEEDS_RESTART_PREFIX + plugin.getName(), hash);
+                    plugin.getLogger().info("Dev update source: build " + shortHash(hash) + " waits for a restart; "
+                            + plugin.getName() + " only updates when the server starts.");
                     return;
                 }
                 File staged = stage(hash);
