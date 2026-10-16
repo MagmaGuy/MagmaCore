@@ -1,5 +1,6 @@
 package com.magmaguy.magmacore.nightbreak;
 
+import com.magmaguy.magmacore.util.DetachedClassLoading;
 import com.magmaguy.magmacore.util.Logger;
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
@@ -13,8 +14,6 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
-import java.net.URLClassLoader;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -303,25 +302,10 @@ public final class NightbreakPluginHotSwap {
 
     private static Runnable createRoutine(Plan plan, CommandSender sender)
             throws IOException, ReflectiveOperationException {
-        String className = PluginHotSwapRoutine.class.getName();
-        byte[] bytecode;
-        try (InputStream input = NightbreakPluginHotSwap.class.getClassLoader()
-                .getResourceAsStream(className.replace('.', '/') + ".class")) {
-            if (input == null) throw new IOException("Missing " + className + " bytecode.");
-            bytecode = input.readAllBytes();
-        }
         deleteStaleRoutines(plan.workDirectory());
         Path routineDirectory = plan.workDirectory().toPath().resolve(ROUTINE_DIRECTORY_PREFIX + UUID.randomUUID());
-        Path classFile = routineDirectory.resolve(className.replace('.', '/') + ".class");
-        Files.createDirectories(classFile.getParent());
-        Files.write(classFile, bytecode);
-
-        // A JDK class loader, not one declared in this jar. Paper caches the caller of
-        // defineClass from plugin code, and the new plugin keeps the stack it was loaded
-        // from, so any class from this jar on that path would keep the old plugin loaded.
-        URLClassLoader classLoader = new URLClassLoader(
-                new URL[]{routineDirectory.toUri().toURL()}, Bukkit.class.getClassLoader());
-        Class<?> routineClass = Class.forName(className, true, classLoader);
+        // The routine closes this loader and deletes the directory when it finishes.
+        Class<?> routineClass = DetachedClassLoading.define(PluginHotSwapRoutine.class, routineDirectory);
 
         List<String> loadOrder = plan.loadOrder();
         String[] unloadOrder = new String[loadOrder.size()];

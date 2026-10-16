@@ -6,14 +6,20 @@ import org.bukkit.Difficulty;
 import org.bukkit.World;
 import org.bukkit.WorldCreator;
 import org.bukkit.generator.ChunkGenerator;
-import org.bukkit.generator.WorldInfo;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.plugin.Plugin;
 
-import java.util.Random;
+import java.io.Closeable;
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Comparator;
+import java.util.stream.Stream;
 
 public class TemporaryWorldManager {
     private static final long DELETE_AFTER_UNLOAD_DELAY_TICKS = 20L * 5L;
+    private static Class<?> voidGeneratorClass;
 
     /**
      * Generates a world which does not save, does not keep spawn loaded and is a void world
@@ -40,7 +46,7 @@ public class TemporaryWorldManager {
             Logger.info("Creating world " + worldName + " !");
             WorldCreator worldCreator = new WorldCreator(worldName);
             worldCreator.environment(environment);
-            worldCreator.generator(new VoidGenerator());
+            worldCreator.generator(voidGenerator());
             World world = Bukkit.createWorld(worldCreator);
             prepareTemporaryWorld(world);
             Logger.info("Successfully loaded world " + worldName + " !");
@@ -150,7 +156,7 @@ public class TemporaryWorldManager {
             Logger.info("Creating world " + worldName + " !");
             WorldCreator worldCreator = new WorldCreator(worldName);
             worldCreator.environment(environment);
-            worldCreator.generator(new VoidGenerator());
+            worldCreator.generator(voidGenerator());
             World world = Bukkit.createWorld(worldCreator);
             prepareTemporaryWorld(world);
             Logger.info("Successfully loaded world " + worldName + " !");
@@ -248,25 +254,44 @@ public class TemporaryWorldManager {
         return world;
     }
 
-    private static class VoidGenerator extends ChunkGenerator {
-
-        @Override
-        public void generateSurface(WorldInfo info, Random random, int x, int z, ChunkData data) {
+    /**
+     * Returns a generator that leaves every chunk empty. A world keeps its generator for as long
+     * as it stays loaded, which outlasts a restart-free plugin update, so the generator's class
+     * belongs to its own small loader: one from this plugin's loader would keep the replaced
+     * copy of the whole plugin in memory until the server restarts.
+     */
+    public static ChunkGenerator voidGenerator() {
+        try {
+            return (ChunkGenerator) voidGeneratorClass().getConstructor().newInstance();
+        } catch (ReflectiveOperationException | RuntimeException exception) {
+            return new VoidWorldGenerator();
         }
+    }
 
-        @Override
-        public boolean shouldGenerateNoise() {
-            return false;
+    private static synchronized Class<?> voidGeneratorClass() {
+        if (voidGeneratorClass != null) return voidGeneratorClass;
+        Path directory = null;
+        try {
+            directory = Files.createTempDirectory("nightbreak-void-generator");
+            Class<?> detached = DetachedClassLoading.define(VoidWorldGenerator.class, directory);
+            // The class is defined and only uses Bukkit and JDK types, so nothing else loads from here.
+            if (detached.getClassLoader() instanceof Closeable closeable) closeable.close();
+            voidGeneratorClass = detached;
+        } catch (IOException | ReflectiveOperationException | RuntimeException | LinkageError exception) {
+            Logger.warn("Could not load the void world generator outside the plugin, so void worlds will keep this "
+                    + "copy of the plugin in memory after a restart-free update: " + exception);
+            voidGeneratorClass = VoidWorldGenerator.class;
+        } finally {
+            if (directory != null) deleteQuietly(directory);
         }
+        return voidGeneratorClass;
+    }
 
-        @Override
-        public boolean shouldGenerateBedrock() {
-            return false;
-        }
-
-        @Override
-        public boolean shouldGenerateCaves() {
-            return false;
+    private static void deleteQuietly(Path directory) {
+        try (Stream<Path> paths = Files.walk(directory)) {
+            paths.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
+        } catch (IOException ignored) {
+            // A leftover temporary directory is harmless.
         }
     }
 }

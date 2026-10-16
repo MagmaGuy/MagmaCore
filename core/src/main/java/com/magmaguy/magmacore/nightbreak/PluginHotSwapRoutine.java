@@ -1,12 +1,14 @@
 package com.magmaguy.magmacore.nightbreak;
 
 import org.bukkit.Bukkit;
+import org.bukkit.World;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandMap;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.ConsoleCommandSender;
 import org.bukkit.command.PluginIdentifiableCommand;
 import org.bukkit.entity.Player;
+import org.bukkit.generator.BlockPopulator;
 import org.bukkit.permissions.Permission;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.PluginManager;
@@ -108,6 +110,7 @@ public final class PluginHotSwapRoutine implements Runnable {
         File previousJar = new File(workDirectory, targetJar.getName() + ".previous");
         Plugin running = pluginManager.getPlugin(targetName);
         String fromVersion = running == null ? "?" : running.getDescription().getVersion();
+        warnAboutWorldsKeepingReplacedCopies(pluginManager);
 
         for (String name : unloadOrder) {
             Plugin plugin = pluginManager.getPlugin(name);
@@ -171,6 +174,44 @@ public final class PluginHotSwapRoutine implements Runnable {
             report("§c" + targetName + " could not be updated or restored. Restart the server. "
                     + "Check the console for the cause." + cycled);
         }
+    }
+
+    /**
+     * A loaded world keeps its generator, biome provider and populators, and they keep the
+     * class loader that defined them. When that loader belongs to a plugin this swap reloads,
+     * the replaced copy of that plugin cannot be collected until the server restarts.
+     */
+    private void warnAboutWorldsKeepingReplacedCopies(PluginManager pluginManager) {
+        for (String name : unloadOrder) {
+            Plugin plugin = pluginManager.getPlugin(name);
+            if (plugin == null) continue;
+            ClassLoader classLoader = plugin.getClass().getClassLoader();
+            StringBuilder worlds = new StringBuilder();
+            for (World world : Bukkit.getWorlds()) {
+                if (!generatesWith(world, classLoader)) continue;
+                if (worlds.length() > 0) worlds.append(", ");
+                worlds.append(world.getName());
+            }
+            if (worlds.length() == 0) continue;
+            Bukkit.getLogger().warning("[" + targetName + "] The replaced copy of " + name
+                    + " stays in memory until the server restarts, because these worlds generate chunks with its classes: "
+                    + worlds + ".");
+        }
+    }
+
+    private static boolean generatesWith(World world, ClassLoader classLoader) {
+        try {
+            Object generator = world.getGenerator();
+            if (generator != null && generator.getClass().getClassLoader() == classLoader) return true;
+            Object biomeProvider = world.getBiomeProvider();
+            if (biomeProvider != null && biomeProvider.getClass().getClassLoader() == classLoader) return true;
+            for (BlockPopulator populator : world.getPopulators()) {
+                if (populator.getClass().getClassLoader() == classLoader) return true;
+            }
+        } catch (RuntimeException | LinkageError ignored) {
+            // This server cannot report it; the swap goes ahead either way.
+        }
+        return false;
     }
 
     private Plugin load(PluginManager pluginManager, File jar) {
