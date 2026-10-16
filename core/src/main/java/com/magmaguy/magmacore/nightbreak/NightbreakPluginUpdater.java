@@ -261,6 +261,8 @@ public final class NightbreakPluginUpdater {
         ensureAutoDownloadConfigDefault(plugin);
         NightbreakChangelogManager.initialize(plugin, spec);
         startPluginUpdateMonitor(plugin, spec);
+        // On a test server local builds replace the plugin, so a public download must not.
+        if (NightbreakDevUpdateSource.startIfConfigured(plugin)) return;
         if (!isAutoDownloadPluginUpdatesEnabled(plugin)) return;
         String key = cacheKey(plugin, spec);
         long generation = currentGeneration(plugin);
@@ -866,7 +868,7 @@ public final class NightbreakPluginUpdater {
         }
     }
 
-    private static String sha256(File file) {
+    static String sha256(File file) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             try (FileInputStream inputStream = new FileInputStream(file)) {

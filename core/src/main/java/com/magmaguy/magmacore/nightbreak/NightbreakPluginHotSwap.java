@@ -100,7 +100,15 @@ public final class NightbreakPluginHotSwap {
      * @return true if the swap was scheduled
      */
     public static boolean applyStagedUpdate(JavaPlugin plugin, CommandSender sender) {
-        PlanResult result = plan(plugin);
+        return applyStagedUpdate(plugin, sender, false);
+    }
+
+    /**
+     * @param devBuild a local build from {@link NightbreakDevUpdateSource}: it may keep the
+     *                 running version, because the source already proved the bytes differ
+     */
+    static boolean applyStagedUpdate(JavaPlugin plugin, CommandSender sender, boolean devBuild) {
+        PlanResult result = plan(plugin, devBuild);
         if (result.plan() == null) {
             if (sender != null) Logger.sendSimpleMessage(sender, "&c" + result.refusal());
             return false;
@@ -183,6 +191,10 @@ public final class NightbreakPluginHotSwap {
     }
 
     static PlanResult plan(JavaPlugin plugin) {
+        return plan(plugin, false);
+    }
+
+    static PlanResult plan(JavaPlugin plugin, boolean devBuild) {
         if (!Bukkit.isPrimaryThread()) {
             return PlanResult.refused("Plugin swaps must start on the server thread.");
         }
@@ -209,7 +221,7 @@ public final class NightbreakPluginHotSwap {
             return PlanResult.refused("The staged update is not valid: " + validation.detail());
         }
         String runningVersion = plugin.getDescription().getVersion();
-        if (NightbreakPluginUpdater.compareVersions(stagedDescription.getVersion(), runningVersion) <= 0) {
+        if (!devBuild && NightbreakPluginUpdater.compareVersions(stagedDescription.getVersion(), runningVersion) <= 0) {
             return PlanResult.refused("The staged update (" + stagedDescription.getVersion()
                     + ") is not newer than the running version (" + runningVersion + ").");
         }
