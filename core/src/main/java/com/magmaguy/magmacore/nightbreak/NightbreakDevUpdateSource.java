@@ -10,6 +10,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
+import java.util.Collections;
+import java.util.Set;
+import java.util.WeakHashMap;
 import java.util.jar.JarFile;
 
 /**
@@ -30,6 +33,8 @@ public final class NightbreakDevUpdateSource {
     // A build a restart-only plugin can only take at the next boot; test harnesses restart for it.
     private static final String NEEDS_RESTART_PREFIX = "nightbreak.devUpdateSource.needsRestart.";
     private static final long POLL_TICKS = 40L;
+    // A plugin's own reload command runs its bootstrap again without disabling it; one watcher per instance.
+    private static final Set<JavaPlugin> WATCHED = Collections.newSetFromMap(new WeakHashMap<>());
 
     private NightbreakDevUpdateSource() {
     }
@@ -47,6 +52,9 @@ public final class NightbreakDevUpdateSource {
     static boolean startIfConfigured(JavaPlugin plugin) {
         File folder = sourceFolder();
         if (folder == null) return false;
+        synchronized (WATCHED) {
+            if (!WATCHED.add(plugin)) return true;
+        }
         File runningJar = NightbreakPluginHotSwap.findPluginJar(plugin);
         if (runningJar == null) {
             plugin.getLogger().warning("Dev update source: could not find the jar " + plugin.getName() + " runs from.");
