@@ -187,6 +187,7 @@ public class PacketInteractionListener implements Listener {
 
     private void uninjectPlayer(Player player) {
         com.magmaguy.easyminecraftgoals.internal.PacketPassengerRegistry.clearViewer(player.getUniqueId());
+        com.magmaguy.easyminecraftgoals.internal.PacketEquipmentVeil.clearViewer(player.getUniqueId());
         Channel channel = playerChannels.remove(player.getUniqueId());
         if (channel != null && channel.pipeline().get(handlerName) != null) {
             try {
@@ -289,7 +290,7 @@ public class PacketInteractionListener implements Listener {
                 msg = maybeClampDamageIndicator(particlesPacket);
             }
             if (msg instanceof net.minecraft.network.protocol.Packet<?> packet) {
-                msg = PassengerPackets.compose(player.getUniqueId(), packet);
+                msg = EquipmentPackets.veil(player.getUniqueId(), PassengerPackets.compose(player.getUniqueId(), packet));
             }
             super.write(ctx, msg, promise);
         }
