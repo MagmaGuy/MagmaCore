@@ -236,6 +236,7 @@ public class PacketInteractionListener implements Listener {
     private void uninjectPlayer(Player player) {
         com.magmaguy.easyminecraftgoals.internal.PacketPassengerRegistry.clearViewer(player.getUniqueId());
         com.magmaguy.easyminecraftgoals.internal.PacketEquipmentVeil.clearViewer(player.getUniqueId());
+        com.magmaguy.easyminecraftgoals.internal.PacketNameTagTeams.clearViewer(player.getUniqueId());
         Channel channel = playerChannels.remove(player.getUniqueId());
         if (channel != null && channel.pipeline().get(handlerName) != null) {
             try {

@@ -235,6 +235,14 @@ public abstract class NMSAdapter {
         return null;
     }
 
+    /**
+     * Sends {@code viewer} a client-only scoreboard team named {@code teamName} whose single member is
+     * {@code member} with name tags always visible, which keeps that player's name while something rides
+     * them; {@code create} false removes the team again. Versions without the packet do nothing.
+     */
+    public void sendNameTagTeam(org.bukkit.entity.Player viewer, String teamName, String member, boolean create) {
+    }
+
     public abstract PacketModelEntity createPacketArmorStandEntity(Location location);
 
     public abstract PacketModelEntity createPacketDisplayEntity(Location location);
