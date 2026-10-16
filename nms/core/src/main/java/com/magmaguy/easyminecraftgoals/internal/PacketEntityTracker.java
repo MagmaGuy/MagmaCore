@@ -104,6 +104,13 @@ public class PacketEntityTracker {
      */
     public void register(TrackedPacketEntity entity) {
         trackedEntities.add(entity);
+        // A label that replaces another (a player boarding or leaving a vehicle switches modes) must not
+        // vanish for up to a second until the periodic pass; show it to whoever can see it now.
+        if (!Bukkit.isPrimaryThread() || !entity.isValid()) return;
+        Location entityLocation = entity.getTrackingLocation();
+        World entityWorld = entity.getWorld();
+        if (entityLocation == null || entityWorld == null) return;
+        for (Player player : Bukkit.getOnlinePlayers()) updateVisibilityForPlayer(entity, entityLocation, entityWorld, player);
     }
 
     /**
