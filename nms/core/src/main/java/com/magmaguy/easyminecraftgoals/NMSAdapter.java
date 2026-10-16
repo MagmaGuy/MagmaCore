@@ -226,6 +226,15 @@ public abstract class NMSAdapter {
 
     public abstract float getBodyRotation(Entity entity);
 
+    /**
+     * Where the client seats the passenger at {@code passengerIndex} on {@code vehicle}, relative to the
+     * vehicle's position: its passenger attachment for that index, scaled with the entity and rotated by its
+     * yaw, exactly as the client's {@code positionRider} computes it. Null when this version cannot tell.
+     */
+    public org.bukkit.util.Vector getPassengerSeatOffset(Entity vehicle, int passengerIndex) {
+        return null;
+    }
+
     public abstract PacketModelEntity createPacketArmorStandEntity(Location location);
 
     public abstract PacketModelEntity createPacketDisplayEntity(Location location);

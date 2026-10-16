@@ -64,4 +64,21 @@ public interface PacketModelEntity extends PacketEntityInterface {
     /** Adds the pending metadata changes for current viewers to the bundle. */
     default void queueMetadataUpdate(AbstractPacketBundle packetBundle) {
     }
+
+    /** True when viewers can place this display as a passenger of another entity through its transformation. */
+    default boolean supportsRiddenPlacement() {
+        return false;
+    }
+
+    /**
+     * Pose of a display that rides another entity. The client puts a passenger at its vehicle's seat every
+     * tick, so no position packet goes out: {@code translation} is the world-axis offset from that seat,
+     * rotation and scale apply as on the free path, and only the entity data that changed is queued.
+     * {@code seat} is where the client will put the display, kept on the server copy so new viewers spawn it
+     * there. Viewers interpolate the pose over {@code interpolationTicks}; 0 snaps.
+     */
+    default void generateRiddenTransformationPackets(AbstractPacketBundle packetBundle, Location seat,
+                                                     org.joml.Vector3f translation, EulerAngle eulerAngle,
+                                                     float scaleX, float scaleY, float scaleZ, int interpolationTicks) {
+    }
 }

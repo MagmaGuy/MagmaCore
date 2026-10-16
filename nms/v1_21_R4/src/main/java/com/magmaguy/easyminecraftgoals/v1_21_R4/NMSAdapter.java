@@ -190,6 +190,15 @@ public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter {
     }
 
     @Override
+    public org.bukkit.util.Vector getPassengerSeatOffset(Entity vehicle, int passengerIndex) {
+        net.minecraft.world.entity.Entity nmsEntity = ((CraftEntity) vehicle).getHandle();
+        // Dimensions carry the synced scale, and getClamped falls back to the last seat like the client.
+        net.minecraft.world.phys.Vec3 seat = nmsEntity.getDimensions(nmsEntity.getPose()).attachments()
+                .getClamped(net.minecraft.world.entity.EntityAttachment.PASSENGER, Math.max(0, passengerIndex), nmsEntity.getYRot());
+        return new org.bukkit.util.Vector(seat.x, seat.y, seat.z);
+    }
+
+    @Override
     public boolean move(LivingEntity livingEntity, double speedModifier, Location location) {
         PathfinderMob pathfinderMob;
         if (((CraftLivingEntity) livingEntity).getHandle() instanceof PathfinderMob pathfinderMob1)
