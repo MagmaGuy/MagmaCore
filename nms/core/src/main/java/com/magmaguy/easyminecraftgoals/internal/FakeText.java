@@ -159,6 +159,14 @@ public interface FakeText {
     }
 
     /**
+     * Sets the translation of the text's transformation (TextDisplay only) and sends it to current viewers.
+     * A text riding an entity carries its height above the seat here, since riders get no position of their own.
+     */
+    default void setTranslation(float x, float y, float z) {
+        // Default no-op for backwards compatibility
+    }
+
+    /**
      * Makes this fake text ride on top of an entity.
      * The client will handle positioning automatically - no need to teleport.
      * Does NOT enable automatic visibility tracking - use attachTo() for that.

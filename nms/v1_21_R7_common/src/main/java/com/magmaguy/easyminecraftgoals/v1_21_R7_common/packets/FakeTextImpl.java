@@ -186,6 +186,27 @@ public class FakeTextImpl implements FakeText, TrackedPacketEntity {
     }
 
     @Override
+    public void setTranslation(float x, float y, float z) {
+        // Later per-player entities are built from the settings; current ones get the change at once.
+        settings.setTranslation(x, y, z);
+        for (Map.Entry<UUID, PacketEntityInterface> entry : playerEntities.entrySet()) {
+            if (bedrockPlayers.contains(entry.getKey())) continue; // ArmorStand has no transformation
+
+            PacketEntityInterface entity = entry.getValue();
+            TextDisplay textDisplay = entity.getBukkitEntity();
+            org.bukkit.util.Transformation transform = textDisplay.getTransformation();
+            if (transform.getTranslation().equals(x, y, z)) continue;
+            textDisplay.setTransformation(new org.bukkit.util.Transformation(
+                    new org.joml.Vector3f(x, y, z),
+                    transform.getLeftRotation(),
+                    transform.getScale(),
+                    transform.getRightRotation()
+            ));
+            entity.syncMetadata();
+        }
+    }
+
+    @Override
     public void setScale(float scale) {
         for (Map.Entry<UUID, PacketEntityInterface> entry : playerEntities.entrySet()) {
             UUID uuid = entry.getKey();

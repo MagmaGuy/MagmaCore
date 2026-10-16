@@ -23,6 +23,10 @@ public final class StackedText {
     private boolean visible = true;
     private boolean removed;
     private Location anchor;
+    // While riding, Java rows are packet passengers of the vehicle and carry their height above its seat in their
+    // translation, so viewers place them from the same smoothed entity position as everything else riding it.
+    private org.bukkit.entity.Entity vehicle;
+    private double seatOffsetY;
 
     public synchronized void setLines(List<String> text) {
         List<String> normalized = new ArrayList<>();
@@ -60,6 +64,40 @@ public final class StackedText {
         for (Viewer viewer : viewers.values()) moveRows(viewer);
     }
 
+    /**
+     * Rides {@code vehicle}: Java rows become its packet passengers at its next free seat and keep only their
+     * height above that seat, so they move with the entity exactly as its riders do instead of chasing it by
+     * teleports (the anchor's horizontal offset is dropped while riding). Null places the rows freely again.
+     * Bedrock rows keep teleporting. Call on the primary thread; {@link #move} keeps the height current.
+     */
+    public synchronized void ride(org.bukkit.entity.Entity vehicle) {
+        if (!Bukkit.isPrimaryThread()) throw new IllegalStateException("Text riding must change on the primary thread");
+        if (vehicle != null && (!vehicle.isValid() || NMSManager.getAdapter() == null)) vehicle = null;
+        if (vehicle != null) {
+            org.bukkit.util.Vector seat = NMSManager.getAdapter().getPassengerSeatOffset(vehicle, vehicle.getPassengers().size());
+            if (seat == null) vehicle = null;
+            else seatOffsetY = seat.getY();
+        }
+        boolean changed = this.vehicle != vehicle && (this.vehicle == null || vehicle == null
+                || this.vehicle.getEntityId() != vehicle.getEntityId());
+        this.vehicle = vehicle;
+        if (!changed) return;
+        for (Viewer viewer : viewers.values()) {
+            if (viewer.bedrock || viewer.rows.size() != lines.size()) continue;
+            for (int i = 0; i < viewer.rows.size(); i++) {
+                FakeText row = viewer.rows.get(i);
+                if (vehicle != null) row.mountTo(vehicle);
+                else {
+                    // A freed row is wherever its seat left it; put it back under its own position at once.
+                    row.dismount();
+                    row.setTranslation(0, 0, 0);
+                    row.teleport(rowLocation(viewer, i));
+                }
+            }
+            if (vehicle != null) moveRows(viewer);
+        }
+    }
+
     /** Reconciles membership and current text/style without recreating unchanged rows. */
     public synchronized void syncViewers(Collection<? extends Player> candidates) {
         if (!Bukkit.isPrimaryThread()) throw new IllegalStateException("Text viewers must be reconciled on the primary thread");
@@ -92,6 +130,7 @@ public final class StackedText {
                                         .setBackgroundArgb(0).setShadow(false).setLineWidth(Integer.MAX_VALUE));
                         viewer.rows.add(row);
                         row.displayTo(player);
+                        if (vehicle != null && !bedrock) row.mountTo(vehicle);
                     }
                     viewers.put(id, viewer);
                 } catch (RuntimeException | Error failure) {
@@ -134,6 +173,14 @@ public final class StackedText {
     private void moveRows(Viewer viewer) {
         // A text change can precede the next primary-thread reconciliation.
         if (viewer.rows.size() != lines.size()) return;
+        org.bukkit.entity.Entity vehicle = this.vehicle;
+        if (vehicle != null && !viewer.bedrock) {
+            // Riders get no position of their own: the row's height above the seat travels in its translation.
+            double seatY = vehicle.getLocation().getY() + seatOffsetY;
+            for (int i = 0; i < viewer.rows.size(); i++)
+                viewer.rows.get(i).setTranslation(0, (float) (rowLocation(viewer, i).getY() - seatY), 0);
+            return;
+        }
         for (int i = 0; i < viewer.rows.size(); i++) {
             Location target = rowLocation(viewer, i);
             Location previous = viewer.rows.get(i).getLocation();
