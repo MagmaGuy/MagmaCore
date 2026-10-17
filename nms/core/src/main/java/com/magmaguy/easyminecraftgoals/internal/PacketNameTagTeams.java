@@ -3,6 +3,7 @@ package com.magmaguy.easyminecraftgoals.internal;
 import com.magmaguy.easyminecraftgoals.NMSAdapter;
 import com.magmaguy.easyminecraftgoals.NMSManager;
 import org.bukkit.Bukkit;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 
 import java.util.Map;
@@ -11,9 +12,10 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Client-only scoreboard teams that keep a player's name tag visible to a viewer while something rides that
- * player. Minecraft hides the name of a team-less vehicle; a player on a team follows the team's name-tag rule
+ * Client-only scoreboard teams that keep a living entity's name tag visible to a viewer while something rides that
+ * entity. Minecraft hides the name of a team-less vehicle; an entity on a team follows the team's name-tag rule
  * instead, so each kept subject gets a one-member team with nameTagVisibility ALWAYS on the viewer's client only.
+ * Mobs still show their name only when it is set visible or looked at, as without a rider.
  * Callers keep a subject only while the subject has no real team on the viewer's scoreboard; a real team packet
  * moves the subject out of this one on the client, and the next reconcile puts it back if the subject leaves it.
  */
@@ -28,13 +30,18 @@ public final class PacketNameTagTeams {
         return "emg_" + hex.substring(0, Math.min(12, hex.length()));
     }
 
+    /** The scoreboard entry Minecraft files the entity under: a player's name, any other entity's UUID string. */
+    public static String scoreboardEntry(Entity subject) {
+        return subject instanceof Player player ? player.getName() : subject.getUniqueId().toString();
+    }
+
     /** Sends the team once per viewer and subject; later calls are free. */
-    public static void keep(Player viewer, Player subject) {
+    public static void keep(Player viewer, Entity subject) {
         NMSAdapter adapter = NMSManager.getAdapter();
         if (adapter == null || viewer == null || subject == null || viewer.equals(subject)) return;
         Set<UUID> subjects = KEPT.computeIfAbsent(viewer.getUniqueId(), ignored -> ConcurrentHashMap.newKeySet());
         if (subjects.add(subject.getUniqueId()))
-            adapter.sendNameTagTeam(viewer, teamName(subject.getUniqueId()), subject.getName(), true);
+            adapter.sendNameTagTeam(viewer, teamName(subject.getUniqueId()), scoreboardEntry(subject), true);
     }
 
     public static void release(Player viewer, UUID subject) {

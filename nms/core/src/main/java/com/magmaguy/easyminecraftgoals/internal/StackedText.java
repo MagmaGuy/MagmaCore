@@ -20,6 +20,8 @@ public final class StackedText {
     private List<String> lines = List.of();
     private float scale = 1;
     private double gap = 0.1;
+    private int backgroundArgb = 0;
+    private boolean shadow = false;
     private boolean visible = true;
     private boolean removed;
     private Location anchor;
@@ -50,6 +52,20 @@ public final class StackedText {
     public synchronized void setLineGap(double gap) {
         if (!Double.isFinite(gap) || gap < 0) throw new IllegalArgumentException("Text line gap must be nonnegative and finite");
         this.gap = gap;
+    }
+
+    /** Java row background, ARGB; 0 (the default) draws none. Existing rows are rebuilt at the next reconciliation. */
+    public synchronized void setBackgroundArgb(int backgroundArgb) {
+        if (this.backgroundArgb == backgroundArgb) return;
+        this.backgroundArgb = backgroundArgb;
+        clearViewers();
+    }
+
+    /** Java row text shadow, off by default. Existing rows are rebuilt at the next reconciliation. */
+    public synchronized void setShadow(boolean shadow) {
+        if (this.shadow == shadow) return;
+        this.shadow = shadow;
+        clearViewers();
     }
 
     public synchronized void setVisible(boolean visible) {
@@ -128,7 +144,7 @@ public final class StackedText {
                     for (int i = 0; i < lines.size(); i++) {
                         FakeText row = NMSManager.getAdapter().createFakeText(rowLocation(viewer, i),
                                 new FakeTextSettings().setText(lines.get(i)).setScale(effectiveScale)
-                                        .setBackgroundArgb(0).setShadow(false).setLineWidth(Integer.MAX_VALUE));
+                                        .setBackgroundArgb(backgroundArgb).setShadow(shadow).setLineWidth(Integer.MAX_VALUE));
                         viewer.rows.add(row);
                         row.displayTo(player);
                         if (vehicle != null && !bedrock) row.mountTo(vehicle);
