@@ -6,11 +6,14 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
-/** Immutable authored rules. Runtime effects and acquisition policy belong to their providers. */
+/**
+ * Immutable authored rules. Runtime effects and acquisition policy belong to their providers.
+ * A non-null set makes this enchantment an item set; see {@link ItemSetDefinition}.
+ */
 public record EnchantmentDefinition(String id, String name, String description, int maxLevel, boolean curse,
                                     Set<Slot> validSlots, Set<ItemType> itemTypes, Set<String> attackKinds,
                                     Set<String> requires, Set<String> conflicts, Stacking stacking,
-                                    String script, Map<String, Object> parameters) {
+                                    String script, Map<String, Object> parameters, ItemSetDefinition set) {
     private static final Pattern ID = Pattern.compile("[a-z0-9._-]{1,64}:[a-z0-9._-]{1,128}");
     private static final Pattern CAPABILITY = Pattern.compile("[a-z0-9._:-]{1,128}");
     public enum Slot { HEAD, CHEST, LEGS, FEET, MAINHAND, OFFHAND }
@@ -51,7 +54,11 @@ public record EnchantmentDefinition(String id, String name, String description, 
                 levels.forEach(EnchantmentDefinition::requireScalar);
             } else requireScalar(entry.getValue());
         }
+        if (set != null && !validSlots.isEmpty() && !validSlots.containsAll(set.pieces().keySet()))
+            throw new IllegalArgumentException("Every set piece slot must be one of validSlots");
     }
+
+    public boolean isSet() { return set != null; }
 
     public Map<String, Object> parametersAt(int level) {
         if (level < 1) throw new IllegalArgumentException("Level must be positive");

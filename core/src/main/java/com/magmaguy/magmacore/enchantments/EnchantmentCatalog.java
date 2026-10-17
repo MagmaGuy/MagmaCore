@@ -28,7 +28,8 @@ import java.util.Set;
 /** Builds a complete candidate catalog. Failure leaves the host's previous catalog untouched. */
 public final class EnchantmentCatalog {
     private static final Set<String> FIELDS = Set.of("isEnabled", "name", "description", "maxLevel", "curse",
-            "validSlots", "itemTypes", "attackKinds", "requires", "conflicts", "stacking", "script", "parameters");
+            "validSlots", "itemTypes", "attackKinds", "requires", "conflicts", "stacking", "script", "parameters", "set");
+    private static final Set<String> SET_FIELDS = Set.of("name", "pieces", "lore", "equippedPiece", "missingPiece");
     private static final long MAX_SOURCE_BYTES = 256 * 1024;
     private final String namespace;
     private final Map<String, EnchantmentDefinition> definitions;
@@ -84,7 +85,7 @@ public final class EnchantmentCatalog {
                         enums(yaml, "validSlots", EnchantmentDefinition.Slot.class),
                         enums(yaml, "itemTypes", EnchantmentDefinition.ItemType.class), strings(yaml, "attackKinds"),
                         strings(yaml, "requires"), strings(yaml, "conflicts"), stacking(yaml),
-                        string(yaml, "script", null), parameters(yaml));
+                        string(yaml, "script", null), parameters(yaml), set(yaml));
                 if (definitions.putIfAbsent(id, definition) != null)
                     throw new IllegalArgumentException("Both .yml and .yaml define the same identity: " + id);
                 ScriptDefinition script = validatedScripts.get(definition.script());
@@ -216,6 +217,32 @@ public final class EnchantmentCatalog {
             case "sum_equipped_levels" -> EnchantmentDefinition.Stacking.SUM_EQUIPPED_LEVELS;
             default -> throw new IllegalArgumentException("Unknown stacking policy");
         };
+    }
+
+    private static ItemSetDefinition set(ConfigurationSection section) {
+        Object raw = section.get("set");
+        if (raw == null) return null;
+        if (!(raw instanceof ConfigurationSection set)) throw new IllegalArgumentException("set must be a mapping");
+        Set<String> unknown = new LinkedHashSet<>(set.getKeys(false));
+        unknown.removeAll(SET_FIELDS);
+        if (!unknown.isEmpty()) throw new IllegalArgumentException("Unknown set fields: " + unknown);
+        if (!(set.get("pieces") instanceof ConfigurationSection pieces))
+            throw new IllegalArgumentException("set.pieces must map equipment slots to piece names");
+        Map<EnchantmentDefinition.Slot, String> named = new LinkedHashMap<>();
+        for (String slot : pieces.getKeys(false))
+            named.put(EnchantmentDefinition.Slot.valueOf(slot.toUpperCase(Locale.ROOT)), string(pieces, slot, null));
+        List<String> lore = null;
+        if (set.get("lore") != null) {
+            if (!(set.get("lore") instanceof List<?> lines)) throw new IllegalArgumentException("set.lore must be a list");
+            lore = new ArrayList<>();
+            for (Object line : lines) {
+                if (!(line instanceof String text)) throw new IllegalArgumentException("set.lore must contain text lines");
+                lore.add(text);
+            }
+        }
+        return new ItemSetDefinition(set.get("name") == null ? null : string(set, "name", null), named, lore,
+                set.get("equippedPiece") == null ? null : string(set, "equippedPiece", null),
+                set.get("missingPiece") == null ? null : string(set, "missingPiece", null));
     }
 
     private static Map<String, Object> parameters(ConfigurationSection section) {

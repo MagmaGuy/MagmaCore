@@ -111,6 +111,9 @@ public final class EnchantmentItems {
                                              ToIntFunction<List<String>> position) {
             return renderPresentation(source, rebuildHostLore, position, definitions::get);
         }
+
+        /** Looks up the captured definitions, for {@link ItemSets} calls made during this construction. */
+        public Function<String, Resolved> resolver() { return definitions::get; }
     }
 
     public static Construction prepareConstruction(java.util.Collection<String> ids) {

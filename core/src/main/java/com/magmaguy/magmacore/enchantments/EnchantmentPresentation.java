@@ -22,6 +22,7 @@ final class EnchantmentPresentation {
     private static final NamespacedKey NAME = EnchantmentItemData.key("name");
     private static final NamespacedKey MAX = EnchantmentItemData.key("max");
     private static final NamespacedKey CURSE = EnchantmentItemData.key("curse");
+    private static final NamespacedKey SET = EnchantmentItemData.key("set");
     private static final NamespacedKey ORIGINAL_GLINT = EnchantmentItemData.key("original_glint");
     private static final NamespacedKey APPLIED_GLINT = EnchantmentItemData.key("applied_glint");
 
@@ -84,15 +85,19 @@ final class EnchantmentPresentation {
             String name = definition != null ? definition.name() : prior == null ? null : prior.get(NAME, PersistentDataType.STRING);
             Integer maximum = definition != null ? definition.maxLevel() : prior == null ? null : prior.get(MAX, PersistentDataType.INTEGER);
             boolean curse = definition != null ? definition.curse() : prior != null && Byte.valueOf((byte) 1).equals(prior.get(CURSE, PersistentDataType.BYTE));
+            // Item sets show in their own set section instead of as an enchantment line.
+            boolean set = definition != null ? definition.isSet()
+                    : prior != null && Byte.valueOf((byte) 1).equals(prior.get(SET, PersistentDataType.BYTE));
             if (name == null) name = "Unavailable enchantment";
             if (maximum == null) maximum = Integer.MAX_VALUE;
-            lines.add("\u00a7r" + (curse ? "\u00a7c" : "\u00a77") + name
+            if (!set) lines.add("\u00a7r" + (curse ? "\u00a7c" : "\u00a77") + name
                     + (entry.getValue() == 1 && maximum == 1 ? "" : " " + level(entry.getValue()))
                     + (available ? "" : " \u00a78(inactive)"));
             PersistentDataContainer label = data.getAdapterContext().newPersistentDataContainer();
             label.set(NAME, PersistentDataType.STRING, name);
             label.set(MAX, PersistentDataType.INTEGER, maximum);
             label.set(CURSE, PersistentDataType.BYTE, (byte) (curse ? 1 : 0));
+            if (set) label.set(SET, PersistentDataType.BYTE, (byte) 1);
             labels.set(key, PersistentDataType.TAG_CONTAINER, label);
         }
         Boolean appliedGlint = originalGlint == null && !entries.isEmpty() ? Boolean.TRUE : originalGlint;
@@ -115,6 +120,17 @@ final class EnchantmentPresentation {
         record.set(LABELS, PersistentDataType.TAG_CONTAINER, labels);
         record.set(ORIGINAL_GLINT, PersistentDataType.INTEGER, encodeGlint(originalGlint));
         record.set(APPLIED_GLINT, PersistentDataType.INTEGER, encodeGlint(appliedGlint));
+        data.set(ROOT, PersistentDataType.TAG_CONTAINER, record);
+    }
+
+    /** Keeps this section in place when another MagmaCore section before it changes length. */
+    static void shift(ItemMeta meta, int from, int delta) {
+        if (delta == 0) return;
+        PersistentDataContainer data = meta.getPersistentDataContainer();
+        PersistentDataContainer record = data.get(ROOT, PersistentDataType.TAG_CONTAINER);
+        Integer position = record == null ? null : record.get(POSITION, PersistentDataType.INTEGER);
+        if (position == null || position < from) return;
+        record.set(POSITION, PersistentDataType.INTEGER, position + delta);
         data.set(ROOT, PersistentDataType.TAG_CONTAINER, record);
     }
 

@@ -69,6 +69,8 @@ final class EnchantmentItemAccess {
         if (current == null || current.getAmount() <= 0 || current.getType() != expected.getType()) return false;
         ItemStack first = current.clone(), second = expected.clone();
         clearDamage(first); clearDamage(second);
+        // Set lore follows what the player wears; a redraw does not make this a different item.
+        ItemSets.strip(first); ItemSets.strip(second);
         return first.isSimilar(second);
     }
 

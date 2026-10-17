@@ -36,6 +36,7 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
     private final Set<ScriptHook> hooks;
     private final Set<String> capabilities;
     private final EnchantmentInputs inputs;
+    private final ItemSetRefresher setLore;
     private final EnchantmentProviders.Handler domainHandler;
     private final Map<String, Running> active = new HashMap<>();
     // Activations are short lived; cooldowns belong to the player and authored effect.
@@ -57,6 +58,8 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
         Bukkit.getPluginManager().registerEvents(this, plugin);
         inputs = new EnchantmentInputs(plugin, catalog.namespace());
         Bukkit.getPluginManager().registerEvents(inputs, plugin);
+        setLore = new ItemSetRefresher(plugin, catalog.namespace());
+        Bukkit.getPluginManager().registerEvents(setLore, plugin);
     }
 
     Map<String, Object> evaluate(Map<String, Object> request) {
@@ -162,6 +165,7 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
         closed = true;
         HandlerList.unregisterAll(this);
         HandlerList.unregisterAll(inputs);
+        HandlerList.unregisterAll(setLore);
         stopAll();
         if (projectiles != null) projectiles.close();
         if (nativeProjectiles != null) nativeProjectiles.close();
@@ -211,6 +215,8 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
         final EnchantmentActions.Source source;
         final Set<String> delivered = new HashSet<>();
         final EnchantmentItemAccess item;
+        // Every piece of an item set; unequipping any of them ends a stop_on_unequip set action.
+        final List<EnchantmentItemAccess> pieces;
         final boolean stopOnUnequip;
         final Map<UUID, OwnedEntityState> gravity = new HashMap<>();
         final Map<String, OwnedEntityState> potions = new HashMap<>();
@@ -232,6 +238,7 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
             item = facts.get("item") instanceof org.bukkit.inventory.ItemStack stack
                     && facts.get("inventory_slot") instanceof Integer slot
                     ? new EnchantmentItemAccess(source.actor(), slot, stack) : null;
+            pieces = setPieces(source.actor(), facts);
             Object unequip = definition.parametersAt(level).get("stop_on_unequip");
             if (unequip != null && !(unequip instanceof Boolean))
                 throw new IllegalArgumentException("stop_on_unequip must be a boolean");
@@ -242,7 +249,8 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
             return !closed && plugin.isEnabled() && actor instanceof LivingEntity && actor.isValid() && !actor.isDead()
                     && (!(actor instanceof Player player) || player.isOnline())
                     && actor.getWorld().getUID().equals(source.world())
-                    && (!stopOnUnequip || item != null && item.isEquipped());
+                    && (!stopOnUnequip || (pieces != null ? pieces.stream().allMatch(EnchantmentItemAccess::isEquipped)
+                    : item != null && item.isEquipped()));
         }
         @Override public Entity getBukkitEntity() { return Bukkit.getEntity(source.actor()); }
         @Override public Location getLocation() {
@@ -266,6 +274,7 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
                 case "parameters" -> lua(definition.parametersAt(level));
                 case "source" -> lua(source.facts());
                 case "item" -> item == null ? LuaValue.NIL : item.table();
+                case "set" -> source.facts().get("set") instanceof Map<?, ?> set ? lua(set) : LuaValue.NIL;
                 case "target" -> target == null ? LuaValue.NIL : LuaLivingEntityTable.build(target);
                 case "player" -> getBukkitEntity() instanceof Player player ? LuaLivingEntityTable.build(player) : LuaValue.NIL;
                 case "action" -> {
@@ -459,6 +468,19 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
             return true;
         }
         @Override public void onShutdown() { active.remove(token, this); }
+    }
+
+    private static List<EnchantmentItemAccess> setPieces(UUID actor, Map<String, Object> facts) {
+        if (!(facts.get("set") instanceof Map<?, ?> set) || !(set.get("pieces") instanceof Map<?, ?> pieces)
+                || !(facts.get("equipment") instanceof Map<?, ?> equipment)) return null;
+        List<EnchantmentItemAccess> accesses = new ArrayList<>();
+        for (var entry : pieces.entrySet()) {
+            if (!(entry.getValue() instanceof Map<?, ?> piece) || !(piece.get("inventory_slot") instanceof Integer slot)
+                    || !(equipment.get(entry.getKey()) instanceof org.bukkit.inventory.ItemStack worn))
+                throw new IllegalArgumentException("Invalid item set source");
+            accesses.add(new EnchantmentItemAccess(actor, slot, worn));
+        }
+        return List.copyOf(accesses);
     }
 
     private static LuaValue lua(Object value) {

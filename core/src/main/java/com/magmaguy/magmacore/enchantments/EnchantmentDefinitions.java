@@ -147,20 +147,54 @@ public final class EnchantmentDefinitions {
         data.put("itemTypes", names(definition.itemTypes())); data.put("attackKinds", definition.attackKinds().stream().sorted().toList());
         data.put("requires", definition.requires().stream().sorted().toList()); data.put("conflicts", definition.conflicts().stream().sorted().toList());
         data.put("stacking", definition.stacking().name()); data.put("script", definition.script()); data.put("parameters", definition.parameters());
+        // Version 1 records stay byte-for-byte unchanged, so only set definitions need a peer that knows sets.
+        if (definition.set() != null) {
+            var set = definition.set();
+            Map<String, Object> pieces = new LinkedHashMap<>();
+            set.pieces().forEach((slot, piece) -> pieces.put(slot.name(), piece));
+            data.put("version", 2);
+            data.put("set", Map.of("name", set.name(), "pieces", pieces, "lore", set.lore(),
+                    "equippedPiece", set.equippedPiece(), "missingPiece", set.missingPiece()));
+        }
         return Map.copyOf(data);
     }
 
+    private static final Set<String> RECORD_FIELDS = Set.of("version", "id", "name", "description", "maxLevel", "curse",
+            "validSlots", "itemTypes", "attackKinds", "requires", "conflicts", "stacking", "script", "parameters");
+
     private static EnchantmentDefinition decode(Map<?, ?> data) {
-        if (!data.keySet().equals(Set.of("version", "id", "name", "description", "maxLevel", "curse", "validSlots",
-                "itemTypes", "attackKinds", "requires", "conflicts", "stacking", "script", "parameters"))
-                || !Integer.valueOf(1).equals(data.get("version"))) throw new IllegalArgumentException("Unknown definition record");
+        boolean set = Integer.valueOf(2).equals(data.get("version"));
+        Set<String> expected = new java.util.HashSet<>(RECORD_FIELDS);
+        if (set) expected.add("set");
+        if (!data.keySet().equals(expected) || !set && !Integer.valueOf(1).equals(data.get("version")))
+            throw new IllegalArgumentException("Unknown definition record");
         if (!(data.get("maxLevel") instanceof Integer maximum) || !(data.get("curse") instanceof Boolean curse)
                 || !(data.get("parameters") instanceof Map<?, ?> parameters)) throw new IllegalArgumentException("Invalid definition field types");
         return new EnchantmentDefinition(string(data, "id"), string(data, "name"), string(data, "description"), maximum, curse,
                 strings(data, "validSlots", EnchantmentDefinition.Slot::valueOf),
                 strings(data, "itemTypes", EnchantmentDefinition.ItemType::valueOf), strings(data, "attackKinds", Function.identity()),
                 strings(data, "requires", Function.identity()), strings(data, "conflicts", Function.identity()),
-                EnchantmentDefinition.Stacking.valueOf(string(data, "stacking")), string(data, "script"), EnchantmentValues.copy(parameters));
+                EnchantmentDefinition.Stacking.valueOf(string(data, "stacking")), string(data, "script"), EnchantmentValues.copy(parameters),
+                set ? decodeSet(data.get("set")) : null);
+    }
+
+    private static ItemSetDefinition decodeSet(Object raw) {
+        if (!(raw instanceof Map<?, ?> set) || !set.keySet().equals(Set.of("name", "pieces", "lore", "equippedPiece", "missingPiece"))
+                || !(set.get("pieces") instanceof Map<?, ?> pieces) || pieces.size() > EnchantmentDefinition.Slot.values().length
+                || !(set.get("lore") instanceof List<?> lore))
+            throw new IllegalArgumentException("Invalid item set record");
+        Map<EnchantmentDefinition.Slot, String> named = new LinkedHashMap<>();
+        for (var entry : pieces.entrySet()) {
+            if (!(entry.getKey() instanceof String slot) || !(entry.getValue() instanceof String piece))
+                throw new IllegalArgumentException("Invalid item set piece");
+            named.put(EnchantmentDefinition.Slot.valueOf(slot), piece);
+        }
+        List<String> lines = new java.util.ArrayList<>();
+        for (Object line : lore) {
+            if (!(line instanceof String text)) throw new IllegalArgumentException("Invalid item set lore");
+            lines.add(text);
+        }
+        return new ItemSetDefinition(string(set, "name"), named, lines, string(set, "equippedPiece"), string(set, "missingPiece"));
     }
 
     private static List<String> names(Set<? extends Enum<?>> values) { return values.stream().map(Enum::name).sorted().toList(); }
