@@ -19,13 +19,15 @@ import java.util.UUID;
 
 /**
  * Veils an entity per recipient: its equipment arrives empty and its shared flags arrive with the invisible bit
- * set, so a viewer who tracks a model's body sees nothing of the mob under the model. A spawn whose flags are all
+ * set and the glowing bit cleared, since a client outlines an invisible mob that glows, so a viewer who tracks a
+ * model's body sees nothing of the mob under the model. A spawn whose flags are all
  * default sends no flags at all, so every veiled spawn is followed by an invisible-flags entry of its own. Never
  * changes a packet shared with another player.
  */
 public final class EquipmentPackets {
     private static final int SHARED_FLAGS = 0;
     private static final byte INVISIBLE = 0x20;
+    private static final byte GLOWING = 0x40;
 
     private EquipmentPackets() { }
 
@@ -52,9 +54,11 @@ public final class EquipmentPackets {
             List<SynchedEntityData.DataValue<?>> replaced = null;
             for (int i = 0; i < values.size(); i++) {
                 SynchedEntityData.DataValue<?> value = values.get(i);
-                if (value.id() != SHARED_FLAGS || !(value.value() instanceof Byte flags) || (flags & INVISIBLE) != 0) continue;
+                if (value.id() != SHARED_FLAGS || !(value.value() instanceof Byte flags)) continue;
+                byte veiled = (byte) ((flags | INVISIBLE) & ~GLOWING);
+                if (veiled == flags) continue;
                 if (replaced == null) replaced = new ArrayList<>(values);
-                replaced.set(i, new SynchedEntityData.DataValue<>(SHARED_FLAGS, EntityDataSerializers.BYTE, (byte) (flags | INVISIBLE)));
+                replaced.set(i, new SynchedEntityData.DataValue<>(SHARED_FLAGS, EntityDataSerializers.BYTE, veiled));
             }
             return replaced == null ? packet : new ClientboundSetEntityDataPacket(data.id(), replaced);
         }
