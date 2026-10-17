@@ -4,15 +4,15 @@ import org.bukkit.Bukkit;
 import org.bukkit.plugin.InvalidDescriptionException;
 import org.bukkit.plugin.PluginDescriptionFile;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitTask;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
-import java.util.Collections;
-import java.util.Set;
-import java.util.WeakHashMap;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.jar.JarFile;
 
 /**
@@ -24,6 +24,10 @@ import java.util.jar.JarFile;
  * bytes differ from the running jar is staged in the update folder and swapped in at once through
  * {@link NightbreakPluginHotSwap}, even when it keeps the same version. A build that is refused or
  * fails to enable is not tried again; the next build is.</p>
+ *
+ * <p>The watcher polls on its own thread rather than as a scheduler task, because reload commands
+ * cancel every scheduler task of their plugin, and some of them never run the update bootstrap
+ * again. It stops when MagmaCore shuts the plugin down or the plugin is disabled.</p>
  */
 public final class NightbreakDevUpdateSource {
     public static final String SOURCE_PROPERTY = "nightbreak.devUpdateSource";
@@ -32,9 +36,10 @@ public final class NightbreakDevUpdateSource {
     private static final String SKIPPED_PREFIX = "nightbreak.devUpdateSource.skipped.";
     // A build a restart-only plugin can only take at the next boot; test harnesses restart for it.
     private static final String NEEDS_RESTART_PREFIX = "nightbreak.devUpdateSource.needsRestart.";
-    private static final long POLL_TICKS = 40L;
-    // A plugin's own reload command runs its bootstrap again without disabling it; one watcher per instance.
-    private static final Set<JavaPlugin> WATCHED = Collections.newSetFromMap(new WeakHashMap<>());
+    private static final long POLL_MILLIS = 2000L;
+    // A plugin's own reload command runs its bootstrap again, sometimes without shutting down first;
+    // one watcher per instance.
+    private static final Map<JavaPlugin, Watcher> WATCHERS = new HashMap<>();
 
     private NightbreakDevUpdateSource() {
     }
@@ -52,20 +57,30 @@ public final class NightbreakDevUpdateSource {
     static boolean startIfConfigured(JavaPlugin plugin) {
         File folder = sourceFolder();
         if (folder == null) return false;
-        synchronized (WATCHED) {
-            if (!WATCHED.add(plugin)) return true;
+        synchronized (WATCHERS) {
+            if (WATCHERS.containsKey(plugin)) return true;
+            File runningJar = NightbreakPluginHotSwap.findPluginJar(plugin);
+            if (runningJar == null) {
+                plugin.getLogger().warning("Dev update source: could not find the jar " + plugin.getName() + " runs from.");
+                return true;
+            }
+            String runningHash = NightbreakPluginUpdater.sha256(runningJar);
+            reportFinishedSwap(plugin, runningJar, runningHash);
+            Watcher watcher = new Watcher(plugin, runningHash, new BuildWatch(new File(folder, runningJar.getName())));
+            WATCHERS.put(plugin, watcher);
+            watcher.thread.start();
+            plugin.getLogger().info("Dev update source: watching " + watcher.build.source() + " for new builds.");
         }
-        File runningJar = NightbreakPluginHotSwap.findPluginJar(plugin);
-        if (runningJar == null) {
-            plugin.getLogger().warning("Dev update source: could not find the jar " + plugin.getName() + " runs from.");
-            return true;
-        }
-        String runningHash = NightbreakPluginUpdater.sha256(runningJar);
-        reportFinishedSwap(plugin, runningJar, runningHash);
-        Watcher watcher = new Watcher(plugin, runningHash, new BuildWatch(new File(folder, runningJar.getName())));
-        Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, watcher::poll, POLL_TICKS, POLL_TICKS);
-        plugin.getLogger().info("Dev update source: watching " + watcher.build.source() + " for new builds.");
         return true;
+    }
+
+    /** Stops this plugin instance's watcher; the next run of its update bootstrap starts a new one. */
+    static void stop(JavaPlugin plugin) {
+        Watcher watcher;
+        synchronized (WATCHERS) {
+            watcher = WATCHERS.remove(plugin);
+        }
+        if (watcher != null) watcher.stop();
     }
 
     private static void reportFinishedSwap(JavaPlugin plugin, File runningJar, String runningHash) {
@@ -95,15 +110,46 @@ public final class NightbreakDevUpdateSource {
         private final JavaPlugin plugin;
         private final String runningHash;
         private final BuildWatch build;
+        private final Thread thread;
+        private volatile boolean stopped;
+        private volatile BukkitTask pendingApply;
 
         private Watcher(JavaPlugin plugin, String runningHash, BuildWatch build) {
             this.plugin = plugin;
             this.runningHash = runningHash;
             this.build = build;
+            this.thread = new Thread(this::run, "Nightbreak dev update source: " + plugin.getName());
+            this.thread.setDaemon(true);
+        }
+
+        private void run() {
+            try {
+                while (!stopped && plugin.isEnabled()) {
+                    Thread.sleep(POLL_MILLIS);
+                    poll();
+                }
+            } catch (InterruptedException ignored) {
+                // Stopped.
+            } finally {
+                synchronized (WATCHERS) {
+                    WATCHERS.remove(plugin, this);
+                }
+            }
+        }
+
+        private void stop() {
+            stopped = true;
+            thread.interrupt();
         }
 
         private void poll() {
-            if (!plugin.isEnabled()) return;
+            if (stopped || !plugin.isEnabled()) return;
+            BukkitTask pending = pendingApply;
+            if (pending != null && pending.isCancelled()) {
+                // A reload cancelled the swap before it ran; decide the same build again.
+                pendingApply = null;
+                build.retry();
+            }
             try {
                 String hash = build.poll(runningHash, System.getProperty(SKIPPED_PREFIX + plugin.getName()));
                 if (hash == null) return;
@@ -124,7 +170,7 @@ public final class NightbreakDevUpdateSource {
                     build.retry(); // The build changed while it was copied.
                     return;
                 }
-                Bukkit.getScheduler().runTask(plugin, () -> apply(hash, staged));
+                pendingApply = Bukkit.getScheduler().runTask(plugin, () -> apply(hash, staged));
             } catch (IOException | RuntimeException exception) {
                 build.retry();
             }
@@ -158,7 +204,7 @@ public final class NightbreakDevUpdateSource {
         }
 
         private void apply(String hash, File staged) {
-            if (!plugin.isEnabled()) return;
+            if (stopped || !plugin.isEnabled()) return;
             if (System.getProperty(PluginHotSwapRoutine.ACTIVE_PROPERTY) != null) {
                 build.retry(); // Another plugin is swapping; try on the next poll.
                 return;

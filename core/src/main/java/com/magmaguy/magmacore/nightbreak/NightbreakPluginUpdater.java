@@ -162,6 +162,7 @@ public final class NightbreakPluginUpdater {
     public static void shutdown(JavaPlugin plugin) {
         if (plugin == null) return;
         NightbreakChangelogManager.shutdown(plugin);
+        NightbreakDevUpdateSource.stop(plugin);
 
         String pluginName = plugin.getName();
         List<NightbreakPluginAsyncWorkTracker.Work> activeWork;
