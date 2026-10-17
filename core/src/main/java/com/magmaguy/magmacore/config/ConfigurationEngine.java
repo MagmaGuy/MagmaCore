@@ -17,7 +17,9 @@ import java.io.InputStreamReader;
 import java.io.UncheckedIOException;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.FileSystemException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -26,6 +28,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class ConfigurationEngine {
+    private static final boolean WINDOWS = System.getProperty("os.name", "").startsWith("Windows");
+    private static final int LOCKED_MOVE_ATTEMPTS = 5;
+
     public static File fileCreator(String path, String fileName) {
         File file = new File(MagmaCore.getInstance().getRequestingPlugin().getDataFolder().getPath() + "/" + path + "/", fileName);
         return fileCreator(file);
@@ -91,12 +96,7 @@ public class ConfigurationEngine {
             try (FileChannel channel = FileChannel.open(temporary, StandardOpenOption.WRITE)) {
                 channel.force(true);
             }
-            try {
-                Files.move(temporary, destination, StandardCopyOption.ATOMIC_MOVE,
-                        StandardCopyOption.REPLACE_EXISTING);
-            } catch (AtomicMoveNotSupportedException unsupported) {
-                Files.move(temporary, destination, StandardCopyOption.REPLACE_EXISTING);
-            }
+            moveIntoPlace(temporary, destination);
         } catch (IOException failure) {
             throw new UncheckedIOException("Failed to save configuration " + destination, failure);
         } finally {
@@ -106,6 +106,34 @@ public class ConfigurationEngine {
                 } catch (IOException cleanupFailure) {
                     Logger.warn("Failed to remove configuration temporary file " + temporary
                             + ": " + cleanupFailure.getMessage());
+                }
+            }
+        }
+    }
+
+    /**
+     * Windows denies a replace while another process, usually an antivirus or indexer scanning a fresh file,
+     * holds either file open. Those locks last milliseconds, so retry them briefly; 250 ms at most in total.
+     */
+    private static void moveIntoPlace(Path temporary, Path destination) throws IOException {
+        for (int attempt = 1; ; attempt++) {
+            try {
+                try {
+                    Files.move(temporary, destination, StandardCopyOption.ATOMIC_MOVE,
+                            StandardCopyOption.REPLACE_EXISTING);
+                } catch (AtomicMoveNotSupportedException unsupported) {
+                    Files.move(temporary, destination, StandardCopyOption.REPLACE_EXISTING);
+                }
+                return;
+            } catch (FileSystemException failure) {
+                // ERROR_ACCESS_DENIED arrives as AccessDeniedException, ERROR_SHARING_VIOLATION as a plain FileSystemException.
+                boolean locked = failure instanceof AccessDeniedException || failure.getClass() == FileSystemException.class;
+                if (!WINDOWS || !locked || attempt == LOCKED_MOVE_ATTEMPTS) throw failure;
+                try {
+                    Thread.sleep(25L * attempt);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw failure;
                 }
             }
         }
