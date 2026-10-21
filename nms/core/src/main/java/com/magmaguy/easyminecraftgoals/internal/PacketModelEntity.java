@@ -81,4 +81,24 @@ public interface PacketModelEntity extends PacketEntityInterface {
                                                      org.joml.Vector3f translation, EulerAngle eulerAngle,
                                                      float scaleX, float scaleY, float scaleZ, int interpolationTicks) {
     }
+
+    /** True when the ridden pose can send its camera viewer their own view (see below). */
+    default boolean supportsCameraView() {
+        return false;
+    }
+
+    /**
+     * The ridden pose, with {@code cameraViewer} (the player steering the vehicle, or null) sent its own view: the
+     * pose turned back by {@code modelYaw}, the yaw it was built at, with a vertical billboard. That player's client
+     * then turns the display with their camera yaw at once instead of waiting for the server's next pose. Everyone
+     * else gets the pose as given. Call every tick while a camera viewer is set, and once more after it clears, so a
+     * re-shown display and a former viewer get their view back. Versions without it send the same pose to everyone.
+     */
+    default void generateRiddenTransformationPackets(AbstractPacketBundle packetBundle, Location seat,
+                                                     org.joml.Vector3f translation, EulerAngle eulerAngle,
+                                                     float scaleX, float scaleY, float scaleZ, int interpolationTicks,
+                                                     java.util.UUID cameraViewer, float modelYaw) {
+        generateRiddenTransformationPackets(packetBundle, seat, translation, eulerAngle, scaleX, scaleY, scaleZ,
+                interpolationTicks);
+    }
 }
