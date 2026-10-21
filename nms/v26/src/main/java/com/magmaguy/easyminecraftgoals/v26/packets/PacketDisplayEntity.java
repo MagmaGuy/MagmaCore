@@ -189,10 +189,6 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
         } else {
             packetBundle.addPacket(createEntityDataPacket(), updateViewers);
         }
-        // A display that stops riding has no camera view left.
-        if (cameraViewer != null)
-            releaseCameraView(packetBundle, viewer(updateViewers, cameraViewer), new Vector3f(), quaternionf,
-                    new Vector3f(scaleX, scaleY, scaleZ));
 
         return packetBundle;
     }
@@ -206,107 +202,27 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
     public void generateRiddenTransformationPackets(AbstractPacketBundle packetBundle, Location seat, Vector3f translation,
                                                     EulerAngle eulerAngle, float scaleX, float scaleY, float scaleZ,
                                                     int interpolationTicks) {
-        generateRiddenTransformationPackets(packetBundle, seat, translation, eulerAngle, scaleX, scaleY, scaleZ,
-                interpolationTicks, null, 0);
-    }
-
-    @Override
-    public boolean supportsCameraView() {
-        return true;
-    }
-
-    // The camera viewer's own view of this ridden display (see PacketModelEntity): a server-only copy holding what
-    // that one player is sent, so their pose and billboard can differ from everyone else's.
-    private Display.ItemDisplay cameraView;
-    private volatile UUID cameraViewer;
-    // Set when the camera viewer's client drops the display, so the next pass sends their whole view again.
-    private volatile boolean cameraViewStale;
-
-    @Override
-    public void generateRiddenTransformationPackets(AbstractPacketBundle packetBundle, Location seat, Vector3f translation,
-                                                    EulerAngle eulerAngle, float scaleX, float scaleY, float scaleZ,
-                                                    int interpolationTicks, UUID cameraViewer, float modelYaw) {
         // Viewers put this passenger at the seat themselves; the server copy only spawns there.
         if (entity.getX() != seat.getX() || entity.getY() != seat.getY() || entity.getZ() != seat.getZ())
             entity.setPos(seat.getX(), seat.getY(), seat.getZ());
-        Quaternionf rotation = eulerToQuaternion(eulerAngle.getX(), eulerAngle.getY(), eulerAngle.getZ());
-        Vector3f scale = new Vector3f(scaleX, scaleY, scaleZ);
-        // A camera viewer brings a call every tick, so only a pose that changed restarts the viewers' glide.
-        if (changed(getTransformation(), translation, rotation, scale)) pose(entity, translation, rotation, scale, interpolationTicks);
-        List<Player> updateViewers = getViewersAsPlayers();
-        net.minecraft.network.protocol.Packet<?> shared =
-                com.magmaguy.easyminecraftgoals.internal.PacketEntityTuning.useDeltaMetadataUpdates
-                        ? createDirtyEntityDataPacket() : createEntityDataPacket();
-        if (shared != null) packetBundle.addPacket(shared, updateViewers);
-
-        Player camera = viewer(updateViewers, cameraViewer);
-        if (this.cameraViewer != null && (camera == null || !this.cameraViewer.equals(cameraViewer)))
-            releaseCameraView(packetBundle, viewer(updateViewers, this.cameraViewer), translation, rotation, scale);
-        if (camera == null) return;
-        boolean whole = cameraView == null || cameraViewStale || shared != null;
-        if (cameraView == null) {
-            cameraView = new Display.ItemDisplay(PacketEntityTypes.ITEM_DISPLAY, entity.level());
-            cameraView.setBillboardConstraints(Display.BillboardConstraints.VERTICAL);
-            this.cameraViewer = cameraViewer;
-        }
-        cameraViewStale = false;
-        // The pose turned back by the yaw it was built at. The vertical billboard turns it by the viewer's camera yaw
-        // instead, which on their own client is the yaw they steer with, without a server round trip. The shared
-        // packet above may carry the world pose, so the view then follows it whole and replaces it.
-        float yaw = (float) Math.toRadians(modelYaw);
-        Vector3f viewTranslation = new Vector3f(translation).rotateY(yaw);
-        Quaternionf viewRotation = new Quaternionf().rotationY(yaw).mul(rotation);
-        Transformation current = Display.createTransformation(cameraView.getEntityData());
-        if (!whole && !changed(current, viewTranslation, viewRotation, scale)) return;
-        if (changed(current, viewTranslation, viewRotation, scale)) pose(cameraView, viewTranslation, viewRotation, scale, interpolationTicks);
-        List<net.minecraft.network.syncher.SynchedEntityData.DataValue<?>> values = whole
-                ? cameraView.getEntityData().getNonDefaultValues() : cameraView.getEntityData().packDirty();
-        if (whole) cameraView.getEntityData().packDirty();
-        if (values != null && !values.isEmpty())
-            packetBundle.addPacket(new net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket(entity.getId(), values), List.of(camera));
-    }
-
-    /** Gives the former camera viewer, when still a viewer, the display as everyone else sees it again. */
-    private void releaseCameraView(AbstractPacketBundle packetBundle, Player former, Vector3f translation,
-                                   Quaternionf rotation, Vector3f scale) {
-        if (former != null && cameraView != null) {
-            pose(cameraView, translation, rotation, scale, 0);
-            cameraView.setBillboardConstraints(Display.BillboardConstraints.FIXED);
-            List<net.minecraft.network.syncher.SynchedEntityData.DataValue<?>> restored = cameraView.getEntityData().packDirty();
-            if (restored != null && !restored.isEmpty())
-                packetBundle.addPacket(new net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket(entity.getId(), restored), List.of(former));
-        }
-        cameraViewer = null;
-        cameraView = null;
-    }
-
-    private static boolean changed(Transformation current, Vector3f translation, Quaternionf rotation, Vector3f scale) {
-        return !translation.equals(current.translation(), 1e-5f) || !rotation.equals(current.leftRotation(), 1e-5f)
-                || !scale.equals(current.scale(), 1e-5f);
-    }
-
-    /** Sets a ridden pose on the display or its camera copy; a pose that glides restarts from what viewers show now. */
-    private void pose(Display.ItemDisplay display, Vector3f translation, Quaternionf rotation, Vector3f scale, int interpolationTicks) {
-        display.setTransformation(new Transformation(translation, rotation, scale, entity.getEntityData().get(RIGHT_ROTATION)));
-        display.setTransformationInterpolationDuration(interpolationTicks);
+        entity.setTransformation(new Transformation(
+                translation,
+                eulerToQuaternion(eulerAngle.getX(), eulerAngle.getY(), eulerAngle.getZ()),
+                new Vector3f(scaleX, scaleY, scaleZ),
+                entity.getEntityData().get(RIGHT_ROTATION)));
+        entity.setTransformationInterpolationDuration(interpolationTicks);
         if (interpolationTicks > 0) {
             // Each pose restarts the glide from what the viewer shows now; see setTransformation.
-            display.setTransformationInterpolationDelay(-1);
-            display.setTransformationInterpolationDelay(0);
+            entity.setTransformationInterpolationDelay(-1);
+            entity.setTransformationInterpolationDelay(0);
         }
-    }
-
-    private static Player viewer(List<Player> viewers, UUID uuid) {
-        if (uuid == null) return null;
-        for (Player viewer : viewers) if (viewer.getUniqueId().equals(uuid)) return viewer;
-        return null;
-    }
-
-    @Override
-    public void hideFrom(UUID uuid) {
-        super.hideFrom(uuid);
-        // Shown again later, the display starts from the shared pose, so the camera view goes out whole.
-        if (uuid != null && uuid.equals(cameraViewer)) cameraViewStale = true;
+        List<Player> updateViewers = getViewersAsPlayers();
+        if (com.magmaguy.easyminecraftgoals.internal.PacketEntityTuning.useDeltaMetadataUpdates) {
+            net.minecraft.network.protocol.Packet<?> dirty = createDirtyEntityDataPacket();
+            if (dirty != null) packetBundle.addPacket(dirty, updateViewers);
+        } else {
+            packetBundle.addPacket(createEntityDataPacket(), updateViewers);
+        }
     }
 
     @Override
