@@ -3,6 +3,7 @@ package com.magmaguy.easyminecraftgoals.v1_21_R6.packets;
 import com.magmaguy.easyminecraftgoals.internal.DamageIndicatorClamp;
 import com.magmaguy.easyminecraftgoals.internal.PacketEntityInteractionManager;
 import com.magmaguy.easyminecraftgoals.internal.PacketInteractionContext;
+import com.magmaguy.easyminecraftgoals.internal.PacketNameTagTeams;
 import io.netty.channel.*;
 import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;
@@ -11,12 +12,15 @@ import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.PacketType;
 import net.minecraft.network.protocol.PacketUtils;
 import net.minecraft.network.protocol.game.ClientboundLevelParticlesPacket;
+import net.minecraft.network.protocol.game.ClientboundSetPlayerTeamPacket;
 import net.minecraft.network.protocol.game.ServerGamePacketListener;
 import net.minecraft.network.protocol.game.ServerboundInteractPacket;
 import net.minecraft.server.RunningOnDifferentThreadException;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.scores.PlayerTeam;
+import net.minecraft.world.scores.Scoreboard;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.server.network.ServerCommonPacketListenerImpl;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
@@ -331,9 +335,21 @@ public class PacketInteractionListener implements Listener {
             if (msg instanceof ClientboundLevelParticlesPacket particlesPacket) {
                 msg = maybeClampDamageIndicator(particlesPacket);
             }
+            if (msg instanceof ClientboundSetPlayerTeamPacket teamPacket) restoreHeldEntries(ctx, teamPacket);
             if (msg instanceof net.minecraft.network.protocol.Packet<?> packet)
                 msg = EquipmentPackets.veil(player.getUniqueId(), PassengerPackets.compose(player.getUniqueId(), packet));
             super.write(ctx, msg, promise);
+        }
+
+        /** Mirrors a team packet for this viewer, first returning entries our name-tag team took from its team. */
+        private void restoreHeldEntries(ChannelHandlerContext ctx, ClientboundSetPlayerTeamPacket packet) {
+            ClientboundSetPlayerTeamPacket.Action playerAction = packet.getPlayerAction();
+            for (String entry : PacketNameTagTeams.observe(player.getUniqueId(), packet.getName(),
+                    packet.getTeamAction() == ClientboundSetPlayerTeamPacket.Action.REMOVE,
+                    playerAction == ClientboundSetPlayerTeamPacket.Action.ADD,
+                    playerAction == ClientboundSetPlayerTeamPacket.Action.REMOVE, packet.getPlayers()))
+                ctx.write(ClientboundSetPlayerTeamPacket.createPlayerPacket(
+                        new PlayerTeam(new Scoreboard(), packet.getName()), entry, ClientboundSetPlayerTeamPacket.Action.ADD));
         }
     }
 
