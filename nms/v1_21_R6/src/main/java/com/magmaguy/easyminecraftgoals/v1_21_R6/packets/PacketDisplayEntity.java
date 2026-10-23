@@ -330,6 +330,11 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
     }
 
     @Override
+    public void clearBrightness() {
+        entity.setBrightnessOverride(null);
+    }
+
+    @Override
     public void setViewRange(float range) {
         entity.setViewRange(range);
     }

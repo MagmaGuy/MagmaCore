@@ -42,6 +42,10 @@ public interface PacketModelEntity extends PacketEntityInterface {
     default void setBrightness(int blockLight, int skyLight) {
     }
 
+    /** Drops the fixed light level, so the display takes the light at its position again. */
+    default void clearBrightness() {
+    }
+
     default void setViewRange(float range) {
     }
 
