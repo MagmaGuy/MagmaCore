@@ -41,6 +41,8 @@ import java.lang.reflect.Field;
 import java.net.JarURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AccessDeniedException;
+import java.nio.file.FileSystemException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -52,6 +54,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -392,6 +395,9 @@ public final class MagmaCore {
 
     private static final String NB_RSP_RESOURCE_PATH = "nightbreak_rsp_defaults";
     private static final String NB_RSP_CHECKSUM_FILE = ".nb_rsp_checksum_v3";
+    private static final boolean WINDOWS = System.getProperty("os.name", "").startsWith("Windows");
+    private static final int LOCKED_MOVE_ATTEMPTS = 10;
+    private static final long LOCKED_MOVE_BACKOFF_MILLIS = 40;
 
     /**
      * Exports the shared {@code nightbreak_rsp_defaults/} tree from the
@@ -685,7 +691,80 @@ public final class MagmaCore {
         }
     }
 
+    @FunctionalInterface
+    interface PathMover {
+        void move(Path source, Path destination) throws IOException;
+    }
+
+    @FunctionalInterface
+    interface Sleeper {
+        void sleep(long millis) throws InterruptedException;
+    }
+
     private static void movePath(Path source, Path destination)
+            throws IOException {
+        if (WINDOWS) {
+            movePath(source, destination, MagmaCore::moveAtomicallyOrPlainly, Thread::sleep);
+        } else {
+            moveAtomicallyOrPlainly(source, destination);
+        }
+    }
+
+    /**
+     * Windows denies a rename while another process, usually an antivirus scanner or the indexer reading a
+     * freshly written stage directory, still holds a file inside it open. Those locks last milliseconds, so a
+     * denied or sharing-violated move is retried with a short backoff: {@value #LOCKED_MOVE_ATTEMPTS} attempts,
+     * about two seconds in total. Any other failure is thrown at once.
+     */
+    static void movePath(Path source, Path destination, PathMover mover, Sleeper sleeper)
+            throws IOException {
+        long waitedMillis = 0;
+        for (int attempt = 1; ; attempt++) {
+            try {
+                mover.move(source, destination);
+                return;
+            } catch (IOException failure) {
+                if (!isTransientLock(failure)) throw failure;
+                if (attempt == LOCKED_MOVE_ATTEMPTS) {
+                    FileSystemException exhausted = new FileSystemException(
+                            source.toString(), destination.toString(),
+                            "still locked after " + attempt + " attempts over " + waitedMillis + " ms ("
+                                    + failure.getClass().getSimpleName()
+                                    + (failure instanceof FileSystemException fileSystemFailure
+                                    && fileSystemFailure.getReason() != null
+                                    ? ": " + fileSystemFailure.getReason() : "")
+                                    + ")");
+                    exhausted.initCause(failure);
+                    throw exhausted;
+                }
+                long backoffMillis = LOCKED_MOVE_BACKOFF_MILLIS * attempt;
+                try {
+                    sleeper.sleep(backoffMillis);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw failure;
+                }
+                waitedMillis += backoffMillis;
+            }
+        }
+    }
+
+    /**
+     * ERROR_ACCESS_DENIED reaches Java as {@link AccessDeniedException}. ERROR_SHARING_VIOLATION and
+     * ERROR_LOCK_VIOLATION reach it as a plain {@link FileSystemException} that only the system message tells
+     * apart; subclasses such as {@code DirectoryNotEmptyException} are never a lock.
+     */
+    private static boolean isTransientLock(IOException failure) {
+        if (failure instanceof AccessDeniedException) return true;
+        if (failure.getClass() != FileSystemException.class) return false;
+        String reason = ((FileSystemException) failure).getReason();
+        if (reason == null) return false;
+        String lowerReason = reason.toLowerCase(Locale.ROOT);
+        return lowerReason.contains("being used by another process")
+                || lowerReason.contains("locked a portion");
+    }
+
+    private static void moveAtomicallyOrPlainly(Path source, Path destination)
             throws IOException {
         try {
             Files.move(
