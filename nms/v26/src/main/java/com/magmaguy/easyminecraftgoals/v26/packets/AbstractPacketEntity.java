@@ -237,7 +237,7 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
         packetBundle.addPacket(generateHeadRotationPacket(), playerOnly);
         packetBundle.addPacket(createEntityDataPacket(), playerOnly);
         if (currentVehicleId != -1 && visible) {
-            PacketPassengerRegistry.attach(player.getUniqueId(), currentVehicleId, EntityID);
+            PacketPassengerRegistry.attach(player.getUniqueId(), currentVehicleId, EntityID, entity.getYRot(), entity.getXRot());
             int[] nativePassengers = nativePassengerIds();
             if (nativePassengers != null)
                 packetBundle.addPacket(PassengerPackets.create(currentVehicleId,
@@ -381,7 +381,7 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
             PacketPassengerRegistry.clearViewer(viewer);
             return;
         }
-        PacketPassengerRegistry.attach(viewer, currentVehicleId, EntityID);
+        PacketPassengerRegistry.attach(viewer, currentVehicleId, EntityID, entity.getYRot(), entity.getXRot());
         int[] nativePassengers = nativePassengerIds();
         if (nativePassengers == null) return; // The next main-thread display or remount sends it.
         sendPacketToPlayer(player, PassengerPackets.create(currentVehicleId,
