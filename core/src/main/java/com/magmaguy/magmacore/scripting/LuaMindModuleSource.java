@@ -37,39 +37,31 @@ record LuaMindModuleSource(
         Objects.requireNonNull(source, "source");
         Globals globals = LuaEnvironmentFactory.createGlobals();
         Prototype prototype = LuaMindSourceReader.compile(globals, sourceName, source);
-        LuaTable table = LuaMindSourceReader.evaluateTable(
-                globals,
-                sourceName,
-                prototype,
-                "module");
-        return new LuaMindModuleSource(
+        return LuaMindSourceReader.evaluate(globals, sourceName, prototype, "module", table -> new LuaMindModuleSource(
                 sourceName,
                 source,
                 prototype,
                 LuaMindProgramCompiler.requiredString(table, "id"),
                 LuaMindProgramCompiler.requiredPositiveLong(table, "revision"),
                 LuaMindSourceReader.stringArray(table.get("dependencies"), "dependencies"),
-                settings(table.get("settings"), sourceName));
+                settings(table.get("settings"), sourceName)));
     }
 
     LuaTable evaluate(Globals globals) {
-        LuaTable table = LuaMindSourceReader.evaluateTable(
-                globals,
-                sourceName,
-                prototype,
-                "module");
-        String evaluatedIdentifier = LuaMindProgramCompiler.requiredString(table, "id");
-        long evaluatedRevision = LuaMindProgramCompiler.requiredPositiveLong(table, "revision");
-        List<String> evaluatedDependencies = LuaMindSourceReader.stringArray(
-                table.get("dependencies"),
-                "dependencies");
-        if (!identifier.equals(evaluatedIdentifier)
-                || revision != evaluatedRevision
-                || !dependencies.equals(evaluatedDependencies)) {
-            throw new IllegalArgumentException(
-                    "Mind module " + sourceName + " produced non-deterministic metadata");
-        }
-        return table;
+        return LuaMindSourceReader.evaluate(globals, sourceName, prototype, "module", table -> {
+            String evaluatedIdentifier = LuaMindProgramCompiler.requiredString(table, "id");
+            long evaluatedRevision = LuaMindProgramCompiler.requiredPositiveLong(table, "revision");
+            List<String> evaluatedDependencies = LuaMindSourceReader.stringArray(
+                    table.get("dependencies"),
+                    "dependencies");
+            if (!identifier.equals(evaluatedIdentifier)
+                    || revision != evaluatedRevision
+                    || !dependencies.equals(evaluatedDependencies)) {
+                throw new IllegalArgumentException(
+                        "Mind module " + sourceName + " produced non-deterministic metadata");
+            }
+            return table;
+        });
     }
 
     LuaMindModuleDescriptor descriptor() {
@@ -77,8 +69,8 @@ record LuaMindModuleSource(
     }
 
     /**
-     * A module's declared setting defaults: numbers, true or false, text, or lists of text. This runs outside the
-     * script's execution budget, so it reads tables raw and never calls a script's metamethods.
+     * A module's declared setting defaults: numbers, true or false, text, or lists of text. It reads tables raw, so
+     * a script's metamethods never decide what a module declares.
      */
     private static Map<String, Object> settings(LuaValue value, String sourceName) {
         if (value.isnil()) return Map.of();

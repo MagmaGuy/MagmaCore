@@ -6,6 +6,7 @@ import org.luaj.vm2.LuaTable;
 import org.luaj.vm2.LuaValue;
 import org.luaj.vm2.Prototype;
 import org.luaj.vm2.Varargs;
+import org.luaj.vm2.lib.OneArgFunction;
 
 import java.io.IOException;
 import java.io.StringReader;
@@ -15,9 +16,16 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Function;
 
 final class LuaMindSourceReader {
     private static final AtomicLong COMPILATIONS = new AtomicLong();
+    private static final LuaValue UNCHANGED_ERROR_MESSAGE = new OneArgFunction() {
+        @Override
+        public LuaValue call(LuaValue message) {
+            return message;
+        }
+    };
 
     private LuaMindSourceReader() {
     }
@@ -37,34 +45,51 @@ final class LuaMindSourceReader {
         return COMPILATIONS.get();
     }
 
-    static LuaTable evaluateTable(
-            Globals globals,
-            String sourceName,
-        String source,
-        String expectedKind) {
-        return evaluateTable(globals, sourceName, compile(globals, sourceName, source), expectedKind);
-    }
-
     /** Runs a fresh closure over a compiled source, so every evaluation gets its own chunk locals. */
     static LuaTable evaluateTable(
             Globals globals,
             String sourceName,
             Prototype prototype,
             String expectedKind) {
-        LuaTable environment = isolatedEnvironment(globals);
-        LuaValue result = LuaExecutionBudget.run(
-                () -> new LuaClosure(prototype, environment).call());
-        if (!(result instanceof LuaTable table)) {
-            throw new IllegalArgumentException(
-                    "Mind script " + sourceName + " must return ai."
-                            + expectedKind + " { ... }");
-        }
-        LuaMindProgramCompiler.requireKind(table, expectedKind);
-        return table;
+        return evaluate(globals, sourceName, prototype, expectedKind, table -> table);
     }
 
-    private static LuaTable isolatedEnvironment(Globals globals) {
-        LuaTable environment = new LuaTable();
+    /**
+     * Runs a fresh closure over a compiled source and reads the table it returns in the same execution budget:
+     * reading that table can call the script's metamethods. Inside an existing budget, this shares it.
+     */
+    static <T> T evaluate(
+            Globals globals,
+            String sourceName,
+            Prototype prototype,
+            String expectedKind,
+            Function<LuaTable, T> read) {
+        Globals environment = isolatedEnvironment(globals);
+        return LuaExecutionBudget.run(() -> {
+            LuaValue result = new LuaClosure(prototype, environment).call();
+            if (!(result instanceof LuaTable table)) {
+                throw new IllegalArgumentException(
+                        "Mind script " + sourceName + " must return ai."
+                                + expectedKind + " { ... }");
+            }
+            LuaMindProgramCompiler.requireKind(table, expectedKind);
+            return read.apply(table);
+        });
+    }
+
+    /**
+     * Each chunk keeps its own top-level globals and reads every other name from the shared evaluation globals.
+     * <p>
+     * The environment is a {@link Globals} because LuaJ calls the debug library's instruction hook, which
+     * {@link LuaExecutionBudget} counts and times scripts with, only for closures whose environment is a Globals,
+     * and every closure the chunk creates, Mind callbacks included, inherits that. Under a plain table a loop that
+     * never ends would hang the server thread. Those closures would also append an empty stack traceback to every
+     * error message unless the environment's thread has an error function, so one returns messages unchanged.
+     */
+    private static Globals isolatedEnvironment(Globals globals) {
+        Globals environment = new Globals();
+        environment.debuglib = globals.debuglib;
+        environment.running.errorfunc = UNCHANGED_ERROR_MESSAGE;
         LuaTable metatable = new LuaTable();
         metatable.set("__index", globals);
         environment.setmetatable(metatable);
@@ -74,8 +99,8 @@ final class LuaMindSourceReader {
 
     static LuaMindProgramMetadata inspectProgram(String sourceName, String source) {
         Globals globals = LuaEnvironmentFactory.createGlobals();
-        LuaTable table = evaluateTable(globals, sourceName, source, "program");
-        return programMetadata(table);
+        return evaluate(globals, sourceName, compile(globals, sourceName, source), "program",
+                LuaMindSourceReader::programMetadata);
     }
 
     static LuaMindProgramMetadata programMetadata(LuaTable table) {
