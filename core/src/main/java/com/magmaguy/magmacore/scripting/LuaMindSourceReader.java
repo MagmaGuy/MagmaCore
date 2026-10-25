@@ -54,26 +54,14 @@ final class LuaMindSourceReader {
                 stringArray(table.get("modules"), "modules"));
     }
 
+    /**
+     * Reads a dense array of module identifiers. This can run outside the script's execution budget, so the table is
+     * read raw and its metamethods never run. The entries are counted before the raw length sizes anything.
+     */
     static List<String> stringArray(LuaValue value, String field) {
         if (value.isnil()) return List.of();
         LuaTable table = value.checktable();
-        int length = table.length();
-        List<String> values = new ArrayList<>(length);
-        Set<String> unique = new HashSet<>();
-        for (int index = 1; index <= length; index++) {
-            LuaValue entry = table.get(index);
-            if (!entry.isstring()) {
-                throw new IllegalArgumentException(
-                        "Mind field '" + field + "' must be an array of module identifiers");
-            }
-            String identifier = entry.checkjstring();
-            if (!unique.add(identifier)) {
-                throw new IllegalArgumentException(
-                        "Mind field '" + field + "' contains duplicate module " + identifier);
-            }
-            values.add(identifier);
-        }
-
+        int length = table.rawlen();
         LuaValue key = LuaValue.NIL;
         int entries = 0;
         while (true) {
@@ -89,6 +77,22 @@ final class LuaMindSourceReader {
         if (entries != length) {
             throw new IllegalArgumentException(
                     "Mind field '" + field + "' must be a dense array");
+        }
+
+        List<String> values = new ArrayList<>(length);
+        Set<String> unique = new HashSet<>();
+        for (int index = 1; index <= length; index++) {
+            LuaValue entry = table.rawget(index);
+            if (!entry.isstring()) {
+                throw new IllegalArgumentException(
+                        "Mind field '" + field + "' must be an array of module identifiers");
+            }
+            String identifier = entry.checkjstring();
+            if (!unique.add(identifier)) {
+                throw new IllegalArgumentException(
+                        "Mind field '" + field + "' contains duplicate module " + identifier);
+            }
+            values.add(identifier);
         }
         return List.copyOf(values);
     }

@@ -49,12 +49,7 @@ public final class LuaMindModuleRegistry implements AutoCloseable {
 
     /** Reads a module's identity, dependencies and settings without registering it anywhere. */
     public static LuaMindModuleDescriptor inspectModule(String sourceName, String source) {
-        Objects.requireNonNull(sourceName, "sourceName");
-        Objects.requireNonNull(source, "source");
-        if (source.length() > MAX_SOURCE_CHARACTERS) {
-            throw new IllegalArgumentException(
-                    "Lua Mind source " + sourceName + " exceeds the character limit of " + MAX_SOURCE_CHARACTERS);
-        }
+        requireSourceSize(sourceName, source);
         return LuaMindModuleSource.inspect(sourceName, source).descriptor();
     }
 
@@ -272,15 +267,15 @@ public final class LuaMindModuleRegistry implements AutoCloseable {
                 validateComposition(namespace, root, composition);
             }
         }
+    }
 
-        private void requireSourceSize(String sourceName, String source) {
-            Objects.requireNonNull(sourceName, "sourceName");
-            Objects.requireNonNull(source, "source");
-            if (source.length() > MAX_SOURCE_CHARACTERS) {
-                throw new IllegalArgumentException(
-                        "Lua Mind source " + sourceName + " exceeds the character limit of "
-                                + MAX_SOURCE_CHARACTERS);
-            }
+    private static void requireSourceSize(String sourceName, String source) {
+        Objects.requireNonNull(sourceName, "sourceName");
+        Objects.requireNonNull(source, "source");
+        if (source.length() > MAX_SOURCE_CHARACTERS) {
+            throw new IllegalArgumentException(
+                    "Lua Mind source " + sourceName + " exceeds the character limit of "
+                            + MAX_SOURCE_CHARACTERS);
         }
     }
 
