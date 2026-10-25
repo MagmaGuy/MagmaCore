@@ -701,7 +701,8 @@ public final class MagmaCore {
         void sleep(long millis) throws InterruptedException;
     }
 
-    private static void movePath(Path source, Path destination)
+    /** Moves a file or directory, retrying while Windows briefly denies it; see the overload below. */
+    public static void movePath(Path source, Path destination)
             throws IOException {
         if (WINDOWS) {
             movePath(source, destination, MagmaCore::moveAtomicallyOrPlainly, Thread::sleep);

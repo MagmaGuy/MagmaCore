@@ -350,6 +350,31 @@ public class ConfigurationImporter {
         }
     }
 
+    /**
+     * Each world blueprint replaces its installed copy as a whole. EliteMobs rewrites installed
+     * blueprints into the server's own world format, so merging a new export into one would mix
+     * two storage layouts in a single folder.
+     */
+    private static void moveWorldBlueprints(
+            File blueprintsDirectory,
+            Path targetPath,
+            ImportTransaction transaction) throws IOException {
+        transaction.prepareDirectory(targetPath);
+        for (File contentFolder : sortedChildren(blueprintsDirectory)) {
+            Path contentTarget = targetPath.resolve(contentFolder.getName());
+            if (!contentFolder.isDirectory()) {
+                mergeImportEntry(contentFolder.toPath(), contentTarget, transaction);
+                continue;
+            }
+            transaction.prepareDirectory(contentTarget);
+            for (File blueprint : sortedChildren(contentFolder)) {
+                Path blueprintTarget = contentTarget.resolve(blueprint.getName());
+                if (blueprint.isDirectory()) transaction.displaceDirectory(blueprintTarget);
+                mergeImportEntry(blueprint.toPath(), blueprintTarget, transaction);
+            }
+        }
+    }
+
     private static void moveFile(
             File file,
             Path targetPath,
@@ -805,6 +830,8 @@ public class ConfigurationImporter {
         if (unzippedFile.isDirectory()) {
             if (unzippedFile.getName().equalsIgnoreCase("worldcontainer"))
                 moveWorlds(unzippedFile, transaction);
+            else if (unzippedFile.getName().equalsIgnoreCase("world_blueprints"))
+                moveWorldBlueprints(unzippedFile, targetPath, transaction);
             else
                 moveDirectory(unzippedFile, targetPath, transaction);
         } else {
