@@ -202,10 +202,26 @@ public final class WorldBlueprint {
     }
 
     public void copyTo(Path destination, World.Environment environment, boolean modernServer) throws IOException {
+        copyTo(destination, environment, modernServer, CopyListener.NONE);
+    }
+
+    public void copyTo(Path destination, World.Environment environment, boolean modernServer,
+                       CopyListener listener) throws IOException {
         requireCompatibleServer(modernServer);
         Path source = layout == Layout.LEGACY_TERRAIN ? terrain : root;
         String child = layout == Layout.LEGACY_TERRAIN && !modernServer ? legacyDimension(environment) : "";
-        copyTree(source, destination, destination.resolve(child));
+        copyTree(source, destination, destination.resolve(child), listener);
+    }
+
+    /** Follows a copy into a new world folder. Either step can throw to stop the copy, which then removes the folder. */
+    public interface CopyListener {
+        CopyListener NONE = new CopyListener() {};
+
+        /** The new world folder exists and is still empty. */
+        default void created(Path destination) throws IOException {}
+
+        /** Runs before each blueprint file is copied. */
+        default void copying(Path file) throws IOException {}
     }
 
     /**
@@ -215,14 +231,15 @@ public final class WorldBlueprint {
     public void copyForConversion(Path worldFolder) throws IOException {
         if (layout != Layout.LEGACY_WORLD && layout != Layout.VANILLA_WORLD)
             throw new IOException("Only blueprints with their own level data are converted: " + root);
-        copyTree(root, worldFolder, worldFolder);
+        copyTree(root, worldFolder, worldFolder, CopyListener.NONE);
     }
 
-    private static void copyTree(Path source, Path destination, Path output) throws IOException {
+    private static void copyTree(Path source, Path destination, Path output, CopyListener listener) throws IOException {
         // CREATE_NEW semantics protect existing worlds and competing instance preparations.
         Files.createDirectories(destination.getParent());
         Files.createDirectory(destination);
         try {
+            listener.created(destination);
             Files.walkFileTree(source, new SimpleFileVisitor<>() {
                 @Override public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attrs) throws IOException {
                     if (Files.isSymbolicLink(directory) || attrs.isOther()) throw new IOException("Linked blueprint directory: " + directory);
@@ -233,6 +250,7 @@ public final class WorldBlueprint {
                     if (!attrs.isRegularFile() || Files.isSymbolicLink(file)) throw new IOException("Non-regular blueprint file: " + file);
                     Path relative = source.relativize(file);
                     if (IDENTITY_FILES.contains(relative)) return FileVisitResult.CONTINUE;
+                    listener.copying(file);
                     Files.copy(file, output.resolve(relative), StandardCopyOption.COPY_ATTRIBUTES);
                     return FileVisitResult.CONTINUE;
                 }

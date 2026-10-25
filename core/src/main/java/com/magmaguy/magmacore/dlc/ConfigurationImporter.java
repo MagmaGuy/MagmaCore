@@ -351,9 +351,10 @@ public class ConfigurationImporter {
     }
 
     /**
-     * Each world blueprint replaces its installed copy as a whole. EliteMobs rewrites installed
-     * blueprints into the server's own world format, so merging a new export into one would mix
-     * two storage layouts in a single folder.
+     * Each world blueprint replaces its installed copy as a whole. Plugins rewrite installed
+     * blueprints into the server's own world format (see WorldBlueprints), so merging a new export
+     * into one would mix two storage layouts in a single folder. EliteMobs keeps one folder of
+     * blueprints per content package.
      */
     private static void moveWorldBlueprints(
             File blueprintsDirectory,
@@ -362,16 +363,21 @@ public class ConfigurationImporter {
         transaction.prepareDirectory(targetPath);
         for (File contentFolder : sortedChildren(blueprintsDirectory)) {
             Path contentTarget = targetPath.resolve(contentFolder.getName());
-            if (!contentFolder.isDirectory()) {
-                mergeImportEntry(contentFolder.toPath(), contentTarget, transaction);
-                continue;
-            }
-            transaction.prepareDirectory(contentTarget);
-            for (File blueprint : sortedChildren(contentFolder)) {
-                Path blueprintTarget = contentTarget.resolve(blueprint.getName());
-                if (blueprint.isDirectory()) transaction.displaceDirectory(blueprintTarget);
-                mergeImportEntry(blueprint.toPath(), blueprintTarget, transaction);
-            }
+            if (contentFolder.isDirectory()) replaceBlueprints(contentFolder, contentTarget, transaction);
+            else mergeImportEntry(contentFolder.toPath(), contentTarget, transaction);
+        }
+    }
+
+    /** EternalTD and MegaBlock Survivors keep their blueprints directly in worlds/. */
+    private static void replaceBlueprints(
+            File blueprintsDirectory,
+            Path targetPath,
+            ImportTransaction transaction) throws IOException {
+        transaction.prepareDirectory(targetPath);
+        for (File blueprint : sortedChildren(blueprintsDirectory)) {
+            Path blueprintTarget = targetPath.resolve(blueprint.getName());
+            if (blueprint.isDirectory()) transaction.displaceDirectory(blueprintTarget);
+            mergeImportEntry(blueprint.toPath(), blueprintTarget, transaction);
         }
     }
 
@@ -832,6 +838,8 @@ public class ConfigurationImporter {
                 moveWorlds(unzippedFile, transaction);
             else if (unzippedFile.getName().equalsIgnoreCase("world_blueprints"))
                 moveWorldBlueprints(unzippedFile, targetPath, transaction);
+            else if (unzippedFile.getName().equalsIgnoreCase("worlds"))
+                replaceBlueprints(unzippedFile, targetPath, transaction);
             else
                 moveDirectory(unzippedFile, targetPath, transaction);
         } else {
