@@ -1,17 +1,40 @@
 package com.magmaguy.magmacore.scripting;
 
 import org.luaj.vm2.Globals;
+import org.luaj.vm2.LuaClosure;
 import org.luaj.vm2.LuaTable;
 import org.luaj.vm2.LuaValue;
+import org.luaj.vm2.Prototype;
 import org.luaj.vm2.Varargs;
 
+import java.io.IOException;
+import java.io.StringReader;
+import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 
 final class LuaMindSourceReader {
+    private static final AtomicLong COMPILATIONS = new AtomicLong();
+
     private LuaMindSourceReader() {
+    }
+
+    /** Compiles one Mind source. The prototype holds no state, so any number of closures can share it. */
+    static Prototype compile(Globals globals, String sourceName, String source) {
+        COMPILATIONS.incrementAndGet();
+        try {
+            return globals.compilePrototype(new StringReader(source), sourceName);
+        } catch (IOException exception) {
+            throw new UncheckedIOException(exception);
+        }
+    }
+
+    /** How many Mind sources this JVM has compiled, so tests can tell a cached prototype from a recompile. */
+    static long compilations() {
+        return COMPILATIONS.get();
     }
 
     static LuaTable evaluateTable(
@@ -19,9 +42,18 @@ final class LuaMindSourceReader {
             String sourceName,
         String source,
         String expectedKind) {
+        return evaluateTable(globals, sourceName, compile(globals, sourceName, source), expectedKind);
+    }
+
+    /** Runs a fresh closure over a compiled source, so every evaluation gets its own chunk locals. */
+    static LuaTable evaluateTable(
+            Globals globals,
+            String sourceName,
+            Prototype prototype,
+            String expectedKind) {
         LuaTable environment = isolatedEnvironment(globals);
         LuaValue result = LuaExecutionBudget.run(
-                () -> globals.load(source, sourceName, environment).call());
+                () -> new LuaClosure(prototype, environment).call());
         if (!(result instanceof LuaTable table)) {
             throw new IllegalArgumentException(
                     "Mind script " + sourceName + " must return ai."

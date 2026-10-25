@@ -4,6 +4,7 @@ import com.magmaguy.magmacore.ai.MindProgram;
 import com.magmaguy.magmacore.ai.MindProgramFactory;
 import org.luaj.vm2.Globals;
 import org.luaj.vm2.LuaTable;
+import org.luaj.vm2.Prototype;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -17,11 +18,13 @@ import java.util.Objects;
 /**
  * Validated Lua source that creates a fresh Mind program and Lua VM per entity binding.
  * Module-composed definitions retain their exact dependency-first source snapshot and fingerprint;
- * instantiation never consults a live module registry.
+ * instantiation never consults a live module registry. Every source is compiled once, at validation,
+ * and each binding runs fresh closures over those prototypes.
  */
 public final class LuaMindDefinition implements MindProgramFactory {
     private final String sourceName;
     private final String source;
+    private final Prototype programPrototype;
     private final String programIdentifier;
     private final long programRevision;
     private final List<String> rootModules;
@@ -32,6 +35,7 @@ public final class LuaMindDefinition implements MindProgramFactory {
     private LuaMindDefinition(
             String sourceName,
             String source,
+            Prototype programPrototype,
             String programIdentifier,
             long programRevision,
             List<String> rootModules,
@@ -39,6 +43,7 @@ public final class LuaMindDefinition implements MindProgramFactory {
             String programFingerprint) {
         this.sourceName = sourceName;
         this.source = source;
+        this.programPrototype = programPrototype;
         this.programIdentifier = programIdentifier;
         this.programRevision = programRevision;
         this.rootModules = List.copyOf(rootModules);
@@ -71,10 +76,14 @@ public final class LuaMindDefinition implements MindProgramFactory {
         Objects.requireNonNull(metadata, "metadata");
         List<LuaMindModuleSource> snapshot = List.copyOf(moduleSources);
         String fingerprint = fingerprint(metadata, source, snapshot);
-        MindProgram program = evaluate(sourceName, source, metadata, snapshot, LuaMindContextExtension.NONE);
+        Globals globals = LuaEnvironmentFactory.createGlobals();
+        Prototype programPrototype = LuaMindSourceReader.compile(globals, sourceName, source);
+        MindProgram program = evaluate(
+                globals, sourceName, programPrototype, metadata, snapshot, LuaMindContextExtension.NONE);
         return new LuaMindDefinition(
                 sourceName,
                 source,
+                programPrototype,
                 program.identifier(),
                 program.revision(),
                 metadata.modules(),
@@ -90,7 +99,7 @@ public final class LuaMindDefinition implements MindProgramFactory {
     /** A fresh program whose callbacks also receive the extension's fields. */
     public MindProgram instantiate(LuaMindContextExtension extension) {
         Objects.requireNonNull(extension, "extension");
-        return evaluate(sourceName, source,
+        return evaluate(LuaEnvironmentFactory.createGlobals(), sourceName, programPrototype,
                 new LuaMindProgramMetadata(programIdentifier, programRevision, rootModules), moduleSources, extension);
     }
 
@@ -117,13 +126,13 @@ public final class LuaMindDefinition implements MindProgramFactory {
     }
 
     private static MindProgram evaluate(
+            Globals globals,
             String sourceName,
-            String source,
+            Prototype programPrototype,
             LuaMindProgramMetadata expectedMetadata,
             List<LuaMindModuleSource> moduleSources,
             LuaMindContextExtension extension) {
         return LuaExecutionBudget.run(() -> {
-            Globals globals = LuaEnvironmentFactory.createGlobals();
             List<LuaTable> modules = new ArrayList<>(moduleSources.size());
             for (LuaMindModuleSource module : moduleSources) {
                 modules.add(module.evaluate(globals));
@@ -131,7 +140,7 @@ public final class LuaMindDefinition implements MindProgramFactory {
             LuaTable table = LuaMindSourceReader.evaluateTable(
                     globals,
                     sourceName,
-                    source,
+                    programPrototype,
                     "program");
             LuaMindProgramMetadata actualMetadata = LuaMindSourceReader.programMetadata(table);
             if (!expectedMetadata.equals(actualMetadata)) {

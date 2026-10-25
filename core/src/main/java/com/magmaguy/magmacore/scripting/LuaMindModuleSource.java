@@ -3,6 +3,7 @@ package com.magmaguy.magmacore.scripting;
 import org.luaj.vm2.Globals;
 import org.luaj.vm2.LuaTable;
 import org.luaj.vm2.LuaValue;
+import org.luaj.vm2.Prototype;
 import org.luaj.vm2.Varargs;
 
 import java.util.ArrayList;
@@ -11,9 +12,11 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
 
+/** One inspected module: its source, the prototype compiled from it once, and the metadata it declared. */
 record LuaMindModuleSource(
         String sourceName,
         String source,
+        Prototype prototype,
         String identifier,
         long revision,
         List<String> dependencies,
@@ -22,6 +25,7 @@ record LuaMindModuleSource(
     LuaMindModuleSource {
         Objects.requireNonNull(sourceName, "sourceName");
         Objects.requireNonNull(source, "source");
+        Objects.requireNonNull(prototype, "prototype");
         Objects.requireNonNull(identifier, "identifier");
         if (revision < 1L) throw new IllegalArgumentException("revision must be positive");
         dependencies = List.copyOf(dependencies);
@@ -32,14 +36,16 @@ record LuaMindModuleSource(
         Objects.requireNonNull(sourceName, "sourceName");
         Objects.requireNonNull(source, "source");
         Globals globals = LuaEnvironmentFactory.createGlobals();
+        Prototype prototype = LuaMindSourceReader.compile(globals, sourceName, source);
         LuaTable table = LuaMindSourceReader.evaluateTable(
                 globals,
                 sourceName,
-                source,
+                prototype,
                 "module");
         return new LuaMindModuleSource(
                 sourceName,
                 source,
+                prototype,
                 LuaMindProgramCompiler.requiredString(table, "id"),
                 LuaMindProgramCompiler.requiredPositiveLong(table, "revision"),
                 LuaMindSourceReader.stringArray(table.get("dependencies"), "dependencies"),
@@ -50,7 +56,7 @@ record LuaMindModuleSource(
         LuaTable table = LuaMindSourceReader.evaluateTable(
                 globals,
                 sourceName,
-                source,
+                prototype,
                 "module");
         String evaluatedIdentifier = LuaMindProgramCompiler.requiredString(table, "id");
         long evaluatedRevision = LuaMindProgramCompiler.requiredPositiveLong(table, "revision");
