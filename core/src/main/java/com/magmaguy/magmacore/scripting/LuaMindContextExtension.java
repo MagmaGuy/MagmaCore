@@ -4,8 +4,14 @@ import com.magmaguy.magmacore.ai.MindContext;
 import org.luaj.vm2.LuaTable;
 
 /**
- * Adds a host's own fields to the context table each Lua Mind callback receives. One extension serves one program
- * instance, so it can carry the state of the entity that instance drives.
+ * Adds a host's own fields to the context table each Lua Mind callback receives. Pass a separate extension per
+ * {@link LuaMindDefinition#instantiate(LuaMindContextExtension)} call when it carries per-entity state.
+ *
+ * <p>{@link #extend} runs on the server thread inside the callback's execution budget: its CPU time counts toward the
+ * program's runaway {@code cpu_micros} limit, and an exception it throws fails that callback. The built-in fields
+ * ({@code tick}, {@code generation}, {@code entity}, {@code memory}, {@code perception}, {@code actuator} and
+ * {@code actions}) are reserved and must not be overwritten. Reading a built-in from {@code extend} forces its lazy
+ * snapshot.</p>
  */
 @FunctionalInterface
 public interface LuaMindContextExtension {

@@ -131,13 +131,20 @@ public final class LuaMindProgramCompiler {
     private static List<Contribution> contributions(
             LuaTable program,
             List<LuaTable> moduleTables) {
+        String programIdentifier = requiredString(program, "id");
         List<Contribution> contributions = new ArrayList<>(moduleTables.size() + 1);
         for (LuaTable module : moduleTables) {
             requireKind(module, "module");
             requiredPositiveLong(module, "revision");
-            contributions.add(new Contribution(requiredString(module, "id"), module));
+            String moduleIdentifier = requiredString(module, "id");
+            // Callbacks are told which contribution declared them, so a module may not answer to its program's id.
+            if (moduleIdentifier.equals(programIdentifier)) {
+                throw new IllegalArgumentException(
+                        "Mind module '" + moduleIdentifier + "' has the same id as its program");
+            }
+            contributions.add(new Contribution(moduleIdentifier, module));
         }
-        contributions.add(new Contribution(requiredString(program, "id"), program));
+        contributions.add(new Contribution(programIdentifier, program));
         return List.copyOf(contributions);
     }
 
