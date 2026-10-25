@@ -856,22 +856,6 @@ public class ConfigurationImporter {
             moveDirectory(folder, targetPath, transaction);
     }
 
-    static void importContentFolder(
-            Path folder,
-            Path targetPath,
-            Path transactionWorkspace) throws IOException {
-        ImportTransaction transaction =
-                ImportTransaction.create(transactionWorkspace);
-        try {
-            transaction.prepareDirectory(targetPath);
-            moveContentFolder(folder.toFile(), targetPath, transaction);
-            transaction.commit();
-        } catch (IOException | RuntimeException failure) {
-            transaction.rollback(failure);
-            throw failure;
-        }
-    }
-
     private void recordSuccessfulImport(ImportCandidate candidate) {
         String sourceName = candidate.source().getName();
         // FMM rebuilds models, scripts, enchantments and recipes together in its imported-content reload.
