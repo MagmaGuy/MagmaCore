@@ -886,21 +886,6 @@ public class ConfigurationImporter {
         }
     }
 
-    static void importWorldBlueprints(
-            Path blueprintsDirectory,
-            Path targetPath,
-            Path transactionWorkspace) throws IOException {
-        ImportTransaction transaction =
-                ImportTransaction.create(transactionWorkspace);
-        try {
-            moveWorldBlueprints(blueprintsDirectory.toFile(), targetPath, transaction);
-            transaction.commit();
-        } catch (IOException | RuntimeException failure) {
-            transaction.rollback(failure);
-            throw failure;
-        }
-    }
-
     record ImportTransfer(Path source, Path destination) {
         ImportTransfer {
             Objects.requireNonNull(source, "source");
