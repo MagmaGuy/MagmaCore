@@ -215,10 +215,10 @@ final class LuaMindContextTable {
             context.actuator().jump();
             return LuaValue.NIL;
         }));
-        // One tick of flight velocity in blocks per tick. Requires the MOVE and LOOK leases (raises an error
-        // without them); false when the body cannot fly or its movement is overridden.
-        table.set("steer_flight", LuaTableSupport.tableMethod(table, args -> LuaValue.valueOf(
-                context.actuator().steerFlight(new Vector(args.checkdouble(1), args.checkdouble(2), args.checkdouble(3))))));
+        // One tick of flight velocity in blocks per tick. Raises an error without the MOVE and LOOK leases or
+        // for a non-finite value; false when the body cannot fly or its movement is overridden.
+        table.set("steer_flight", LuaTableSupport.tableMethod(table, args -> LuaValue.valueOf(context.actuator()
+                .steerFlight(new Vector(args.checkdouble(1), args.checkdouble(2), args.checkdouble(3))))));
         table.set("set_target", LuaTableSupport.tableMethod(table, args -> {
             LivingEntity target = resolveLivingEntity(args.arg1());
             if (target == null) return LuaValue.FALSE;

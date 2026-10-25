@@ -9,6 +9,7 @@ import org.bukkit.entity.EntityType;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.util.Vector;
 import org.junit.jupiter.api.Test;
+import org.luaj.vm2.LuaError;
 import org.luaj.vm2.LuaTable;
 import org.luaj.vm2.LuaValue;
 
@@ -16,6 +17,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -65,12 +67,30 @@ class LuaMindContextTableTest {
     void steerFlightReachesTheActuator() {
         MindActuator actuator = mock(MindActuator.class);
         when(actuator.steerFlight(any())).thenReturn(true);
+        LuaValue moved = steerFlight(actuator, LuaValue.valueOf(0.1), LuaValue.valueOf(0.2), LuaValue.valueOf(0.3));
+        assertTrue(moved.toboolean());
+        verify(actuator).steerFlight(new Vector(0.1, 0.2, 0.3));
+    }
+
+    @Test
+    void steerFlightReturnsFalseWhenTheBodyCannotFly() {
+        MindActuator actuator = mock(MindActuator.class);
+        when(actuator.steerFlight(any())).thenReturn(false);
+        LuaValue moved = steerFlight(actuator, LuaValue.valueOf(0.1), LuaValue.valueOf(0.2), LuaValue.valueOf(0.3));
+        assertSame(LuaValue.FALSE, moved);
+    }
+
+    @Test
+    void steerFlightRejectsAMissingComponentBeforeReachingTheActuator() {
+        MindActuator actuator = mock(MindActuator.class);
+        assertThrows(LuaError.class, () -> steerFlight(actuator, LuaValue.valueOf(0.1), LuaValue.valueOf(0.2)));
+        verifyNoInteractions(actuator);
+    }
+
+    private static LuaValue steerFlight(MindActuator actuator, LuaValue... velocity) {
         MindContext context = new MindContext(mock(LivingEntity.class), 1L, 1L, mock(MindMemoryView.class),
                 mock(MindPerception.class), actuator, mock(MindActionRequester.class));
         LuaTable table = LuaMindContextTable.build(context, Map.of());
-        LuaValue moved = table.get("actuator").invokemethod("steer_flight",
-                LuaValue.varargsOf(LuaValue.valueOf(0.1), LuaValue.valueOf(0.2), LuaValue.valueOf(0.3))).arg1();
-        assertTrue(moved.toboolean());
-        verify(actuator).steerFlight(new Vector(0.1, 0.2, 0.3));
+        return table.get("actuator").invokemethod("steer_flight", LuaValue.varargsOf(velocity)).arg1();
     }
 }
