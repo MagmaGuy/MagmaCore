@@ -836,15 +836,24 @@ public class ConfigurationImporter {
         if (unzippedFile.isDirectory()) {
             if (unzippedFile.getName().equalsIgnoreCase("worldcontainer"))
                 moveWorlds(unzippedFile, transaction);
-            else if (unzippedFile.getName().equalsIgnoreCase("world_blueprints"))
-                moveWorldBlueprints(unzippedFile, targetPath, transaction);
-            else if (unzippedFile.getName().equalsIgnoreCase("worlds"))
-                replaceBlueprints(unzippedFile, targetPath, transaction);
             else
-                moveDirectory(unzippedFile, targetPath, transaction);
+                moveContentFolder(unzippedFile, targetPath, transaction);
         } else {
             moveFile(unzippedFile, targetPath, transaction);
         }
+    }
+
+    /** Moves one archive folder into its plugin folder. World blueprint folders replace each installed world whole. */
+    private static void moveContentFolder(
+            File folder,
+            Path targetPath,
+            ImportTransaction transaction) throws IOException {
+        if (folder.getName().equalsIgnoreCase("world_blueprints"))
+            moveWorldBlueprints(folder, targetPath, transaction);
+        else if (folder.getName().equalsIgnoreCase("worlds"))
+            replaceBlueprints(folder, targetPath, transaction);
+        else
+            moveDirectory(folder, targetPath, transaction);
     }
 
     private void recordSuccessfulImport(ImportCandidate candidate) {
