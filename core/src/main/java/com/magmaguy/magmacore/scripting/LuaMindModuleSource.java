@@ -35,7 +35,7 @@ record LuaMindModuleSource(
     static LuaMindModuleSource inspect(String sourceName, String source) {
         Objects.requireNonNull(sourceName, "sourceName");
         Objects.requireNonNull(source, "source");
-        Globals globals = LuaEnvironmentFactory.createGlobals();
+        Globals globals = LuaMindSourceReader.createGlobals();
         Prototype prototype = LuaMindSourceReader.compile(globals, sourceName, source);
         return LuaMindSourceReader.evaluate(globals, sourceName, prototype, "module", table -> new LuaMindModuleSource(
                 sourceName,

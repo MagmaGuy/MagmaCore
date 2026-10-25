@@ -5,6 +5,7 @@ import com.magmaguy.magmacore.location.LuaLocations;
 import com.magmaguy.magmacore.location.api.LocationOwnership;
 import org.bukkit.Location;
 import org.luaj.vm2.Globals;
+import org.luaj.vm2.LuaString;
 import org.luaj.vm2.LuaTable;
 import org.luaj.vm2.LuaValue;
 import org.luaj.vm2.Varargs;
@@ -21,6 +22,7 @@ public final class LuaEnvironmentFactory {
 
     public static Globals createGlobals() {
         Globals globals = JsePlatform.standardGlobals();
+        lockStringMetatable(globals);
         globals.load(LuaExecutionBudget.debugLibrary());
         globals.set("debug", LuaValue.NIL);
         globals.set("dofile", LuaValue.NIL);
@@ -114,6 +116,30 @@ public final class LuaEnvironmentFactory {
         globals.set("em", em);
         LuaMindLibrary.install(globals);
         return globals;
+    }
+
+    /**
+     * LuaJ gives every string one metatable for the whole JVM, and makes the first globals' string library its
+     * {@code __index}, so whichever script reached that table could change string methods such as
+     * {@code ("a"):upper()} for every other script. This replaces it, once, with a metatable whose {@code __index}
+     * is a private copy of a fresh string library and whose {@code __metatable} hides it: {@code getmetatable("")}
+     * returns false. Running again finds the field and changes nothing.
+     */
+    private static synchronized void lockStringMetatable(Globals fresh) {
+        LuaValue shared = LuaString.s_metatable;
+        if (shared != null && !shared.rawget(LuaValue.METATABLE).isnil()) return;
+        LuaTable library = new LuaTable();
+        LuaTable source = fresh.get("string").checktable();
+        LuaValue key = LuaValue.NIL;
+        while (true) {
+            Varargs next = source.next(key);
+            key = next.arg1();
+            if (key.isnil()) break;
+            library.rawset(key, next.arg(2));
+        }
+        LuaString.s_metatable = LuaValue.tableOf(new LuaValue[]{
+                LuaValue.INDEX, library,
+                LuaValue.METATABLE, LuaValue.FALSE});
     }
 
     private static LuaTable toLuaArray(Set<String> values) {

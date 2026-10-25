@@ -26,6 +26,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Compiles one declarative Lua table into an immutable Mind program.
@@ -33,9 +34,13 @@ import java.util.UUID;
  * <p>The {@code budget} table contains soft callback, entity, and server scheduling limits. The
  * {@code runaway} table contains hard {@code cpu_micros} and {@code max_instructions} limits.
  * Existing programs may keep {@code max_instructions} in {@code budget}; new programs should put
- * it in {@code runaway} so the two policies stay visibly separate.</p>
+ * it in {@code runaway} so the two policies stay visibly separate. Both hard limits are silently
+ * clamped to the engine ceiling ({@link LuaExecutionBudget#MAX_INSTRUCTIONS} instructions and
+ * {@link LuaExecutionBudget#MAX_CPU_MILLIS} ms of CPU), so a program may ask for less but never more.</p>
  */
 public final class LuaMindProgramCompiler {
+    private static final long MAX_CPU_MICROS = TimeUnit.MILLISECONDS.toMicros(LuaExecutionBudget.MAX_CPU_MILLIS);
+
     private LuaMindProgramCompiler() {
     }
 
@@ -309,11 +314,12 @@ public final class LuaMindProgramCompiler {
             throw new IllegalArgumentException(
                     "Mind max_instructions must be declared in either budget or runaway, not both");
         }
-        long maxInstructions = explicitInstructions.optlong(
+        // Larger declared limits load, so existing programs keep working, but never exceed the engine ceiling.
+        long maxInstructions = Math.min(LuaExecutionBudget.MAX_INSTRUCTIONS, explicitInstructions.optlong(
                 legacyInstructions.optlong(
-                        defaults.runawayPolicy().maxInstructionsPerCallback()));
-        long maxCpuNanos = microsToNanos(runaway.get("cpu_micros").optlong(
-                defaults.runawayPolicy().maxCpuNanosPerCallback() / 1_000L));
+                        defaults.runawayPolicy().maxInstructionsPerCallback())));
+        long maxCpuNanos = microsToNanos(Math.min(MAX_CPU_MICROS, runaway.get("cpu_micros").optlong(
+                defaults.runawayPolicy().maxCpuNanosPerCallback() / 1_000L)));
         return new MindExecutionPolicy(
                 microsToNanos(budget.get("callback_micros").optlong(
                         defaults.maxCallbackNanos() / 1_000L)),

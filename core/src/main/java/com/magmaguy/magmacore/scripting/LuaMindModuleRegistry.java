@@ -335,7 +335,7 @@ public final class LuaMindModuleRegistry implements AutoCloseable {
             String root,
             List<LuaMindModuleSource> modules) {
         LuaExecutionBudget.run(() -> {
-            Globals globals = LuaEnvironmentFactory.createGlobals();
+            Globals globals = LuaMindSourceReader.createGlobals();
             List<LuaTable> tables = new ArrayList<>(modules.size());
             for (LuaMindModuleSource module : modules) {
                 tables.add(module.evaluate(globals));

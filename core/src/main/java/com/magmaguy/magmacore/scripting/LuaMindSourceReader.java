@@ -30,6 +30,17 @@ final class LuaMindSourceReader {
     private LuaMindSourceReader() {
     }
 
+    /**
+     * The globals Mind chunks fall back to: the shared script sandbox without {@code coroutine}. LuaJ runs every
+     * coroutine on its own Java thread, where the execution budget cannot see it, so a loop inside one would hang
+     * the server thread. Prop scripts and powers keep coroutines.
+     */
+    static Globals createGlobals() {
+        Globals globals = LuaEnvironmentFactory.createGlobals();
+        globals.set("coroutine", LuaValue.NIL);
+        return globals;
+    }
+
     /** Compiles one Mind source. The prototype holds no state, so any number of closures can share it. */
     static Prototype compile(Globals globals, String sourceName, String source) {
         COMPILATIONS.incrementAndGet();
@@ -85,6 +96,10 @@ final class LuaMindSourceReader {
      * and every closure the chunk creates, Mind callbacks included, inherits that. Under a plain table a loop that
      * never ends would hang the server thread. Those closures would also append an empty stack traceback to every
      * error message unless the environment's thread has an error function, so one returns messages unchanged.
+     * <p>
+     * {@code xpcall} handlers never run in Mind scripts: LuaJ asks the failing closure's environment thread for an
+     * error function, not the thread {@code xpcall} set it on, so {@code xpcall} returns false and the plain
+     * message. That was already true under the plain-table environment.
      */
     private static Globals isolatedEnvironment(Globals globals) {
         Globals environment = new Globals();
@@ -98,7 +113,7 @@ final class LuaMindSourceReader {
     }
 
     static LuaMindProgramMetadata inspectProgram(String sourceName, String source) {
-        Globals globals = LuaEnvironmentFactory.createGlobals();
+        Globals globals = createGlobals();
         return evaluate(globals, sourceName, compile(globals, sourceName, source), "program",
                 LuaMindSourceReader::programMetadata);
     }

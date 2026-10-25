@@ -76,7 +76,7 @@ public final class LuaMindDefinition implements MindProgramFactory {
         Objects.requireNonNull(metadata, "metadata");
         List<LuaMindModuleSource> snapshot = List.copyOf(moduleSources);
         String fingerprint = fingerprint(metadata, source, snapshot);
-        Globals globals = LuaEnvironmentFactory.createGlobals();
+        Globals globals = LuaMindSourceReader.createGlobals();
         Prototype programPrototype = LuaMindSourceReader.compile(globals, sourceName, source);
         MindProgram program = evaluate(
                 globals, sourceName, programPrototype, metadata, snapshot, LuaMindContextExtension.NONE);
@@ -96,10 +96,14 @@ public final class LuaMindDefinition implements MindProgramFactory {
         return instantiate(LuaMindContextExtension.NONE);
     }
 
-    /** A fresh program whose callbacks also receive the extension's fields. */
+    /**
+     * A fresh program whose callbacks also receive the extension's fields. Running the modules' and program's
+     * top-level code counts against the execution budget already active on this thread, if any, for example
+     * when a Mind callback instantiates a program; otherwise it gets a budget of its own.
+     */
     public MindProgram instantiate(LuaMindContextExtension extension) {
         Objects.requireNonNull(extension, "extension");
-        return evaluate(LuaEnvironmentFactory.createGlobals(), sourceName, programPrototype,
+        return evaluate(LuaMindSourceReader.createGlobals(), sourceName, programPrototype,
                 new LuaMindProgramMetadata(programIdentifier, programRevision, rootModules), moduleSources, extension);
     }
 
