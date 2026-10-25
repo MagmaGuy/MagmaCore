@@ -7,6 +7,7 @@ import com.magmaguy.magmacore.ai.MindMemoryView;
 import com.magmaguy.magmacore.ai.MindPerception;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.LivingEntity;
+import org.bukkit.util.Vector;
 import org.junit.jupiter.api.Test;
 import org.luaj.vm2.LuaTable;
 import org.luaj.vm2.LuaValue;
@@ -15,6 +16,8 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -56,5 +59,18 @@ class LuaMindContextTableTest {
         LuaValue secondMemory = table.get("memory");
         assertSame(firstMemory, secondMemory);
         verifyNoInteractions(memory, perception, actuator, actions);
+    }
+
+    @Test
+    void steerFlightReachesTheActuator() {
+        MindActuator actuator = mock(MindActuator.class);
+        when(actuator.steerFlight(any())).thenReturn(true);
+        MindContext context = new MindContext(mock(LivingEntity.class), 1L, 1L, mock(MindMemoryView.class),
+                mock(MindPerception.class), actuator, mock(MindActionRequester.class));
+        LuaTable table = LuaMindContextTable.build(context, Map.of());
+        LuaValue moved = table.get("actuator").invokemethod("steer_flight",
+                LuaValue.varargsOf(LuaValue.valueOf(0.1), LuaValue.valueOf(0.2), LuaValue.valueOf(0.3))).arg1();
+        assertTrue(moved.toboolean());
+        verify(actuator).steerFlight(new Vector(0.1, 0.2, 0.3));
     }
 }
