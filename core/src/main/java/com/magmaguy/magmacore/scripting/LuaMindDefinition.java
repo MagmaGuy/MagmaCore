@@ -71,7 +71,7 @@ public final class LuaMindDefinition implements MindProgramFactory {
         Objects.requireNonNull(metadata, "metadata");
         List<LuaMindModuleSource> snapshot = List.copyOf(moduleSources);
         String fingerprint = fingerprint(metadata, source, snapshot);
-        MindProgram program = evaluate(sourceName, source, metadata, snapshot);
+        MindProgram program = evaluate(sourceName, source, metadata, snapshot, LuaMindContextExtension.NONE);
         return new LuaMindDefinition(
                 sourceName,
                 source,
@@ -84,14 +84,14 @@ public final class LuaMindDefinition implements MindProgramFactory {
 
     @Override
     public MindProgram instantiate() {
-        return evaluate(
-                sourceName,
-                source,
-                new LuaMindProgramMetadata(
-                        programIdentifier,
-                        programRevision,
-                        rootModules),
-                moduleSources);
+        return instantiate(LuaMindContextExtension.NONE);
+    }
+
+    /** A fresh program whose callbacks also receive the extension's fields. */
+    public MindProgram instantiate(LuaMindContextExtension extension) {
+        Objects.requireNonNull(extension, "extension");
+        return evaluate(sourceName, source,
+                new LuaMindProgramMetadata(programIdentifier, programRevision, rootModules), moduleSources, extension);
     }
 
     public String sourceName() {
@@ -120,7 +120,8 @@ public final class LuaMindDefinition implements MindProgramFactory {
             String sourceName,
             String source,
             LuaMindProgramMetadata expectedMetadata,
-            List<LuaMindModuleSource> moduleSources) {
+            List<LuaMindModuleSource> moduleSources,
+            LuaMindContextExtension extension) {
         return LuaExecutionBudget.run(() -> {
             Globals globals = LuaEnvironmentFactory.createGlobals();
             List<LuaTable> modules = new ArrayList<>(moduleSources.size());
@@ -137,7 +138,7 @@ public final class LuaMindDefinition implements MindProgramFactory {
                 throw new IllegalArgumentException(
                         "Mind program " + sourceName + " produced non-deterministic metadata");
             }
-            MindProgram program = LuaMindProgramCompiler.compile(table, modules);
+            MindProgram program = LuaMindProgramCompiler.compile(table, modules, extension);
             if (!program.identifier().equals(expectedMetadata.identifier())
                     || program.revision() != expectedMetadata.revision()) {
                 throw new IllegalArgumentException(

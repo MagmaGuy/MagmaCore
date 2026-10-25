@@ -51,6 +51,13 @@ public final class LuaMindProgramCompiler {
     }
 
     static MindProgram compile(LuaTable table, List<LuaTable> moduleTables) {
+        return compile(table, moduleTables, LuaMindContextExtension.NONE);
+    }
+
+    static MindProgram compile(
+            LuaTable table,
+            List<LuaTable> moduleTables,
+            LuaMindContextExtension extension) {
         requireKind(table, "program");
         String identifier = requiredString(table, "id");
         int namespaceSeparator = identifier.indexOf(':');
@@ -107,7 +114,7 @@ public final class LuaMindProgramCompiler {
                         requiredString(sensor, "id"),
                         contribution.identifier(),
                         sensorIdentifiers);
-                program.sensor(parseSensor(sensor, memories, policy));
+                program.sensor(parseSensor(sensor, memories, policy, contribution.identifier(), extension));
             }
             for (LuaTable behavior : array(contribution.table().get("behaviors"), "behaviors")) {
                 rejectCollision(
@@ -115,7 +122,7 @@ public final class LuaMindProgramCompiler {
                         requiredString(behavior, "id"),
                         contribution.identifier(),
                         behaviorIdentifiers);
-                program.behavior(parseBehavior(behavior, memories, policy));
+                program.behavior(parseBehavior(behavior, memories, policy, contribution.identifier(), extension));
             }
         }
         return program.build();
@@ -181,7 +188,9 @@ public final class LuaMindProgramCompiler {
     private static MindSensor parseSensor(
             LuaTable table,
             Map<String, MemoryBinding<?>> memories,
-            MindExecutionPolicy policy) {
+            MindExecutionPolicy policy,
+            String contribution,
+            LuaMindContextExtension extension) {
         requireKind(table, "sensor");
         String identifier = requiredString(table, "id");
         int interval = table.get("interval").optint(1);
@@ -200,7 +209,7 @@ public final class LuaMindProgramCompiler {
 
             @Override
             public void sense(MindContext context) {
-                invoke(policy, () -> sense.call(LuaMindContextTable.build(context, memories)));
+                invoke(policy, () -> sense.call(context(context, memories, contribution, extension)));
             }
         };
     }
@@ -208,7 +217,9 @@ public final class LuaMindProgramCompiler {
     private static MindBehavior parseBehavior(
             LuaTable table,
             Map<String, MemoryBinding<?>> memories,
-            MindExecutionPolicy policy) {
+            MindExecutionPolicy policy,
+            String contribution,
+            LuaMindContextExtension extension) {
         requireKind(table, "behavior");
         String identifier = requiredString(table, "id");
         int priority = table.get("priority").optint(0);
@@ -239,36 +250,43 @@ public final class LuaMindProgramCompiler {
             public boolean canStart(MindContext context) {
                 if (canStart == null) return true;
                 return invoke(policy, () -> canStart.call(
-                        LuaMindContextTable.build(context, memories))).checkboolean();
+                        context(context, memories, contribution, extension))).checkboolean();
             }
 
             @Override
             public boolean canContinue(MindContext context) {
                 if (canContinue == null) return canStart(context);
                 return invoke(policy, () -> canContinue.call(
-                        LuaMindContextTable.build(context, memories))).checkboolean();
+                        context(context, memories, contribution, extension))).checkboolean();
             }
 
             @Override
             public void start(MindContext context) {
                 if (start != null) invoke(policy, () -> start.call(
-                        LuaMindContextTable.build(context, memories)));
+                        context(context, memories, contribution, extension)));
             }
 
             @Override
             public void tick(MindContext context) {
-                invoke(policy, () -> tick.call(LuaMindContextTable.build(context, memories)));
+                invoke(policy, () -> tick.call(context(context, memories, contribution, extension)));
             }
 
             @Override
             public void stop(MindContext context, MindStopReason reason) {
                 if (stop == null) return;
                 invoke(policy, () -> stop.invoke(LuaValue.varargsOf(new LuaValue[]{
-                        LuaMindContextTable.build(context, memories),
+                        context(context, memories, contribution, extension),
                         LuaValue.valueOf(reason.name().toLowerCase(Locale.ROOT))
                 })).arg1());
             }
         };
+    }
+
+    private static LuaTable context(MindContext context, Map<String, MemoryBinding<?>> memories, String contribution,
+                                    LuaMindContextExtension extension) {
+        LuaTable table = LuaMindContextTable.build(context, memories);
+        extension.extend(table, context, contribution);
+        return table;
     }
 
     private static MindExecutionPolicy parseExecutionPolicy(

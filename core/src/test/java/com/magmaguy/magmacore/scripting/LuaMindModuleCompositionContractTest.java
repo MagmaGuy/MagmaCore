@@ -67,7 +67,7 @@ class LuaMindModuleCompositionContractTest {
         assertDoesNotThrow(second::claimForBinding);
 
         owner.close();
-        assertDoesNotThrow(definition::instantiate);
+        assertDoesNotThrow(() -> definition.instantiate());
         registry.close();
     }
 
@@ -166,8 +166,8 @@ class LuaMindModuleCompositionContractTest {
         assertNotEquals(before.programFingerprint(), after.programFingerprint());
 
         owner.close();
-        assertDoesNotThrow(before::instantiate);
-        assertDoesNotThrow(after::instantiate);
+        assertDoesNotThrow(() -> before.instantiate());
+        assertDoesNotThrow(() -> after.instantiate());
     }
 
     @Test
