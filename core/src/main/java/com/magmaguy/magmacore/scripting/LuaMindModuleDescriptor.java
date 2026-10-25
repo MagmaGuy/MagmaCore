@@ -1,15 +1,22 @@
 package com.magmaguy.magmacore.scripting;
 
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.TreeMap;
 import java.util.regex.Pattern;
 
-/** Immutable identity and dependency metadata for one registered Lua Mind module. */
+/**
+ * Immutable identity and dependency metadata for one registered Lua Mind module. {@code settings} holds the defaults
+ * a module declares in its {@code settings} table: Double, Boolean, String or List of String values.
+ */
 public record LuaMindModuleDescriptor(
         String identifier,
         long revision,
-        List<String> dependencies) {
+        List<String> dependencies,
+        Map<String, Object> settings) {
     private static final Pattern IDENTIFIER =
             Pattern.compile("[a-z0-9._-]+:[a-z0-9/._-]+");
 
@@ -30,5 +37,10 @@ public record LuaMindModuleDescriptor(
                         "Lua Mind module dependencies must be namespaced lower-case keys");
             }
         }
+        settings = Collections.unmodifiableMap(new TreeMap<>(Objects.requireNonNull(settings, "settings")));
+    }
+
+    public LuaMindModuleDescriptor(String identifier, long revision, List<String> dependencies) {
+        this(identifier, revision, dependencies, Map.of());
     }
 }

@@ -47,6 +47,17 @@ public final class LuaMindModuleRegistry implements AutoCloseable {
         return owner;
     }
 
+    /** Reads a module's identity, dependencies and settings without registering it anywhere. */
+    public static LuaMindModuleDescriptor inspectModule(String sourceName, String source) {
+        Objects.requireNonNull(sourceName, "sourceName");
+        Objects.requireNonNull(source, "source");
+        if (source.length() > MAX_SOURCE_CHARACTERS) {
+            throw new IllegalArgumentException(
+                    "Lua Mind source " + sourceName + " exceeds the character limit of " + MAX_SOURCE_CHARACTERS);
+        }
+        return LuaMindModuleSource.inspect(sourceName, source).descriptor();
+    }
+
     @Override
     public synchronized void close() {
         if (closed) return;
