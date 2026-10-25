@@ -12,12 +12,6 @@ import java.util.Objects;
 import java.util.function.BooleanSupplier;
 
 final class NativeMindActuator {
-    /**
-     * Fastest flight a Mind can steer, in blocks per tick. That is far beyond any vanilla flyer, and it keeps the
-     * collision sweep {@code Mob.move} makes over one tick's travel close to the body.
-     */
-    static final double MAX_FLIGHT_SPEED = 4.0D;
-
     private final NativeMindBody body;
     private final Mob mob;
     private final NativeMindNavigationTracker navigation;
@@ -57,13 +51,13 @@ final class NativeMindActuator {
     }
 
     /**
-     * The velocity, scaled down to {@link #MAX_FLIGHT_SPEED} when it is faster, in the same direction. A finite
-     * velocity too long for a double to measure becomes zero, which only stops the body.
+     * The velocity, scaled down to {@link MindActuator#MAX_FLIGHT_SPEED} when it is faster, in the same direction.
+     * A finite velocity too long for a double to measure becomes zero, which only stops the body.
      */
     static org.bukkit.util.Vector cappedFlight(org.bukkit.util.Vector velocity) {
         double speed = velocity.length();
-        if (speed <= MAX_FLIGHT_SPEED) return velocity.clone();
-        return velocity.clone().multiply(MAX_FLIGHT_SPEED / speed);
+        if (speed <= MindActuator.MAX_FLIGHT_SPEED) return velocity.clone();
+        return velocity.clone().multiply(MindActuator.MAX_FLIGHT_SPEED / speed);
     }
 
     private void requireSameWorld(Location location) {

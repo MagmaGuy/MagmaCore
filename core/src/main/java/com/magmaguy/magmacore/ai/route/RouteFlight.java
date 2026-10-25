@@ -1,9 +1,14 @@
 package com.magmaguy.magmacore.ai.route;
 
+import com.magmaguy.magmacore.ai.MindActuator;
 import com.magmaguy.magmacore.ai.MindContext;
 import org.bukkit.util.Vector;
 
-/** Advances along the authored curve each tick. The author owns the route's clearance. */
+/**
+ * Advances a point along the authored curve each tick and steers the body to it. The author owns the route's
+ * clearance. The route reports arrival when that point reaches the end, which assumes the body keeps up, so the
+ * speed never exceeds {@link MindActuator#MAX_FLIGHT_SPEED}.
+ */
 public final class RouteFlight {
     public enum Status { FLYING, ARRIVED, UNSUPPORTED }
     private final CurvedRoute route;
@@ -17,7 +22,7 @@ public final class RouteFlight {
                 || !Double.isFinite(accelerationPerSecond) || accelerationPerSecond <= 0)
             throw new IllegalArgumentException("Flight speed and acceleration must be finite and positive");
         this.route = route;
-        maximumSpeed = blocksPerSecond / 20D;
+        maximumSpeed = Math.min(MindActuator.MAX_FLIGHT_SPEED, blocksPerSecond / 20D);
         acceleration = accelerationPerSecond / 400D;
     }
 

@@ -1,5 +1,6 @@
 package com.magmaguy.easyminecraftgoals.v26.mind;
 
+import com.magmaguy.magmacore.ai.MindActuator;
 import org.bukkit.util.Vector;
 import org.junit.jupiter.api.Test;
 
@@ -15,11 +16,21 @@ class NativeMindFlightSpeedTest {
     }
 
     @Test
+    void aVelocityExactlyAtTheCapIsUnchanged() {
+        assertEquals(new Vector(0D, 0D, -4D), NativeMindActuator.cappedFlight(new Vector(0D, 0D, -4D)));
+    }
+
+    @Test
     void aFasterVelocityKeepsItsDirectionAtTheCap() {
         Vector capped = NativeMindActuator.cappedFlight(new Vector(30D, 40D, 120D));
-        assertEquals(NativeMindActuator.MAX_FLIGHT_SPEED, capped.length(), EPSILON);
+        assertEquals(MindActuator.MAX_FLIGHT_SPEED, capped.length(), EPSILON);
         assertEquals(3D / 13D, capped.getX() / capped.length(), EPSILON);
         assertEquals(4D / 13D, capped.getY() / capped.length(), EPSILON);
         assertEquals(12D / 13D, capped.getZ() / capped.length(), EPSILON);
+    }
+
+    @Test
+    void aVelocityTooLongToMeasureStopsTheBody() {
+        assertEquals(new Vector(0D, 0D, 0D), NativeMindActuator.cappedFlight(new Vector(1.0E200D, -1.0E200D, 1.0E200D)));
     }
 }
