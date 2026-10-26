@@ -15,7 +15,7 @@ final class NativeMindSensorControl implements BehaviorControl<Mob> {
     private final MindSensor sensor;
     private final int intervalTicks;
     private final String senseIdentifier;
-    private long nextTick = Long.MIN_VALUE;
+    private final NativeMindProbeSchedule schedule;
 
     NativeMindSensorControl(NativeMindProgramRuntime runtime, MindSensor sensor) {
         this.runtime = runtime;
@@ -26,6 +26,8 @@ final class NativeMindSensorControl implements BehaviorControl<Mob> {
             throw new IllegalArgumentException(
                     "Mind sensor interval must be positive: " + sensor.identifier());
         }
+        // Each entity senses on its own phase of the interval, so a flock spawned together does not sense together.
+        this.schedule = new NativeMindProbeSchedule(intervalTicks, runtime.logicalOwner(), sensor.identifier());
     }
 
     @Override
@@ -39,17 +41,14 @@ final class NativeMindSensorControl implements BehaviorControl<Mob> {
 
     @Override
     public boolean tryStart(ServerLevel level, Mob body, long timestamp) {
-        if (timestamp < nextTick) return false;
+        if (!schedule.due(timestamp)) return false;
         NativeMindCallbackScheduler.CallbackResult<Void> sensed = runtime.invoke(
                 senseIdentifier, () -> {
             sensor.sense(runtime.context(null));
             return null;
         });
-        if (!sensed.wasSkipped()) {
-            nextTick = timestamp > Long.MAX_VALUE - intervalTicks
-                    ? Long.MAX_VALUE
-                    : timestamp + intervalTicks;
-        }
+        // A run the scheduler skips for budget is tried again on the next tick.
+        if (!sensed.wasSkipped()) schedule.ran(timestamp);
         return false;
     }
 

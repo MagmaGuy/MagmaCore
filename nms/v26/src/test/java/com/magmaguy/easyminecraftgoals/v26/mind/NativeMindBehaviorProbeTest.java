@@ -8,6 +8,7 @@ import com.magmaguy.magmacore.ai.MindMemoryKey;
 import com.magmaguy.magmacore.ai.MindMemoryStore;
 import com.magmaguy.magmacore.ai.MindProgram;
 import com.magmaguy.magmacore.ai.MindRunawayPolicy;
+import com.magmaguy.magmacore.ai.MindSensor;
 import com.magmaguy.magmacore.ai.MindStopReason;
 import com.magmaguy.magmacore.scripting.LuaMindDefinition;
 import net.minecraft.SharedConstants;
@@ -31,7 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-/** Probe intervals, through the real Brain that offers every stopped behavior a start each tick. */
+/** Probe intervals and sensor phases, through the real Brain that offers every stopped behavior a start each tick. */
 class NativeMindBehaviorProbeTest {
     private static final long FIRST_TICK = 1_000L;
 
@@ -345,5 +346,41 @@ class NativeMindBehaviorProbeTest {
         List<Long> expected = new ArrayList<>(every(grid(owner, "fixture:lua_probe", 5, FIRST_TICK), 5, started - 1));
         expected.addAll(every(started, 1, started + 10));
         assertEquals(expected, asked);
+    }
+
+    @Test
+    void entitiesCreatedTogetherSenseOnTheirOwnPhases() {
+        UUID first = new UUID(10L, 0L);
+        UUID second = otherPhase(first, "fixture:sense", 10);
+        List<Long> firstSensed = new ArrayList<>(), secondSensed = new ArrayList<>();
+        Entity firstEntity = new Entity(first, sensing(firstSensed), new NativeMindServerBudget());
+        Entity secondEntity = new Entity(second, sensing(secondSensed), new NativeMindServerBudget());
+        for (long tick = FIRST_TICK; tick < FIRST_TICK + 30; tick++) {
+            firstEntity.tick(tick);
+            secondEntity.tick(tick);
+        }
+
+        assertEquals(every(grid(first, "fixture:sense", 10, FIRST_TICK), 10, FIRST_TICK + 29), firstSensed);
+        assertEquals(every(grid(second, "fixture:sense", 10, FIRST_TICK), 10, FIRST_TICK + 29), secondSensed);
+    }
+
+    /** A program with one sensor every 10 ticks that records the ticks it senses on. */
+    private static MindProgram sensing(List<Long> sensed) {
+        return MindProgram.builder("fixture:sensing", 1L).sensor(new MindSensor() {
+            @Override
+            public String identifier() {
+                return "fixture:sense";
+            }
+
+            @Override
+            public int intervalTicks() {
+                return 10;
+            }
+
+            @Override
+            public void sense(MindContext context) {
+                sensed.add(context.gameTick());
+            }
+        }).build();
     }
 }
