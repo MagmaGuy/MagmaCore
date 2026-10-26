@@ -9,6 +9,7 @@ import com.magmaguy.magmacore.ai.MindPerception;
 import com.magmaguy.magmacore.ai.MindProgram;
 import com.magmaguy.magmacore.ai.MindSensor;
 import com.magmaguy.magmacore.ai.MindStopReason;
+import com.magmaguy.magmacore.scripting.tables.LuaTableSupport;
 import org.bukkit.entity.LivingEntity;
 import org.junit.jupiter.api.Test;
 import org.luaj.vm2.LuaError;
@@ -173,6 +174,30 @@ class LuaMindContextExtensionTest {
             wander.tick(context());
             assertEquals(List.of("tick fixture:drift"), reports);
         }
+    }
+
+    @Test
+    void anExtensionsLazyFieldKeepsTheBuiltInSectionsReadable() {
+        List<String> reports = new ArrayList<>();
+        MindProgram program = LuaMindDefinition.validate("lazy.lua", """
+                return ai.program { id = "fixture:lazy", revision = 1,
+                  behaviors = { ai.behavior { id = "fixture:lazy", tick = function(c)
+                    c.report(tostring(c.host) .. " " .. type(c.memory) .. " " .. type(c.actuator) .. " "
+                        .. type(c.perception) .. " " .. type(c.actions) .. " " .. type(c.memory.get) .. " "
+                        .. tostring(c.missing))
+                  end } } }
+                """).instantiate((table, context, contribution) -> {
+            table.rawset(LuaValue.valueOf("report"), new OneArgFunction() {
+                @Override
+                public LuaValue call(LuaValue message) {
+                    reports.add(message.tojstring());
+                    return NIL;
+                }
+            });
+            LuaTableSupport.lazyField(table, "host", () -> LuaValue.valueOf(contribution));
+        });
+        program.behaviors().get(0).tick(context());
+        assertEquals(List.of("fixture:lazy table table table table function nil"), reports);
     }
 
     @Test

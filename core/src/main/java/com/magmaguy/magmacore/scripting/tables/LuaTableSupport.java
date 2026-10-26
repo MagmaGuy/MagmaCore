@@ -25,7 +25,9 @@ public final class LuaTableSupport {
      * <p>
      * Multiple calls share a single {@code __index} metatable per table, so adding more
      * lazy fields is cheap. Eagerly-set keys (via {@code table.set("k", ...)}) take
-     * precedence over the lazy supplier with the same name.
+     * precedence over the lazy supplier with the same name. An {@code __index} the table's
+     * metatable already has, such as a Mind context's sections, is kept and answers every
+     * key without a lazy field.
      */
     public static void lazyField(LuaTable table, String key, Supplier<LuaValue> supplier) {
         LazyIndex index = LazyIndex.attach(table);
@@ -35,19 +37,25 @@ public final class LuaTableSupport {
     private static final class LazyIndex extends VarArgFunction {
         // Keyed by the Lua string, so a read never decodes the key into a Java string.
         private final Map<LuaValue, Supplier<LuaValue>> suppliers = new HashMap<>();
+        // The __index the metatable had before, a function or a table; nil when it had none.
+        private final LuaValue fallback;
+
+        private LazyIndex(LuaValue fallback) {
+            this.fallback = fallback;
+        }
 
         static LazyIndex attach(LuaTable table) {
             LuaValue existing = table.getmetatable();
             if (existing instanceof LuaTable mt) {
-                LuaValue idx = mt.rawget("__index");
+                LuaValue idx = mt.rawget(LuaValue.INDEX);
                 if (idx instanceof LazyIndex li) return li;
-                LazyIndex li = new LazyIndex();
-                mt.set("__index", li);
+                LazyIndex li = new LazyIndex(idx);
+                mt.rawset(LuaValue.INDEX, li);
                 return li;
             }
             LuaTable mt = new LuaTable();
-            LazyIndex li = new LazyIndex();
-            mt.set("__index", li);
+            LazyIndex li = new LazyIndex(LuaValue.NIL);
+            mt.rawset(LuaValue.INDEX, li);
             table.setmetatable(mt);
             return li;
         }
@@ -59,17 +67,21 @@ public final class LuaTableSupport {
         @Override
         public Varargs invoke(Varargs args) {
             LuaValue keyValue = args.arg(2);
-            if (!keyValue.isstring()) return LuaValue.NIL;
-            // A number key names the field spelled as that number, as it did when keys were Java strings.
-            Supplier<LuaValue> supplier = suppliers.get(
-                    keyValue.type() == LuaValue.TSTRING ? keyValue : keyValue.checkstring());
-            if (supplier == null) return LuaValue.NIL;
-            try {
-                LuaValue v = supplier.get();
-                return v != null ? v : LuaValue.NIL;
-            } catch (Throwable ignored) {
-                return LuaValue.NIL;
+            if (keyValue.isstring()) {
+                // A number key names the field spelled as that number, as it did when keys were Java strings.
+                Supplier<LuaValue> supplier = suppliers.get(
+                        keyValue.type() == LuaValue.TSTRING ? keyValue : keyValue.checkstring());
+                if (supplier != null) {
+                    try {
+                        LuaValue v = supplier.get();
+                        return v != null ? v : LuaValue.NIL;
+                    } catch (Throwable ignored) {
+                        return LuaValue.NIL;
+                    }
+                }
             }
+            if (fallback.isfunction()) return fallback.call(args.arg1(), keyValue);
+            return fallback.istable() ? fallback.get(keyValue) : LuaValue.NIL;
         }
     }
 

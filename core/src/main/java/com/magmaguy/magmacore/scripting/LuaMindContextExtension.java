@@ -12,6 +12,11 @@ import org.luaj.vm2.LuaTable;
  * ({@code tick}, {@code generation}, {@code entity}, {@code memory}, {@code perception}, {@code actuator} and
  * {@code actions}) are reserved and must not be overwritten. Reading a built-in from {@code extend} forces its lazy
  * snapshot.</p>
+ *
+ * <p>Add fields with {@code rawset}, the cheapest way, or with
+ * {@link com.magmaguy.magmacore.scripting.tables.LuaTableSupport#lazyField}, which keeps the built-in sections
+ * readable. Do not replace the table's metatable or its {@code __index}: the built-in sections are read through
+ * them.</p>
  */
 @FunctionalInterface
 public interface LuaMindContextExtension {
