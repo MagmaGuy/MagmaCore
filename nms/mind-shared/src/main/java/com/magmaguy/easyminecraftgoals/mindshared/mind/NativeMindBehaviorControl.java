@@ -35,7 +35,8 @@ final class NativeMindBehaviorControl implements BehaviorControl<Mob> {
                 ? Set.of()
                 : Collections.unmodifiableSet(EnumSet.copyOf(declared));
         String identifier = behavior.identifier();
-        probes = new NativeMindProbeSchedule(behavior.probeInterval(), runtime.logicalOwner(), identifier);
+        int probeInterval = Math.min(MindBehavior.MAX_PROBE_INTERVAL, behavior.probeInterval());
+        probes = new NativeMindProbeSchedule(probeInterval, runtime.logicalOwner(), identifier);
         canStartIdentifier = identifier + ".can_start";
         startIdentifier = identifier + ".start";
         canContinueIdentifier = identifier + ".can_continue";
@@ -66,8 +67,8 @@ final class NativeMindBehaviorControl implements BehaviorControl<Mob> {
 
     /**
      * The Brain offers every stopped behavior a start each tick; this one asks its {@code canStart} only on the ticks
-     * its probe interval allows. A probe the scheduler skips for budget, or a start it defers, is asked again on the
-     * next tick.
+     * of its probe grid. A probe the scheduler skips for budget, or a start it defers, is asked again on the next
+     * tick, and the ask after that is back on the grid.
      */
     @Override
     public boolean tryStart(ServerLevel level, Mob body, long timestamp) {
@@ -76,7 +77,7 @@ final class NativeMindBehaviorControl implements BehaviorControl<Mob> {
                 canStartIdentifier,
                 () -> behavior.canStart(runtime.context(this)));
         if (allowed.wasSkipped()) return false;
-        probes.asked(timestamp);
+        probes.ran(timestamp);
         if (!allowed.successful() || !Boolean.TRUE.equals(allowed.value())) return false;
         if (!leases.acquire(this, controls)) return false;
 
@@ -150,6 +151,8 @@ final class NativeMindBehaviorControl implements BehaviorControl<Mob> {
             runtime.releaseControls(this);
             status = Behavior.Status.STOPPED;
             leases.release(this);
+            // Next asked on its own grid, so a crowd that stops together does not start asking together.
+            probes.stopped(runtime.gameTick());
         }
     }
 

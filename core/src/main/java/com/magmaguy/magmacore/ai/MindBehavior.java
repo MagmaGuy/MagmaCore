@@ -18,10 +18,11 @@ public interface MindBehavior {
 
     /**
      * How often, in ticks, the host asks a stopped behavior's {@link #canStart} whether it may start: 1 asks every
-     * tick, N every Nth tick. Each entity's asks fall on their own phase, so a crowd of entities with the same
-     * behavior does not ask on the same tick. A running behavior's {@link #canContinue}, {@link #tick} and
-     * {@link #stop} still run every tick, and a behavior that stops may be asked again on the next tick. A behavior
-     * asked less often starts, and preempts a lower-priority one, up to N - 1 ticks later. 1 to
+     * tick, N every Nth tick. Each entity asks on its own phase of the interval and keeps to it, so a crowd of
+     * entities with the same behavior does not ask on the same tick, even after they all stop it together. An ask the
+     * host defers for budget is repeated on the next tick. A running behavior's {@link #canContinue}, {@link #tick}
+     * and {@link #stop} still run every tick. A behavior asked less often starts, and preempts a lower-priority one,
+     * up to N - 1 ticks after it could; one that stops is asked again up to N ticks later. 1 to
      * {@link #MAX_PROBE_INTERVAL}.
      */
     default int probeInterval() {

@@ -128,6 +128,11 @@ final class NativeMindProgramRuntime {
         return session.requestAction(body, gameTick, generation, request);
     }
 
+    /** The game tick of the current Brain tick, or of the retirement in progress. */
+    long gameTick() {
+        return gameTick;
+    }
+
     /** The logical owner of this runtime's session, which stays the same across reloads; null when it has none. */
     java.util.UUID logicalOwner() {
         return session.logicalOwner();
