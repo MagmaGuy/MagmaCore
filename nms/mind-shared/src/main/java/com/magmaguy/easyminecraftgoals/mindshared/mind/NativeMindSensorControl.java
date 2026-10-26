@@ -14,12 +14,14 @@ final class NativeMindSensorControl implements BehaviorControl<Mob> {
     private final NativeMindProgramRuntime runtime;
     private final MindSensor sensor;
     private final int intervalTicks;
+    private final String senseIdentifier;
     private long nextTick = Long.MIN_VALUE;
 
     NativeMindSensorControl(NativeMindProgramRuntime runtime, MindSensor sensor) {
         this.runtime = runtime;
         this.sensor = sensor;
         this.intervalTicks = sensor.intervalTicks();
+        this.senseIdentifier = sensor.identifier() + ".sense";
         if (intervalTicks <= 0) {
             throw new IllegalArgumentException(
                     "Mind sensor interval must be positive: " + sensor.identifier());
@@ -39,7 +41,7 @@ final class NativeMindSensorControl implements BehaviorControl<Mob> {
     public boolean tryStart(ServerLevel level, Mob body, long timestamp) {
         if (timestamp < nextTick) return false;
         NativeMindCallbackScheduler.CallbackResult<Void> sensed = runtime.invoke(
-                sensor.identifier() + ".sense", () -> {
+                senseIdentifier, () -> {
             sensor.sense(runtime.context(null));
             return null;
         });

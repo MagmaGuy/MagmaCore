@@ -14,12 +14,14 @@ import com.magmaguy.magmacore.ai.MindSensor;
 import com.magmaguy.magmacore.ai.MindStopReason;
 import com.magmaguy.magmacore.ai.MindValueCodec;
 import org.luaj.vm2.LuaFunction;
+import org.luaj.vm2.LuaString;
 import org.luaj.vm2.LuaTable;
 import org.luaj.vm2.LuaValue;
 import org.luaj.vm2.Varargs;
 
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -40,6 +42,8 @@ import java.util.concurrent.TimeUnit;
  */
 public final class LuaMindProgramCompiler {
     private static final long MAX_CPU_MICROS = TimeUnit.MILLISECONDS.toMicros(LuaExecutionBudget.MAX_CPU_MILLIS);
+    private static final LuaString WORLD = LuaValue.valueOf("world"), X = LuaValue.valueOf("x"),
+            Y = LuaValue.valueOf("y"), Z = LuaValue.valueOf("z");
 
     private LuaMindProgramCompiler() {
     }
@@ -107,6 +111,9 @@ public final class LuaMindProgramCompiler {
             }
         }
 
+        // Callbacks look memories up by the Lua string a script passes, so they never decode it to a Java string.
+        Map<LuaValue, MemoryBinding<?>> memoryNames = new HashMap<>(memories.size() * 2);
+        memories.forEach((name, binding) -> memoryNames.put(LuaValue.valueOf(name), binding));
         MindProgram.Builder program = MindProgram.builder(identifier, revision)
                 .schema(schema.build())
                 .executionPolicy(policy);
@@ -119,7 +126,7 @@ public final class LuaMindProgramCompiler {
                         requiredString(sensor, "id"),
                         contribution.identifier(),
                         sensorIdentifiers);
-                program.sensor(parseSensor(sensor, memories, policy, contribution.identifier(), extension));
+                program.sensor(parseSensor(sensor, memoryNames, policy, contribution.identifier(), extension));
             }
             for (LuaTable behavior : array(contribution.table().get("behaviors"), "behaviors")) {
                 rejectCollision(
@@ -127,7 +134,7 @@ public final class LuaMindProgramCompiler {
                         requiredString(behavior, "id"),
                         contribution.identifier(),
                         behaviorIdentifiers);
-                program.behavior(parseBehavior(behavior, memories, policy, contribution.identifier(), extension));
+                program.behavior(parseBehavior(behavior, memoryNames, policy, contribution.identifier(), extension));
             }
         }
         return program.build();
@@ -199,7 +206,7 @@ public final class LuaMindProgramCompiler {
 
     private static MindSensor parseSensor(
             LuaTable table,
-            Map<String, MemoryBinding<?>> memories,
+            Map<LuaValue, MemoryBinding<?>> memories,
             MindExecutionPolicy policy,
             String contribution,
             LuaMindContextExtension extension) {
@@ -228,7 +235,7 @@ public final class LuaMindProgramCompiler {
 
     private static MindBehavior parseBehavior(
             LuaTable table,
-            Map<String, MemoryBinding<?>> memories,
+            Map<LuaValue, MemoryBinding<?>> memories,
             MindExecutionPolicy policy,
             String contribution,
             LuaMindContextExtension extension) {
@@ -300,7 +307,7 @@ public final class LuaMindProgramCompiler {
         };
     }
 
-    private static LuaTable context(MindContext context, Map<String, MemoryBinding<?>> memories, String contribution,
+    private static LuaTable context(MindContext context, Map<LuaValue, MemoryBinding<?>> memories, String contribution,
                                     LuaMindContextExtension extension) {
         LuaTable table = LuaMindContextTable.build(context, memories);
         extension.extend(table, context, contribution);
@@ -457,35 +464,31 @@ public final class LuaMindProgramCompiler {
     private static MindPosition toPosition(LuaValue value) {
         LuaTable table = value.checktable();
         return new MindPosition(
-                table.get("world").checkjstring(),
-                table.get("x").checkdouble(),
-                table.get("y").checkdouble(),
-                table.get("z").checkdouble());
+                table.get(WORLD).checkjstring(),
+                table.get(X).checkdouble(),
+                table.get(Y).checkdouble(),
+                table.get(Z).checkdouble());
     }
 
-    private static LuaValue fromPosition(MindPosition position) {
-        LuaTable table = new LuaTable();
-        table.set("world", position.world());
-        table.set("x", position.x());
-        table.set("y", position.y());
-        table.set("z", position.z());
+    /** A fresh world/x/y/z table, sized for its four fields. */
+    static LuaTable fromPosition(MindPosition position) {
+        LuaTable table = new LuaTable(0, 4);
+        table.rawset(WORLD, LuaValue.valueOf(position.world()));
+        table.rawset(X, LuaValue.valueOf(position.x()));
+        table.rawset(Y, LuaValue.valueOf(position.y()));
+        table.rawset(Z, LuaValue.valueOf(position.z()));
         return table;
     }
 
-    private static <T> T invoke(MindExecutionPolicy policy, LuaCall<T> callback) {
+    private static <T> T invoke(MindExecutionPolicy policy, LuaExecutionBudget.BudgetedCall<T> callback) {
         try {
             return LuaExecutionBudget.run(
-                    callback::call,
+                    callback,
                     policy.runawayPolicy().maxCpuNanosPerCallback(),
                     policy.runawayPolicy().maxInstructionsPerCallback());
         } catch (LuaExecutionBudget.RunawayLimitExceeded exception) {
             throw new MindRunawayException(exception.getMessage(), exception);
         }
-    }
-
-    @FunctionalInterface
-    private interface LuaCall<T> {
-        T call();
     }
 
     @FunctionalInterface

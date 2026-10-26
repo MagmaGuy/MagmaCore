@@ -12,6 +12,8 @@ import java.util.Map;
 import java.util.function.Supplier;
 
 public final class LuaTableSupport {
+    private static final LuaString X = LuaValue.valueOf("x"), Y = LuaValue.valueOf("y"), Z = LuaValue.valueOf("z"),
+            YAW = LuaValue.valueOf("yaw"), PITCH = LuaValue.valueOf("pitch"), WORLD = LuaValue.valueOf("world");
 
     private LuaTableSupport() {}
 
@@ -31,7 +33,8 @@ public final class LuaTableSupport {
     }
 
     private static final class LazyIndex extends VarArgFunction {
-        private final Map<String, Supplier<LuaValue>> suppliers = new HashMap<>();
+        // Keyed by the Lua string, so a read never decodes the key into a Java string.
+        private final Map<LuaValue, Supplier<LuaValue>> suppliers = new HashMap<>();
 
         static LazyIndex attach(LuaTable table) {
             LuaValue existing = table.getmetatable();
@@ -50,14 +53,16 @@ public final class LuaTableSupport {
         }
 
         void put(String key, Supplier<LuaValue> supplier) {
-            suppliers.put(key, supplier);
+            suppliers.put(LuaValue.valueOf(key), supplier);
         }
 
         @Override
         public Varargs invoke(Varargs args) {
             LuaValue keyValue = args.arg(2);
             if (!keyValue.isstring()) return LuaValue.NIL;
-            Supplier<LuaValue> supplier = suppliers.get(keyValue.tojstring());
+            // A number key names the field spelled as that number, as it did when keys were Java strings.
+            Supplier<LuaValue> supplier = suppliers.get(
+                    keyValue.type() == LuaValue.TSTRING ? keyValue : keyValue.checkstring());
             if (supplier == null) return LuaValue.NIL;
             try {
                 LuaValue v = supplier.get();
@@ -68,34 +73,43 @@ public final class LuaTableSupport {
         }
     }
 
+    /** A fresh x/y/z/yaw/pitch/world table, sized for its six fields; world is left out when there is none. */
     public static LuaTable locationToTable(Location location) {
-        LuaTable table = new LuaTable();
-        table.set("x", location.getX());
-        table.set("y", location.getY());
-        table.set("z", location.getZ());
-        table.set("yaw", location.getYaw());
-        table.set("pitch", location.getPitch());
-        if (location.getWorld() != null)
-            table.set("world", location.getWorld().getName());
+        World world = location.getWorld();
+        return locationToTable(location, world == null ? null : LuaValue.valueOf(world.getName()));
+    }
+
+    /**
+     * {@link #locationToTable(Location)} with the world name already made a Lua string, for a caller that builds
+     * many tables in one world; null leaves world out.
+     */
+    public static LuaTable locationToTable(Location location, LuaString worldName) {
+        LuaTable table = new LuaTable(0, 8);
+        table.rawset(X, LuaValue.valueOf(location.getX()));
+        table.rawset(Y, LuaValue.valueOf(location.getY()));
+        table.rawset(Z, LuaValue.valueOf(location.getZ()));
+        table.rawset(YAW, LuaValue.valueOf(location.getYaw()));
+        table.rawset(PITCH, LuaValue.valueOf(location.getPitch()));
+        if (worldName != null) table.rawset(WORLD, worldName);
         return table;
     }
 
     public static LuaTable vectorToTable(Vector vector) {
-        LuaTable table = new LuaTable();
-        table.set("x", vector.getX());
-        table.set("y", vector.getY());
-        table.set("z", vector.getZ());
+        LuaTable table = new LuaTable(0, 4);
+        table.rawset(X, LuaValue.valueOf(vector.getX()));
+        table.rawset(Y, LuaValue.valueOf(vector.getY()));
+        table.rawset(Z, LuaValue.valueOf(vector.getZ()));
         return table;
     }
 
     public static Location tableToLocation(LuaTable table, World defaultWorld) {
-        double x = table.get("x").checkdouble();
-        double y = table.get("y").checkdouble();
-        double z = table.get("z").checkdouble();
-        float yaw = (float) table.get("yaw").optdouble(0);
-        float pitch = (float) table.get("pitch").optdouble(0);
+        double x = table.get(X).checkdouble();
+        double y = table.get(Y).checkdouble();
+        double z = table.get(Z).checkdouble();
+        float yaw = (float) table.get(YAW).optdouble(0);
+        float pitch = (float) table.get(PITCH).optdouble(0);
         World world = defaultWorld;
-        LuaValue worldValue = table.get("world");
+        LuaValue worldValue = table.get(WORLD);
         if (worldValue.isstring()) {
             World namedWorld = Bukkit.getWorld(worldValue.tojstring());
             if (namedWorld != null) world = namedWorld;
@@ -105,9 +119,9 @@ public final class LuaTableSupport {
 
     public static Vector tableToVector(LuaTable table) {
         return new Vector(
-            table.get("x").checkdouble(),
-            table.get("y").checkdouble(),
-            table.get("z").checkdouble()
+            table.get(X).checkdouble(),
+            table.get(Y).checkdouble(),
+            table.get(Z).checkdouble()
         );
     }
 

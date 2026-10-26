@@ -14,52 +14,93 @@ import org.bukkit.Location;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.util.Vector;
+import org.luaj.vm2.LuaString;
 import org.luaj.vm2.LuaTable;
 import org.luaj.vm2.LuaValue;
+import org.luaj.vm2.Varargs;
+import org.luaj.vm2.lib.TwoArgFunction;
+import org.luaj.vm2.lib.VarArgFunction;
 
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
-import java.util.function.Supplier;
 
 final class LuaMindContextTable {
+    private static final LuaString TICK = LuaValue.valueOf("tick"), GENERATION = LuaValue.valueOf("generation"),
+            ENTITY = LuaValue.valueOf("entity"), MEMORY = LuaValue.valueOf("memory"),
+            PERCEPTION = LuaValue.valueOf("perception"), ACTUATOR = LuaValue.valueOf("actuator"),
+            ACTIONS = LuaValue.valueOf("actions"), GET = LuaValue.valueOf("get"), SET = LuaValue.valueOf("set"),
+            FORGET = LuaValue.valueOf("forget"), CONTAINS = LuaValue.valueOf("contains");
+    // Room for tick, generation, a host extension's fields and the sections a callback reads, so a typical callback
+    // never grows its table.
+    private static final int CONTEXT_SLOTS = 8;
+
     private LuaMindContextTable() {
     }
 
-    static LuaTable build(MindContext context, Map<String, MemoryBinding<?>> memories) {
-        LuaTable table = new LuaTable();
-        table.set("tick", LuaValue.valueOf((double) context.gameTick()));
-        table.set("generation", LuaValue.valueOf((double) context.generation()));
-        snapshotField(table, "entity", () -> LuaLivingEntityTable.build(context.entity()));
-        snapshotField(table, "memory", () -> memoryTable(context.memory(), memories));
-        snapshotField(table, "perception", () -> perceptionTable(context));
-        snapshotField(table, "actuator", () -> actuatorTable(context));
-        snapshotField(table, "actions", () -> actionsTable(context));
+    /** {@code memories} maps each declared memory's alias and identifier, as Lua strings, to its binding. */
+    static LuaTable build(MindContext context, Map<LuaValue, MemoryBinding<?>> memories) {
+        LuaTable table = new LuaTable(0, CONTEXT_SLOTS);
+        table.rawset(TICK, LuaValue.valueOf((double) context.gameTick()));
+        table.rawset(GENERATION, LuaValue.valueOf((double) context.generation()));
+        LuaTable metatable = new LuaTable(0, 1);
+        metatable.rawset(LuaValue.INDEX, new Sections(context, memories));
+        table.setmetatable(metatable);
         return table;
     }
 
     /**
-     * Builds a callback-scoped API section on first use and then keeps that exact table for the
-     * rest of the callback. Mind callbacks frequently need only memory and tick data; deferring
-     * the other sections avoids constructing the complete Bukkit entity bridge for every
-     * can-start/can-continue probe while retaining snapshot consistency when a script reads a
-     * section more than once.
+     * Builds each callback-scoped API section on first use and then keeps that exact table for the rest of the
+     * callback. Mind callbacks frequently need only memory and tick data; deferring the other sections avoids
+     * constructing the complete Bukkit entity bridge for every can-start/can-continue probe while retaining snapshot
+     * consistency when a script reads a section more than once. A built section is also stored on the context table,
+     * so later reads find it without this call; a script that clears the field still reads the same snapshot again.
      */
-    private static void snapshotField(
-            LuaTable table,
-            String key,
-            Supplier<? extends LuaValue> factory) {
-        LuaValue[] snapshot = new LuaValue[1];
-        LuaTableSupport.lazyField(table, key, () -> {
-            LuaValue value = snapshot[0];
-            if (value == null) {
-                value = factory.get();
-                snapshot[0] = value == null ? LuaValue.NIL : value;
+    private static final class Sections extends TwoArgFunction {
+        private final MindContext context;
+        private final Map<LuaValue, MemoryBinding<?>> memories;
+        private LuaValue entity, memory, perception, actuator, actions;
+
+        private Sections(MindContext context, Map<LuaValue, MemoryBinding<?>> memories) {
+            this.context = context;
+            this.memories = memories;
+        }
+
+        @Override
+        public LuaValue call(LuaValue table, LuaValue key) {
+            if (key.type() != LuaValue.TSTRING) return NIL;
+            LuaValue value;
+            try {
+                if (key.raweq(MEMORY)) {
+                    if (memory == null) memory = memoryTable(context.memory(), memories);
+                    value = memory;
+                } else if (key.raweq(ENTITY)) {
+                    if (entity == null) entity = orNil(LuaLivingEntityTable.build(context.entity()));
+                    value = entity;
+                } else if (key.raweq(ACTUATOR)) {
+                    if (actuator == null) actuator = actuatorTable(context);
+                    value = actuator;
+                } else if (key.raweq(PERCEPTION)) {
+                    if (perception == null) perception = perceptionTable(context);
+                    value = perception;
+                } else if (key.raweq(ACTIONS)) {
+                    if (actions == null) actions = actionsTable(context);
+                    value = actions;
+                } else {
+                    return NIL;
+                }
+            } catch (Throwable ignored) {
+                // As before: a section that fails to build reads as nil, and the next read tries again.
+                return NIL;
             }
-            return snapshot[0];
-        });
+            if (!value.isnil() && table instanceof LuaTable owner) owner.rawset(key, value);
+            return value;
+        }
+
+        private static LuaValue orNil(LuaValue value) {
+            return value == null ? NIL : value;
+        }
     }
 
     private static LuaTable perceptionTable(MindContext context) {
@@ -103,12 +144,7 @@ final class LuaMindContextTable {
     }
 
     private static LuaTable positionTable(MindPosition position) {
-        LuaTable table = new LuaTable();
-        table.set("world", position.world());
-        table.set("x", position.x());
-        table.set("y", position.y());
-        table.set("z", position.z());
-        return table;
+        return LuaMindProgramCompiler.fromPosition(position);
     }
 
     private static LuaTable actionsTable(MindContext context) {
@@ -174,25 +210,46 @@ final class LuaMindContextTable {
 
     private static LuaTable memoryTable(
             MindMemoryView memory,
-            Map<String, MemoryBinding<?>> memories) {
-        LuaTable table = new LuaTable();
-        table.set("get", LuaTableSupport.tableMethod(table, args -> {
-            MemoryBinding<?> binding = requireBinding(memories, args.checkjstring(1));
-            return encode(memory, binding);
-        }));
-        table.set("set", LuaTableSupport.tableMethod(table, args -> {
-            MemoryBinding<?> binding = requireBinding(memories, args.checkjstring(1));
-            set(memory, binding, args.arg(2), args.narg() >= 3 ? args.checklong(3) : null);
-            return LuaValue.NIL;
-        }));
-        table.set("forget", LuaTableSupport.tableMethod(table, args -> {
-            memory.forget(requireBinding(memories, args.checkjstring(1)).key);
-            return LuaValue.NIL;
-        }));
-        table.set("contains", LuaTableSupport.tableMethod(table, args ->
-                LuaValue.valueOf(memory.contains(
-                        requireBinding(memories, args.checkjstring(1)).key))));
+            Map<LuaValue, MemoryBinding<?>> memories) {
+        LuaTable table = new LuaTable(0, 4);
+        // Called with a colon or a dot; the methods read their arguments in place rather than copying them.
+        table.rawset(GET, new VarArgFunction() {
+            @Override
+            public Varargs invoke(Varargs args) {
+                int first = firstArgument(args, table);
+                return encode(memory, requireBinding(memories, args.arg(first)));
+            }
+        });
+        table.rawset(SET, new VarArgFunction() {
+            @Override
+            public Varargs invoke(Varargs args) {
+                int first = firstArgument(args, table);
+                MemoryBinding<?> binding = requireBinding(memories, args.arg(first));
+                LuaMindContextTable.set(memory, binding, args.arg(first + 1),
+                        args.narg() >= first + 2 ? args.checklong(first + 2) : null);
+                return NIL;
+            }
+        });
+        table.rawset(FORGET, new VarArgFunction() {
+            @Override
+            public Varargs invoke(Varargs args) {
+                memory.forget(requireBinding(memories, args.arg(firstArgument(args, table))).key);
+                return NIL;
+            }
+        });
+        table.rawset(CONTAINS, new VarArgFunction() {
+            @Override
+            public Varargs invoke(Varargs args) {
+                return LuaValue.valueOf(memory.contains(
+                        requireBinding(memories, args.arg(firstArgument(args, table))).key));
+            }
+        });
         return table;
+    }
+
+    /** Where a method's own arguments start: 2 when it was called with a colon on {@code owner}, else 1. */
+    private static int firstArgument(Varargs args, LuaTable owner) {
+        return args.narg() > 0 && args.arg1().raweq(owner) ? 2 : 1;
     }
 
     private static LuaTable actuatorTable(MindContext context) {
@@ -243,10 +300,9 @@ final class LuaMindContextTable {
         return table;
     }
 
-    @SuppressWarnings("unchecked")
     private static <T> LuaValue encode(MindMemoryView memory, MemoryBinding<T> binding) {
-        Optional<T> value = memory.get(binding.key);
-        return value.<LuaValue>map(binding.encoder::encode).orElse(LuaValue.NIL);
+        T value = memory.get(binding.key).orElse(null);
+        return value == null ? LuaValue.NIL : binding.encoder.encode(value);
     }
 
     @SuppressWarnings("unchecked")
@@ -260,11 +316,13 @@ final class LuaMindContextTable {
         else memory.set(binding.key, decoded, ttlTicks);
     }
 
+    /** The binding a memory name argument names; a number names the memory spelled as that number. */
     private static MemoryBinding<?> requireBinding(
-            Map<String, MemoryBinding<?>> memories,
-            String identifier) {
-        MemoryBinding<?> binding = memories.get(identifier);
-        if (binding == null) throw new IllegalArgumentException("Undeclared mind memory '" + identifier + "'");
+            Map<LuaValue, MemoryBinding<?>> memories,
+            LuaValue identifier) {
+        LuaString name = identifier.checkstring();
+        MemoryBinding<?> binding = memories.get(name);
+        if (binding == null) throw new IllegalArgumentException("Undeclared mind memory '" + name.tojstring() + "'");
         return binding;
     }
 

@@ -19,6 +19,8 @@ final class NativeMindBehaviorControl implements BehaviorControl<Mob> {
     private final NativeMindControlLeaseBook leases;
     private final Set<MindControl> controls;
     private final NativeMindProbeSchedule probes;
+    // Built once: callbacks run several times a tick for every entity.
+    private final String canStartIdentifier, startIdentifier, canContinueIdentifier, tickIdentifier, stopIdentifier;
     private Behavior.Status status = Behavior.Status.STOPPED;
 
     NativeMindBehaviorControl(
@@ -32,7 +34,13 @@ final class NativeMindBehaviorControl implements BehaviorControl<Mob> {
         controls = declared.isEmpty()
                 ? Set.of()
                 : Collections.unmodifiableSet(EnumSet.copyOf(declared));
-        probes = new NativeMindProbeSchedule(behavior.probeInterval(), runtime.logicalOwner(), behavior.identifier());
+        String identifier = behavior.identifier();
+        probes = new NativeMindProbeSchedule(behavior.probeInterval(), runtime.logicalOwner(), identifier);
+        canStartIdentifier = identifier + ".can_start";
+        startIdentifier = identifier + ".start";
+        canContinueIdentifier = identifier + ".can_continue";
+        tickIdentifier = identifier + ".tick";
+        stopIdentifier = identifier + ".stop";
     }
 
     String identifier() {
@@ -65,7 +73,7 @@ final class NativeMindBehaviorControl implements BehaviorControl<Mob> {
     public boolean tryStart(ServerLevel level, Mob body, long timestamp) {
         if (!probes.due(timestamp)) return false;
         NativeMindCallbackScheduler.CallbackResult<Boolean> allowed = runtime.invoke(
-                identifier() + ".can_start",
+                canStartIdentifier,
                 () -> behavior.canStart(runtime.context(this)));
         if (allowed.wasSkipped()) return false;
         probes.asked(timestamp);
@@ -74,7 +82,7 @@ final class NativeMindBehaviorControl implements BehaviorControl<Mob> {
 
         status = Behavior.Status.RUNNING;
         NativeMindCallbackScheduler.CallbackResult<Void> started = runtime.invoke(
-                identifier() + ".start",
+                startIdentifier,
                 () -> {
                     behavior.start(runtime.context(this));
                     return null;
@@ -96,7 +104,7 @@ final class NativeMindBehaviorControl implements BehaviorControl<Mob> {
     public void tickOrStop(ServerLevel level, Mob body, long timestamp) {
         if (!running()) return;
         NativeMindCallbackScheduler.CallbackResult<Boolean> continuing = runtime.invoke(
-                identifier() + ".can_continue",
+                canContinueIdentifier,
                 () -> behavior.canContinue(runtime.context(this)));
         if (continuing.wasSkipped()) return;
         if (!continuing.successful()) {
@@ -109,7 +117,7 @@ final class NativeMindBehaviorControl implements BehaviorControl<Mob> {
         }
 
         NativeMindCallbackScheduler.CallbackResult<Void> ticked = runtime.invoke(
-                identifier() + ".tick",
+                tickIdentifier,
                 () -> {
                     behavior.tick(runtime.context(this));
                     return null;
@@ -134,7 +142,7 @@ final class NativeMindBehaviorControl implements BehaviorControl<Mob> {
             return;
         }
         try {
-            runtime.invoke(identifier() + ".stop", () -> {
+            runtime.invoke(stopIdentifier, () -> {
                 behavior.stop(runtime.context(this), reason);
                 return null;
             });
