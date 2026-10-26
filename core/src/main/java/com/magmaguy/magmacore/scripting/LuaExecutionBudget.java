@@ -162,6 +162,10 @@ public final class LuaExecutionBudget {
         if (budget.enforceElapsedCeiling
                 && System.nanoTime() - budget.elapsedStartNanos > budget.fallbackClock.limitNanos())
             throw new RunawayLimitExceeded("Lua elapsed-time safety budget exceeded");
+        // A thread cannot use more CPU time than has elapsed, so inside the limit's worth of elapsed time the limit
+        // cannot have fired. That skips the CPU clock read, which costs about 300 ns, for almost every callback.
+        if (budget.clock.neverAheadOfElapsedTime()
+                && System.nanoTime() - budget.elapsedStartNanos <= budget.clock.limitNanos()) return;
         long nowNanos = budget.clock.nanoTime();
         if (nowNanos < 0L) {
             budget.useElapsedFallback();
@@ -224,6 +228,11 @@ public final class LuaExecutionBudget {
         long limitNanos();
 
         ClockKind kind();
+
+        /** True when this clock never advances faster than {@link System#nanoTime()}, as one thread's CPU time. */
+        default boolean neverAheadOfElapsedTime() {
+            return false;
+        }
     }
 
     static final class RunawayLimitExceeded extends LuaError {
@@ -289,6 +298,11 @@ public final class LuaExecutionBudget {
         public ClockKind kind() {
             return ClockKind.THREAD_CPU_TIME;
         }
+
+        @Override
+        public boolean neverAheadOfElapsedTime() {
+            return true;
+        }
     }
 
     private static final class ElapsedExecutionClock implements ExecutionClock {
@@ -337,6 +351,11 @@ public final class LuaExecutionBudget {
         @Override
         public ClockKind kind() {
             return delegate.kind();
+        }
+
+        @Override
+        public boolean neverAheadOfElapsedTime() {
+            return delegate.neverAheadOfElapsedTime();
         }
     }
 

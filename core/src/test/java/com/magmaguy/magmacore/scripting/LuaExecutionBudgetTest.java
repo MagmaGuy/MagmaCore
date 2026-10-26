@@ -177,6 +177,68 @@ class LuaExecutionBudgetTest {
         assertTrue(outer.failure().getMessage().contains("cannot reenter its host"));
     }
 
+    @Test
+    void aThreadCpuClockIsNotReadAgainWhileElapsedTimeIsInsideTheLimit() {
+        Globals globals = LuaEnvironmentFactory.createGlobals();
+        // Long enough to pass several in-run checks.
+        LuaValue callback = globals.load(
+                "return function() local total = 0; for i = 1, 10000 do total = total + i end; return total end"
+        ).call();
+        AtomicInteger reads = new AtomicInteger();
+        // After its first read it reports far more CPU time than has elapsed, which one thread's CPU time never can.
+        LuaExecutionBudget.ExecutionClock clock = boundedByElapsedTime(() -> reads.getAndIncrement() == 0
+                ? 0L
+                : TimeUnit.SECONDS.toNanos(10));
+
+        assertEquals(50_005_000, LuaExecutionBudget.run(callback::call, clock).checkint());
+        assertEquals(1, reads.get(), "only the start of the callback reads the CPU clock");
+    }
+
+    @Test
+    void aThreadCpuClockStillEndsACallbackThatRanPastTheLimit() {
+        AtomicInteger reads = new AtomicInteger();
+        LuaExecutionBudget.ExecutionClock clock = boundedByElapsedTime(() -> reads.getAndIncrement() == 0
+                ? 0L
+                : TimeUnit.MILLISECONDS.toNanos(LuaExecutionBudget.MAX_CPU_MILLIS + 1L));
+
+        LuaError error = assertThrows(LuaError.class, () -> LuaExecutionBudget.run(() -> {
+            try {
+                Thread.sleep(LuaExecutionBudget.MAX_CPU_MILLIS + 10L);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(exception);
+            }
+            return LuaValue.NIL;
+        }, clock));
+        assertTrue(error.getMessage().contains("CPU-time budget exceeded"));
+    }
+
+    /** A thread CPU time clock that, like the real one, declares it never runs ahead of elapsed time. */
+    private static LuaExecutionBudget.ExecutionClock boundedByElapsedTime(LongSupplier nanoTime) {
+        LuaExecutionBudget.ExecutionClock clock = clock(LuaExecutionBudget.ClockKind.THREAD_CPU_TIME, nanoTime);
+        return new LuaExecutionBudget.ExecutionClock() {
+            @Override
+            public long nanoTime() {
+                return clock.nanoTime();
+            }
+
+            @Override
+            public long limitNanos() {
+                return clock.limitNanos();
+            }
+
+            @Override
+            public LuaExecutionBudget.ClockKind kind() {
+                return clock.kind();
+            }
+
+            @Override
+            public boolean neverAheadOfElapsedTime() {
+                return true;
+            }
+        };
+    }
+
     private static LuaError runWithAdvancingClock(
             LuaExecutionBudget.ClockKind kind,
             long elapsedMillis) {
