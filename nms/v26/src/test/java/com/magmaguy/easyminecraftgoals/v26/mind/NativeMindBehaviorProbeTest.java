@@ -255,7 +255,7 @@ class NativeMindBehaviorProbeTest {
             @Override
             public boolean canStart(MindContext context) {
                 if (asked.isEmpty()) {
-                    long until = System.nanoTime() + 3_000_000L;
+                    long until = System.nanoTime() + 8_000_000L;
                     while (System.nanoTime() < until) Thread.onSpinWait();
                 }
                 return super.canStart(context);
@@ -263,9 +263,10 @@ class NativeMindBehaviorProbeTest {
         };
         // Wants MOVE from the slow behavior's first ask on, and can only have it once the slow one lets it go.
         Probed after = new Probed("fixture:after", 30, 1, tick -> tick >= grid);
-        MindExecutionPolicy oneMillisecond = new MindExecutionPolicy(1_000_000L, 1_000_000L, 20_000_000L, 128, 8,
+        // 2 ms budgets against an 8 ms first ask, with room either way for a slow or busy machine.
+        MindExecutionPolicy twoMilliseconds = new MindExecutionPolicy(2_000_000L, 2_000_000L, 20_000_000L, 128, 8,
                 MindRunawayPolicy.DEFAULT);
-        new Entity(owner, program(oneMillisecond, slow, after), new NativeMindServerBudget())
+        new Entity(owner, program(twoMilliseconds, slow, after), new NativeMindServerBudget())
                 .tickThrough(grid + 11);
 
         assertEquals(List.of(), slow.started);
@@ -349,23 +350,42 @@ class NativeMindBehaviorProbeTest {
     }
 
     @Test
-    void entitiesCreatedTogetherSenseOnTheirOwnPhases() {
+    void entitiesCreatedTogetherSenseOnTheirOwnPhasesFromTheirSecondRun() {
         UUID first = new UUID(10L, 0L);
         UUID second = otherPhase(first, "fixture:sense", 10);
         List<Long> firstSensed = new ArrayList<>(), secondSensed = new ArrayList<>();
-        Entity firstEntity = new Entity(first, sensing(firstSensed), new NativeMindServerBudget());
-        Entity secondEntity = new Entity(second, sensing(secondSensed), new NativeMindServerBudget());
-        for (long tick = FIRST_TICK; tick < FIRST_TICK + 30; tick++) {
+        Entity firstEntity = new Entity(first, sensing(firstSensed, 10), new NativeMindServerBudget());
+        Entity secondEntity = new Entity(second, sensing(secondSensed, 10), new NativeMindServerBudget());
+        long last = FIRST_TICK + 30;
+        for (long tick = FIRST_TICK; tick <= last; tick++) {
             firstEntity.tick(tick);
             secondEntity.tick(tick);
         }
 
-        assertEquals(every(grid(first, "fixture:sense", 10, FIRST_TICK), 10, FIRST_TICK + 29), firstSensed);
-        assertEquals(every(grid(second, "fixture:sense", 10, FIRST_TICK), 10, FIRST_TICK + 29), secondSensed);
+        assertEquals(FIRST_TICK, firstSensed.get(0));
+        assertEquals(FIRST_TICK, secondSensed.get(0));
+        List<Long> firstLater = firstSensed.subList(1, firstSensed.size());
+        List<Long> secondLater = secondSensed.subList(1, secondSensed.size());
+        assertEquals(every(grid(first, "fixture:sense", 10, FIRST_TICK + 1), 10, last), firstLater);
+        assertEquals(every(grid(second, "fixture:sense", 10, FIRST_TICK + 1), 10, last), secondLater);
+        assertNotEquals(firstLater, secondLater);
     }
 
-    /** A program with one sensor every 10 ticks that records the ticks it senses on. */
-    private static MindProgram sensing(List<Long> sensed) {
+    @Test
+    void aSensorFirstSensesOnTheFirstTickItsBodyIsTicked() {
+        // A long interval, as a sensor that sets something up on spawn might use; each attach starts it afresh.
+        List<Long> sensed = new ArrayList<>();
+        Entity entity = new Entity(new UUID(11L, 0L), sensing(sensed, 200), new NativeMindServerBudget());
+        entity.tick(FIRST_TICK + 7);
+
+        assertEquals(List.of(FIRST_TICK + 7), sensed);
+        List<Long> reattached = new ArrayList<>();
+        new Entity(new UUID(11L, 0L), sensing(reattached, 200), new NativeMindServerBudget()).tick(FIRST_TICK + 8);
+        assertEquals(List.of(FIRST_TICK + 8), reattached);
+    }
+
+    /** A program with one sensor every {@code interval} ticks that records the ticks it senses on. */
+    private static MindProgram sensing(List<Long> sensed, int interval) {
         return MindProgram.builder("fixture:sensing", 1L).sensor(new MindSensor() {
             @Override
             public String identifier() {
@@ -374,7 +394,7 @@ class NativeMindBehaviorProbeTest {
 
             @Override
             public int intervalTicks() {
-                return 10;
+                return interval;
             }
 
             @Override

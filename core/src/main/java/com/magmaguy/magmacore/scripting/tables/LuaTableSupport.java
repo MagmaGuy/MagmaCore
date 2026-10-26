@@ -80,6 +80,7 @@ public final class LuaTableSupport {
                     }
                 }
             }
+            // A fallback chain that already led back to this table recurses until StackOverflowError, as it did before.
             if (fallback.isfunction()) return fallback.call(args.arg1(), keyValue);
             return fallback.istable() ? fallback.get(keyValue) : LuaValue.NIL;
         }

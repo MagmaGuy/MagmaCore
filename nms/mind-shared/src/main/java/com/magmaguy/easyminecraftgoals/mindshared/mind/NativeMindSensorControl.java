@@ -26,8 +26,9 @@ final class NativeMindSensorControl implements BehaviorControl<Mob> {
             throw new IllegalArgumentException(
                     "Mind sensor interval must be positive: " + sensor.identifier());
         }
-        // Each entity senses on its own phase of the interval, so a flock spawned together does not sense together.
-        this.schedule = new NativeMindProbeSchedule(intervalTicks, runtime.logicalOwner(), sensor.identifier());
+        // The first run is at once, as before, for sensors that set things up on spawn. After it each entity senses on
+        // its own phase of the interval, so a flock spawned together does not keep sensing together.
+        this.schedule = new NativeMindProbeSchedule(intervalTicks, runtime.logicalOwner(), sensor.identifier(), true);
     }
 
     @Override

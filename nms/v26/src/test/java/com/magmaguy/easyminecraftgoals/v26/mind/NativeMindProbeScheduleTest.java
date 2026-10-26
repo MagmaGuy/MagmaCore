@@ -67,6 +67,14 @@ class NativeMindProbeScheduleTest {
     }
 
     @Test
+    void aScheduleMadeToRunAtOnceRunsOnItsFirstTickThenOnItsGrid() {
+        NativeMindProbeSchedule schedule = new NativeMindProbeSchedule(10, new UUID(3L, 4L), "fixture:sense", true);
+        long start = 1_001L;
+        long second = start + 10 - Math.floorMod(start - schedule.phase(), 10L);
+        assertEquals(List.of(start, second, second + 10), ranTicks(schedule, start, second + 11));
+    }
+
+    @Test
     void aSkippedRunIsTriedOnTheNextTickThenGoesBackOnTheGrid() {
         NativeMindProbeSchedule schedule = new NativeMindProbeSchedule(10, null, "fixture:x");
         long first = grid(schedule, 0L);

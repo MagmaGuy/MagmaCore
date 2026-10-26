@@ -8,18 +8,27 @@ import java.util.UUID;
  * runs on its own grid: the ticks whose offset from a phase, taken from the entity's logical owner and the behavior's
  * or sensor's identifier, is a whole number of intervals. Entities created on the same tick, and the callbacks of one
  * entity, therefore fall on different ticks, and they stay apart: a run deferred to the next tick, or a behavior that
- * many entities stop on the same tick, goes back onto its own grid afterwards. An interval of 1 runs every tick.
+ * many entities stop on the same tick, goes back onto its own grid afterwards. A schedule made to run at once runs on
+ * the first tick it sees, as a sensor's setup on spawn needs, and keeps to its grid from then on. An interval of 1
+ * runs every tick.
  */
 final class NativeMindProbeSchedule {
     private final int interval;
     private final int phase;
+    private final boolean firstAtOnce;
     private boolean scheduled;
     private long nextTick;
 
-    /** {@code interval} is in ticks; anything below 1 means 1. */
+    /** {@code interval} is in ticks; anything below 1 means 1. The first run waits for the grid. */
     NativeMindProbeSchedule(int interval, UUID owner, String identifier) {
+        this(interval, owner, identifier, false);
+    }
+
+    /** As above; with {@code firstAtOnce}, the first run is on the first tick this schedule sees. */
+    NativeMindProbeSchedule(int interval, UUID owner, String identifier, boolean firstAtOnce) {
         this.interval = Math.max(1, interval);
         this.phase = phase(owner, identifier, this.interval);
+        this.firstAtOnce = firstAtOnce;
     }
 
     /**
@@ -39,10 +48,12 @@ final class NativeMindProbeSchedule {
     /** Whether the callback runs on this tick. */
     boolean due(long tick) {
         if (interval == 1) return true;
-        // A body moved to a world whose clock is behind would otherwise wait for that clock to catch up.
-        if (!scheduled || nextTick - tick > interval) {
-            nextTick = gridAtOrAfter(tick);
+        if (!scheduled) {
+            nextTick = firstAtOnce ? tick : gridAtOrAfter(tick);
             scheduled = true;
+        } else if (nextTick - tick > interval) {
+            // A body moved to a world whose clock is behind would otherwise wait for that clock to catch up.
+            nextTick = gridAtOrAfter(tick);
         }
         return tick >= nextTick;
     }
