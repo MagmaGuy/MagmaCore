@@ -128,6 +128,11 @@ final class NativeMindProgramRuntime {
         return session.requestAction(body, gameTick, generation, request);
     }
 
+    /** The logical owner of this runtime's session, which stays the same across reloads; null when it has none. */
+    java.util.UUID logicalOwner() {
+        return session.logicalOwner();
+    }
+
     <T> NativeMindCallbackScheduler.CallbackResult<T> invoke(
             String callbackIdentifier,
             Supplier<T> callback) {

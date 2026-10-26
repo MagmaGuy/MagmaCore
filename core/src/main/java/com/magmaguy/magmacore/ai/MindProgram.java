@@ -98,6 +98,11 @@ public final class MindProgram {
                     throw new IllegalStateException(
                             "Mind behavior controls cannot contain null: " + identifier);
                 }
+                int probeInterval = behavior.probeInterval();
+                if (probeInterval < 1 || probeInterval > MindBehavior.MAX_PROBE_INTERVAL) {
+                    throw new IllegalStateException("Mind behavior probe interval must be 1 to "
+                            + MindBehavior.MAX_PROBE_INTERVAL + " ticks: " + identifier);
+                }
             }
         }
         return Collections.unmodifiableList(new ArrayList<>(values));

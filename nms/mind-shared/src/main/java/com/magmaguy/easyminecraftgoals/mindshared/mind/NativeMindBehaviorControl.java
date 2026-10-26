@@ -18,6 +18,7 @@ final class NativeMindBehaviorControl implements BehaviorControl<Mob> {
     private final MindBehavior behavior;
     private final NativeMindControlLeaseBook leases;
     private final Set<MindControl> controls;
+    private final NativeMindProbeSchedule probes;
     private Behavior.Status status = Behavior.Status.STOPPED;
 
     NativeMindBehaviorControl(
@@ -31,6 +32,7 @@ final class NativeMindBehaviorControl implements BehaviorControl<Mob> {
         controls = declared.isEmpty()
                 ? Set.of()
                 : Collections.unmodifiableSet(EnumSet.copyOf(declared));
+        probes = new NativeMindProbeSchedule(behavior.probeInterval(), runtime.logicalOwner(), behavior.identifier());
     }
 
     String identifier() {
@@ -54,11 +56,19 @@ final class NativeMindBehaviorControl implements BehaviorControl<Mob> {
         return Set.of();
     }
 
+    /**
+     * The Brain offers every stopped behavior a start each tick; this one asks its {@code canStart} only on the ticks
+     * its probe interval allows. A probe the scheduler skips for budget, or a start it defers, is asked again on the
+     * next tick.
+     */
     @Override
     public boolean tryStart(ServerLevel level, Mob body, long timestamp) {
+        if (!probes.due(timestamp)) return false;
         NativeMindCallbackScheduler.CallbackResult<Boolean> allowed = runtime.invoke(
                 identifier() + ".can_start",
                 () -> behavior.canStart(runtime.context(this)));
+        if (allowed.wasSkipped()) return false;
+        probes.asked(timestamp);
         if (!allowed.successful() || !Boolean.TRUE.equals(allowed.value())) return false;
         if (!leases.acquire(this, controls)) return false;
 
@@ -72,6 +82,7 @@ final class NativeMindBehaviorControl implements BehaviorControl<Mob> {
         if (started.wasSkipped()) {
             status = Behavior.Status.STOPPED;
             leases.release(this);
+            probes.retry(timestamp);
             return false;
         }
         if (!started.successful()) {
