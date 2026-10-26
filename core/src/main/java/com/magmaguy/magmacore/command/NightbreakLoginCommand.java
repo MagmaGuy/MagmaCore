@@ -11,19 +11,20 @@ import java.util.ArrayList;
 
 /**
  * Connects this server to a Nightbreak account.
- * Usage: /nightbreaklogin [token]
+ * Usage: /nightbreaklogin [token|confirm]
  * <p>
  * Without a token it prints a link to approve this server on nightbreak.io
- * (see {@link NightbreakServerLink}). With a token it saves that token. Either
- * way the token lands in the shared MagmaCore config folder that every
- * MagmaGuy plugin reads.
+ * (see {@link NightbreakServerLink}). With a token it saves that token. With
+ * {@code confirm} it applies a linked token that was held back because the
+ * server already had a working one. The token lands in the shared MagmaCore
+ * config folder that every MagmaGuy plugin reads.
  */
 public class NightbreakLoginCommand extends AdvancedCommand {
     private final JavaPlugin plugin;
 
     public NightbreakLoginCommand(JavaPlugin plugin) {
         super(new ArrayList<>());
-        setUsage("/nightbreaklogin [token]");
+        setUsage("/nightbreaklogin [token|confirm]");
         setDescription("Link this server to your Nightbreak account");
         setSenderType(SenderType.ANY);
         setPermission("nightbreak.login");
@@ -44,6 +45,10 @@ public class NightbreakLoginCommand extends AdvancedCommand {
 
         if (args.length < 1 || args[0] == null || args[0].isBlank()) {
             NightbreakServerLink.start(plugin, commandData.getCommandSender());
+            return;
+        }
+        if (args[0].equalsIgnoreCase("confirm")) {
+            NightbreakServerLink.confirm(plugin, commandData.getCommandSender());
             return;
         }
 

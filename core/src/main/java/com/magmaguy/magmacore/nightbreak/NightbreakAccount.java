@@ -742,7 +742,7 @@ public class NightbreakAccount {
         return new ScopedTestBaseUrl(normalized);
     }
 
-    private static String baseUrl() {
+    static String baseUrl() {
         String testBaseUrl = scopedTestBaseUrl;
         if (testBaseUrl != null) return testBaseUrl;
         PRODUCTION_ORIGIN_SELECTIONS.incrementAndGet();

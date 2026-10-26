@@ -27,7 +27,18 @@ import java.util.UUID;
 public final class NightbreakServerLink {
     private static final Object LOCK = new Object();
     private static final int DEFAULT_POLL_SECONDS = 5;
+    /** Polling stops by then whatever expiry nightbreak.io reports. */
+    private static final long MAX_LINK_MILLIS = 35L * 60L * 1000L;
+    private static final long CONFIRM_MILLIS = 5L * 60L * 1000L;
     private static Session active;
+    private static PendingSwitch pendingSwitch;
+
+    /**
+     * An approved token held back because this server already had a working
+     * one: anyone who saw the code could have approved the link, so switching
+     * accounts waits for {@code /nightbreaklogin confirm}.
+     */
+    private record PendingSwitch(String token, String accountName, long expiresAtMillis) { }
 
     private NightbreakServerLink() {
     }
@@ -46,7 +57,9 @@ public final class NightbreakServerLink {
         body.addProperty("minecraftVersion", minecraftVersion());
 
         if (NightbreakAccount.hasToken()) {
-            Logger.sendSimpleMessage(requester, "&7This server is already connected. Linking it again replaces its token.");
+            Logger.sendSimpleMessage(requester, savedTokenIsDead()
+                    ? "&7The saved token was rejected, so an approved link replaces it."
+                    : "&7This server is already connected. If the link is approved, you confirm the switch with &a/nightbreaklogin confirm&7.");
         }
         Logger.sendSimpleMessage(requester, "&7Asking nightbreak.io for a link...");
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
@@ -55,21 +68,63 @@ public final class NightbreakServerLink {
         });
     }
 
+    /**
+     * Switches this server to a token a link delivered while another working
+     * token was saved. See {@link PendingSwitch}.
+     */
+    public static void confirm(JavaPlugin plugin, CommandSender sender) {
+        PendingSwitch pending;
+        synchronized (LOCK) {
+            pending = pendingSwitch;
+            pendingSwitch = null;
+        }
+        if (pending == null || System.currentTimeMillis() > pending.expiresAtMillis()) {
+            Logger.sendSimpleMessage(sender, "&eThere is no approved link waiting for confirmation. Run &a/nightbreaklogin&e to start one.");
+            return;
+        }
+        applyToken(plugin, sender, pending.token(), pending.accountName());
+    }
+
+    /**
+     * Whether nightbreak.io rejected the saved token as invalid or revoked
+     * (401). A 403 means the token still works but is refused for this network
+     * or for one package, so it is not a reason to replace it unasked.
+     */
+    private static boolean savedTokenIsDead() {
+        return NightbreakAccount.hasAuthFailure() && NightbreakAccount.getLastAuthFailureStatus() == 401;
+    }
+
+    private static void applyToken(JavaPlugin plugin, CommandSender requester, String token, String accountName) {
+        if (NightbreakAccount.registerToken(plugin, token) == null) {
+            Logger.sendSimpleMessage(requester, "&cThe link was approved, but the token could not be saved. Check the console for errors.");
+            return;
+        }
+        NightbreakCatalogMenu.sendLoginSuccess(requester, plugin, accountName);
+        Logger.sendSimpleMessage(requester, "&7Not your account? Run &a/nightbreaklogout&7 to disconnect it.");
+        if (requester instanceof Player) {
+            Logger.info("This server is now linked to the Nightbreak account"
+                    + (accountName == null ? "" : " " + accountName) + ".");
+        }
+    }
+
     private static void onStarted(JavaPlugin plugin, UUID playerId, NightbreakAccount.JsonResponse response) {
         CommandSender requester = requester(playerId);
         JsonObject body = response.body();
         String rawCode = string(body, "code");
         String code = rawCode == null || !rawCode.matches("[A-Z0-9-]{4,16}") ? null : rawCode;
         String pollSecret = string(body, "pollSecret");
-        String rawLinkUrl = string(body, "linkUrl");
-        String linkUrl = rawLinkUrl == null || !rawLinkUrl.matches("https?://[^\\s<>&]+") ? null : rawLinkUrl;
-        if (response.status() != 200 || code == null || pollSecret == null || linkUrl == null) {
+        // The link must point at the same site this server talks to, for exactly this code.
+        String linkUrl = code == null ? null : NightbreakAccount.baseUrl() + "/server/link/" + code;
+        if (response.status() != 200 || code == null || pollSecret == null
+                || !linkUrl.equals(string(body, "linkUrl"))) {
             sendStartFailure(requester, response.status());
             return;
         }
 
-        long expiresAtMillis = parseInstantMillis(string(body, "expiresAt"),
-                System.currentTimeMillis() + 30L * 60L * 1000L);
+        long now = System.currentTimeMillis();
+        long expiresAtMillis = Math.min(
+                parseInstantMillis(string(body, "expiresAt"), now + MAX_LINK_MILLIS),
+                now + MAX_LINK_MILLIS);
         int pollSeconds = Math.max(2, integer(body, "pollIntervalSeconds", DEFAULT_POLL_SECONDS));
         Session session = new Session(plugin, playerId, code, pollSecret, expiresAtMillis, pollSeconds);
         synchronized (LOCK) {
@@ -271,15 +326,19 @@ public final class NightbreakServerLink {
 
         private void saveToken(String token, String accountName) {
             CommandSender requester = requester(playerId);
-            if (NightbreakAccount.registerToken(plugin, token) == null) {
-                Logger.sendSimpleMessage(requester, "&cThe link was approved, but the token could not be saved. Check the console for errors.");
+            if (NightbreakAccount.hasToken() && !savedTokenIsDead()) {
+                synchronized (LOCK) {
+                    pendingSwitch = new PendingSwitch(token, accountName, System.currentTimeMillis() + CONFIRM_MILLIS);
+                }
+                String account = accountName == null ? "a Nightbreak account" : "the Nightbreak account &f" + accountName + "&e";
+                report(playerId,
+                        "&eThe link was approved by " + account + ". This server is already connected with a working token,"
+                                + " so it keeps that one until you run &a/nightbreaklogin confirm&e (within 5 minutes).",
+                        "A Nightbreak link was approved by " + (accountName == null ? "an account" : accountName)
+                                + ". Run /nightbreaklogin confirm within 5 minutes to switch this server to it.");
                 return;
             }
-            NightbreakCatalogMenu.sendLoginSuccess(requester, plugin, accountName);
-            if (requester instanceof Player) {
-                Logger.info("This server is now linked to the Nightbreak account"
-                        + (accountName == null ? "" : " " + accountName) + ".");
-            }
+            applyToken(plugin, requester, token, accountName);
         }
 
         /** Ends this session and runs the outcome on the main thread. */
