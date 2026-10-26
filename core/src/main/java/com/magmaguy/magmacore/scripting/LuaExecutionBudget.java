@@ -163,7 +163,9 @@ public final class LuaExecutionBudget {
                 && System.nanoTime() - budget.elapsedStartNanos > budget.fallbackClock.limitNanos())
             throw new RunawayLimitExceeded("Lua elapsed-time safety budget exceeded");
         // A thread cannot use more CPU time than has elapsed, so inside the limit's worth of elapsed time the limit
-        // cannot have fired. That skips the CPU clock read, which costs about 300 ns, for almost every callback.
+        // cannot have fired. That skips the CPU clock read, which costs about 300 ns, for almost every callback. It
+        // also ends a false trip on Windows, where GetThreadTimes advances in steps of about 15.6 ms: a callback of a
+        // few microseconds that crossed a step read as 15.6 ms of CPU, past any limit under that.
         if (budget.clock.neverAheadOfElapsedTime()
                 && System.nanoTime() - budget.elapsedStartNanos <= budget.clock.limitNanos()) return;
         long nowNanos = budget.clock.nanoTime();

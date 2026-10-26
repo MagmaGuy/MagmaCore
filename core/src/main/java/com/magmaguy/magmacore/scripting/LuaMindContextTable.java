@@ -32,9 +32,9 @@ final class LuaMindContextTable {
             PERCEPTION = LuaValue.valueOf("perception"), ACTUATOR = LuaValue.valueOf("actuator"),
             ACTIONS = LuaValue.valueOf("actions"), GET = LuaValue.valueOf("get"), SET = LuaValue.valueOf("set"),
             FORGET = LuaValue.valueOf("forget"), CONTAINS = LuaValue.valueOf("contains");
-    // Room for tick, generation, a host extension's fields and the sections a callback reads, so a typical callback
-    // never grows its table.
-    private static final int CONTEXT_SLOTS = 8;
+    // Room for tick, generation, two host extension fields (FMM's pet and settings) and all five sections, so a
+    // callback never grows its table. LuaJ rounds the hash part up to 16.
+    private static final int CONTEXT_SLOTS = 10;
 
     private LuaMindContextTable() {
     }
