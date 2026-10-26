@@ -14,6 +14,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
@@ -41,6 +42,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * - GET /server/dlc/:slug/version - Get DLC version info (no auth required)
  * - GET /server/dlc/:slug/access - Check if user has access (auth required)
  * - GET /server/dlc/:slug/download - Download DLC file (auth required)
+ * - POST /server/link/start, /server/link/poll - Server linking (no token; see NightbreakServerLink)
  */
 public class NightbreakAccount {
     private static final String BASE_URL = "https://nightbreak.io";
@@ -104,7 +106,7 @@ public class NightbreakAccount {
                 resetAuthFailureSuppression();
                 fireTokenChanged();
             }
-            Logger.info("No account token found. Use /nightbreaklogin <token> to register your token.");
+            Logger.info("No account token found. Run /nightbreaklogin to link this server to a Nightbreak account.");
             return null;
         }
 
@@ -117,7 +119,7 @@ public class NightbreakAccount {
         if (instance != null) {
             Logger.info("Account token loaded successfully!");
         } else {
-            Logger.info("No account token configured. Use /nightbreaklogin <token> to register your token.");
+            Logger.info("No account token configured. Run /nightbreaklogin to link this server to a Nightbreak account.");
         }
         return instance;
     }
@@ -452,7 +454,7 @@ public class NightbreakAccount {
      */
     public AccessInfo checkAccess(String slug) {
         if (!hasToken()) {
-            Logger.warn("Cannot check access: No account token registered. Use /nightbreaklogin <token> first.");
+            Logger.warn("Cannot check access: No account token registered. Run /nightbreaklogin first.");
             return null;
         }
 
@@ -492,7 +494,7 @@ public class NightbreakAccount {
      */
     public boolean download(String slug, File destinationFile, String version) {
         if (!hasToken()) {
-            Logger.warn("Cannot download: No account token registered. Use /nightbreaklogin <token> first.");
+            Logger.warn("Cannot download: No account token registered. Run /nightbreaklogin first.");
             return false;
         }
 
@@ -521,7 +523,7 @@ public class NightbreakAccount {
      */
     public boolean download(String slug, File destinationFile, String version, DownloadProgressCallback progressCallback) {
         if (!hasToken()) {
-            Logger.warn("Cannot download: No account token registered. Use /nightbreaklogin <token> first.");
+            Logger.warn("Cannot download: No account token registered. Run /nightbreaklogin first.");
             return false;
         }
         try {
@@ -644,7 +646,7 @@ public class NightbreakAccount {
 
     public AccessInfo checkPluginAccess(String slug) {
         if (!hasToken()) {
-            Logger.warn("Cannot check plugin update access: No account token registered. Use /nightbreaklogin <token> first.");
+            Logger.warn("Cannot check plugin update access: No account token registered. Run /nightbreaklogin first.");
             return null;
         }
 
@@ -671,7 +673,7 @@ public class NightbreakAccount {
                                               DownloadProgressCallback progressCallback,
                                               java.util.function.BooleanSupplier operationCurrent) {
         if (!hasToken()) {
-            Logger.warn("Cannot download plugin update: No account token registered. Use /nightbreaklogin <token> first.");
+            Logger.warn("Cannot download plugin update: No account token registered. Run /nightbreaklogin first.");
             return new PluginDownloadResult(false, 0, "NO_TOKEN",
                     "No account token registered.", null, null);
         }
@@ -936,8 +938,8 @@ public class NightbreakAccount {
             String body = errorResponse != null ? errorResponse : "(no body)";
             Logger.warn("The account token was rejected (" + responseCode + ") for " + urlString
                     + ": " + body
-                    + ". Get a new token at https://nightbreak.io/account/ and run "
-                    + "/nightbreaklogin <token>, then try again. Further token errors will be hidden until the token changes.");
+                    + ". Run /nightbreaklogin to link this server again, then try again."
+                    + " Further token errors will be hidden until the token changes.");
             return;
         }
         // A plugin can offer a package before it is released on Nightbreak. That is expected, not an error.
@@ -1224,6 +1226,49 @@ public class NightbreakAccount {
             HttpURLConnection connection) {
         if (scopedTestBaseUrl != null) {
             connection.setInstanceFollowRedirects(false);
+        }
+    }
+
+    record JsonResponse(int status, JsonObject body) { }
+
+    /**
+     * POSTs a JSON body to a Nightbreak API path without the account token.
+     * {@link NightbreakServerLink} uses it: its poll secret is its only credential.
+     *
+     * @return the HTTP status and the parsed body; status 0 and a null body
+     * when nightbreak.io could not be reached
+     */
+    static JsonResponse postPublicJson(String path, JsonObject body) {
+        String urlString = baseUrl() + path;
+        try {
+            HttpURLConnection connection = (HttpURLConnection) new URL(urlString).openConnection();
+            configureScopedTestRedirectPolicy(connection);
+            connection.setRequestMethod("POST");
+            connection.setDoOutput(true);
+            connection.setRequestProperty("Content-Type", "application/json");
+            connection.setRequestProperty("Accept", "application/json");
+            connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
+            connection.setReadTimeout(READ_TIMEOUT_MS);
+            try (OutputStream output = connection.getOutputStream()) {
+                output.write(body.toString().getBytes(StandardCharsets.UTF_8));
+            }
+
+            int status = connection.getResponseCode();
+            InputStream stream = status < 400 ? connection.getInputStream() : connection.getErrorStream();
+            String text = stream == null ? null : readUtf8Bounded(stream, 64 * 1024);
+            JsonObject parsed = null;
+            if (text != null && !text.isBlank()) {
+                try {
+                    JsonElement element = JsonParser.parseString(text);
+                    if (element.isJsonObject()) parsed = element.getAsJsonObject();
+                } catch (RuntimeException ignored) {
+                    // A non-JSON body (a proxy error page) is reported by status alone.
+                }
+            }
+            return new JsonResponse(status, parsed);
+        } catch (IOException e) {
+            logNetworkFailure(urlString, e.getMessage());
+            return new JsonResponse(0, null);
         }
     }
 

@@ -56,7 +56,7 @@ public final class NightbreakSetupControls {
         String recommendedCommand = "/" + spec.rootCommand() + " recommendedplugins";
         List<String> lore = new ArrayList<>();
         lore.add("&2To setup the optional/recommended content for " + spec.displayName() + ":");
-        lore.add("&6- &fConnect your Nightbreak token from &anightbreak.io/account");
+        lore.add("&6- &fLink this server with &a/nightbreaklogin");
         if (NightbreakSubcommands.isRegistered(null, spec, NightbreakSubcommands.RECOMMENDED_PLUGINS)) {
             lore.add("&6- &fCheck recommended plugins with &a" + recommendedCommand);
         }
@@ -77,11 +77,7 @@ public final class NightbreakSetupControls {
                         SpigotMessage.hoverLinkMessage("&a" + discordUrl,
                                 "&7Click to open Discord support.",
                                 discordUrl));
-                player.spigot().sendMessage(
-                        SpigotMessage.simpleMessage("&2&lAccount token: "),
-                        SpigotMessage.hoverLinkMessage("&ahttps://nightbreak.io/account/",
-                                "&7Click to open the account token page.",
-                                "https://nightbreak.io/account/"));
+                NightbreakSetupMenuHelper.sendLinkCommand(player, "&2&lLink this server: ");
                 player.spigot().sendMessage(
                         SpigotMessage.simpleMessage("&2&lWiki / setup page: "),
                         SpigotMessage.hoverLinkMessage("&a" + wikiUrl,

@@ -1,5 +1,6 @@
 package com.magmaguy.magmacore.nightbreak;
 
+import com.magmaguy.magmacore.MagmaCore;
 import com.magmaguy.magmacore.menus.ContentPackage;
 import com.magmaguy.magmacore.menus.NightbreakSetupIcons;
 import com.magmaguy.magmacore.util.ItemStackGenerator;
@@ -123,15 +124,26 @@ public final class NightbreakSetupMenuHelper {
                         "&7Click to view access links."));
     }
 
+    /**
+     * Sends a line whose command, {@code /nightbreaklogin}, prints a link that
+     * connects this server to a Nightbreak account. Players can click it.
+     */
+    public static void sendLinkCommand(CommandSender sender, String prefix) {
+        if (sender instanceof Player player) {
+            player.spigot().sendMessage(
+                    SpigotMessage.simpleMessage(prefix),
+                    SpigotMessage.commandHoverMessage("&a/nightbreaklogin",
+                            "&7Click to get a link that connects this server to your Nightbreak account.",
+                            "/nightbreaklogin"));
+        } else {
+            Logger.sendSimpleMessage(sender, prefix + "&a/nightbreaklogin");
+        }
+    }
+
     public static void sendNoTokenPrompt(Player player, String pluginName, String contentUrl) {
         Logger.sendSimpleMessage(player, SEPARATOR);
         Logger.sendSimpleMessage(player, "&6Connect this server so " + pluginName + " can install content and download plugin updates from in-game.");
-        player.spigot().sendMessage(
-                SpigotMessage.simpleMessage("&2Account token: "),
-                SpigotMessage.hoverLinkMessage("&ahttps://nightbreak.io/account/",
-                        "&7Click to open the account token page.",
-                        "https://nightbreak.io/account/"));
-        Logger.sendSimpleMessage(player, "&2Link command: &a/nightbreaklogin <token>");
+        sendLinkCommand(player, "&2Link this server: ");
         player.spigot().sendMessage(
                 SpigotMessage.simpleMessage("&2" + pluginName + " content: "),
                 SpigotMessage.hoverLinkMessage("&a" + contentUrl,
@@ -144,26 +156,18 @@ public final class NightbreakSetupMenuHelper {
         if (sender == null) return;
         Logger.sendSimpleMessage(sender, SEPARATOR);
         Logger.sendSimpleMessage(sender, "&e[" + pluginName + "] The saved account token needs to be updated.");
-        if (sender instanceof Player player) {
-            player.spigot().sendMessage(
-                    SpigotMessage.simpleMessage("&7Get a new token here: "),
-                    SpigotMessage.hoverLinkMessage("&9&nhttps://nightbreak.io/account/",
-                            "&7Click to open the account token page.",
-                            "https://nightbreak.io/account/"));
-        } else {
-            Logger.sendSimpleMessage(sender, "&7Get a new token here: &9https://nightbreak.io/account/");
-        }
-        Logger.sendSimpleMessage(sender, "&7Then run &a/nightbreaklogin <token>&7 and try again.");
+        sendLinkCommand(sender, "&7Link this server again with ");
+        Logger.sendSimpleMessage(sender, "&7then try again.");
         Logger.sendSimpleMessage(sender, SEPARATOR);
     }
 
     public static void sendFirstTimeSetupResources(Player player, NightbreakFirstTimeSetupSpec spec) {
         Logger.sendSimpleMessage(player, "&8&m-----------------------------------------------------");
-        player.spigot().sendMessage(
-                SpigotMessage.simpleMessage("&2Account token: "),
-                SpigotMessage.hoverLinkMessage("&9&nhttps://nightbreak.io/account/",
-                        "&7Click to open the account token page.",
-                        "https://nightbreak.io/account/"));
+        if (NightbreakAccount.hasToken()) {
+            Logger.sendSimpleMessage(player, "&2Nightbreak account: &aconnected");
+        } else {
+            sendLinkCommand(player, "&2Link this server: ");
+        }
         player.spigot().sendMessage(
                 SpigotMessage.simpleMessage("&2Plugin page: "),
                 SpigotMessage.hoverLinkMessage("&9&n" + spec.contentUrl(),
@@ -195,19 +199,23 @@ public final class NightbreakSetupMenuHelper {
     public static void sendRecommendedSetupInstructions(Player player, NightbreakFirstTimeSetupSpec spec) {
         Logger.sendSimpleMessage(player, "&8&m-----------------------------------------------------");
         Logger.sendSimpleMessage(player, "&a" + spec.pluginDisplayName() + " setup is now marked as complete.");
-        Logger.sendSimpleMessage(player, "&7Connect this server so " + spec.pluginDisplayName() + " can install content and download plugin updates from in-game.");
+        boolean connected = NightbreakAccount.hasToken();
+        // Starting the link here saves the admin a click: the approval link arrives right below.
+        boolean startLink = !connected
+                && player.hasPermission("nightbreak.login")
+                && MagmaCore.getInstance() != null;
+        if (!connected) {
+            Logger.sendSimpleMessage(player, "&7Connect this server so " + spec.pluginDisplayName() + " can install content and download plugin updates from in-game.");
+            if (startLink) {
+                Logger.sendSimpleMessage(player, "&7Step 1: open the link below and approve this server.");
+            } else {
+                sendLinkCommand(player, "&7Step 1: link this server with ");
+            }
+        }
         player.spigot().sendMessage(
-                SpigotMessage.simpleMessage("&7Step 1: get your account token at "),
-                SpigotMessage.hoverLinkMessage("&9&nhttps://nightbreak.io/account/",
-                        "&7Click to open the account token page.",
-                        "https://nightbreak.io/account/"));
-        player.spigot().sendMessage(
-                SpigotMessage.simpleMessage("&7Step 2: link it in-game with "),
-                SpigotMessage.commandHoverMessage("&a/nightbreaklogin <token>",
-                        "&7Click to prepare the token command.",
-                        "/nightbreaklogin "));
-        player.spigot().sendMessage(
-                SpigotMessage.simpleMessage("&7Step 3: open the setup menu with "),
+                SpigotMessage.simpleMessage(connected
+                        ? "&7Open the setup menu with "
+                        : "&7Step 2: open the setup menu with "),
                 SpigotMessage.commandHoverMessage("&a" + spec.setupCommand(),
                         "&7Click to open the " + spec.pluginDisplayName() + " setup menu.",
                         spec.setupCommand()));
@@ -223,6 +231,9 @@ public final class NightbreakSetupMenuHelper {
             Logger.sendSimpleMessage(player, note);
         }
         Logger.sendSimpleMessage(player, "&8&m-----------------------------------------------------");
+        if (startLink) {
+            NightbreakServerLink.start(MagmaCore.getInstance().getRequestingPlugin(), player);
+        }
     }
 
     public static void sendManualDownloadMessage(CommandSender sender,
@@ -273,7 +284,9 @@ public final class NightbreakSetupMenuHelper {
                                 accessInfo.itchLink));
             }
         }
-        Logger.sendSimpleMessage(player, "&2Account link command: &a/nightbreaklogin <token>");
+        if (!NightbreakAccount.hasToken()) {
+            sendLinkCommand(player, "&2Link this server: ");
+        }
         Logger.sendSimpleMessage(player, SEPARATOR);
     }
 

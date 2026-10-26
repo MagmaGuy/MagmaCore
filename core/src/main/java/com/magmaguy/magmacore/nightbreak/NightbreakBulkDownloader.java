@@ -104,7 +104,7 @@ public final class NightbreakBulkDownloader {
             Consumer<CommandSender> reloadAction,
             boolean reloadAfterDownloads) {
         if (!NightbreakAccount.hasToken()) {
-            sender.sendMessage(ChatColorConverter.convert("&c[" + pluginDisplayName + "] No account token registered. Use /nightbreaklogin <token> first."));
+            sender.sendMessage(ChatColorConverter.convert("&c[" + pluginDisplayName + "] This server is not linked to a Nightbreak account. Run /nightbreaklogin first."));
             return;
         }
         if (NightbreakAccount.hasAuthFailure()) {

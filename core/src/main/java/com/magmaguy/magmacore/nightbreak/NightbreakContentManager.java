@@ -197,7 +197,7 @@ public class NightbreakContentManager {
         }
         if (!NightbreakAccount.hasToken()) {
             if (player != null && player.isOnline()) {
-                player.sendMessage("§c[Nightbreak] No token registered. Use /nightbreaklogin <token> first.");
+                player.sendMessage("§c[Nightbreak] This server is not linked to a Nightbreak account. Run /nightbreaklogin first.");
             }
             onComplete.accept(false);
             return;

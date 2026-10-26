@@ -20,7 +20,7 @@ public record NightbreakLogoutMessages(
         success = valueOrDefault(success,
                 "&aThis server is no longer connected to a Nightbreak account.");
         reconnect = valueOrDefault(reconnect,
-                "&7Use &a/nightbreaklogin <token> &7to connect it again.");
+                "&7Use &a/nightbreaklogin &7to connect it again.");
         failure = valueOrDefault(failure,
                 "&cThe shared Nightbreak account token could not be removed.");
     }

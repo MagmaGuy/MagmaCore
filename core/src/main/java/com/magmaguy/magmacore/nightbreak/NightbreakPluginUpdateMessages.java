@@ -129,16 +129,7 @@ final class NightbreakPluginUpdateMessages {
                                     NightbreakPluginUpdater.PluginUpdateDownload result) {
         sendSeparator(sender);
         Logger.sendSimpleMessage(sender, "&eIn-game plugin updates are a supporter convenience.");
-        sendCommand(sender,
-                "&7Step 1: connect this server with ",
-                "&a/nightbreaklogin <token>",
-                "&7Click to prepare the token command.",
-                "/nightbreaklogin ");
-        sendLink(sender,
-                "&7Step 2: get your account token from ",
-                "&9&nhttps://nightbreak.io/account/",
-                "&7Click to open the account token page.",
-                "https://nightbreak.io/account/");
+        NightbreakSetupMenuHelper.sendLinkCommand(sender, "&7Connect this server with ");
         sendManualDownload(sender, result.downloadPageUrl());
         sendSeparator(sender);
     }

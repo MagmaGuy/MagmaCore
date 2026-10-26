@@ -319,17 +319,7 @@ public final class NightbreakPluginInstaller {
     }
 
     private static void sendAccountAndManualLinks(CommandSender sender, NightbreakPluginCatalog.Entry entry) {
-        sendLink(sender, "&7Account token: ", "&9&nhttps://nightbreak.io/account/",
-                "&7Click to open the account token page.", "https://nightbreak.io/account/");
-        if (sender instanceof Player player) {
-            player.spigot().sendMessage(
-                    SpigotMessage.simpleMessage("&7Link command: "),
-                    SpigotMessage.commandHoverMessage("&a/nightbreaklogin <token>",
-                            "&7Click to prepare the token command.",
-                            "/nightbreaklogin "));
-        } else {
-            Logger.sendSimpleMessage(sender, "&7Link command: &a/nightbreaklogin <token>");
-        }
+        NightbreakSetupMenuHelper.sendLinkCommand(sender, "&7Link this server: ");
         sendManualDownload(sender, entry);
     }
 

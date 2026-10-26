@@ -94,8 +94,15 @@ public final class NightbreakCatalogMenu {
     }
 
     public static void sendLoginSuccess(CommandSender sender, JavaPlugin plugin) {
+        sendLoginSuccess(sender, plugin, null);
+    }
+
+    public static void sendLoginSuccess(CommandSender sender, JavaPlugin plugin, String accountName) {
         Logger.sendSimpleMessage(sender, NightbreakSetupMenuHelper.getSeparator());
         Logger.sendSimpleMessage(sender, "<g:#77dd77:#d4ff9d>This server is connected.</g>");
+        if (accountName != null && !accountName.isBlank()) {
+            Logger.sendSimpleMessage(sender, "&7Nightbreak account: &f" + accountName);
+        }
         Logger.sendSimpleMessage(sender, "&7Plugins can now use this token for in-game content installs and update downloads.");
         sendCommand(sender, "&7Browse plugins: ", "&a/nightbreak plugins",
                 "&7Click to browse available plugins.", "/nightbreak plugins");
@@ -123,10 +130,7 @@ public final class NightbreakCatalogMenu {
         }
         if (!NightbreakAccount.hasToken()) {
             Logger.sendSimpleMessage(player, "&7Connect this server so " + spec.pluginDisplayName() + " can install content and download plugin updates from in-game.");
-            sendLink(player, "&7Account token: ", "&9&nhttps://nightbreak.io/account/",
-                    "&7Click to open the account token page.", "https://nightbreak.io/account/");
-            sendCommand(player, "&7Link command: ", "&a/nightbreaklogin <token>",
-                    "&7Click to prepare the token command.", "/nightbreaklogin ");
+            NightbreakSetupMenuHelper.sendLinkCommand(player, "&7Link this server: ");
         }
         Logger.sendSimpleMessage(player, NightbreakSetupMenuHelper.getSeparator());
     }

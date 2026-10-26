@@ -122,13 +122,11 @@ public class NightbreakBulkActionPackage<T extends NightbreakManagedContent> ext
         if (!NightbreakAccount.hasToken()) {
             player.sendMessage(ChatColorConverter.convert("&8&m----------------------------------------------------"));
             player.sendMessage(ChatColorConverter.convert("&eConnect this server first to install " + pluginDisplayName + " content in-game."));
-            player.spigot().sendMessage(
-                    SpigotMessage.simpleMessage("&6Account page: "),
-                    SpigotMessage.hoverLinkMessage("&9&nhttps://nightbreak.io/account/", "&7Click to open the account token page", "https://nightbreak.io/account/"));
+            NightbreakSetupMenuHelper.sendLinkCommand(player, "&6Link this server: ");
             player.spigot().sendMessage(
                     SpigotMessage.simpleMessage("&6Content page: "),
                     SpigotMessage.hoverLinkMessage("&9&n" + contentPageUrl, "&7Click to browse content", contentPageUrl));
-            player.sendMessage(ChatColorConverter.convert("&aUse &2/nightbreaklogin <token> &ato link your account, then click this button again."));
+            player.sendMessage(ChatColorConverter.convert("&aOnce it is linked, click this button again."));
             player.sendMessage(ChatColorConverter.convert("&8&m----------------------------------------------------"));
             return;
         }
