@@ -1,5 +1,6 @@
 package com.magmaguy.magmacore.enchantments;
 
+import org.bukkit.entity.LivingEntity;
 import org.bukkit.plugin.Plugin;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -8,6 +9,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 /** Publishes provider-owned catalogs through the existing cross-shading bridge. No Lua state crosses it. */
 public final class EnchantmentDefinitions {
@@ -21,7 +23,7 @@ public final class EnchantmentDefinitions {
     public static HostedCatalog publish(Plugin owner, EnchantmentCatalog catalog, Set<String> capabilities,
                                        EnchantmentProviders.Handler domainHandler) {
         EnchantmentProviders.requireServerThread();
-        return new HostedCatalog(owner, catalog, capabilities, domainHandler, null, null);
+        return new HostedCatalog(owner, catalog, capabilities, domainHandler, null, null, null);
     }
 
     /** Publishes query execution through the same provider endpoint and revision as definitions. */
@@ -29,15 +31,27 @@ public final class EnchantmentDefinitions {
                                                Set<com.magmaguy.magmacore.scripting.ScriptHook> queryHooks,
                                                EnchantmentProviders.Handler domainHandler) {
         EnchantmentProviders.requireServerThread();
-        return new HostedCatalog(owner, catalog, capabilities, domainHandler, Set.copyOf(queryHooks), null);
+        return new HostedCatalog(owner, catalog, capabilities, domainHandler, Set.copyOf(queryHooks), null, null);
     }
 
     /** Numeric and timed hooks share one catalog, revision, and provider lifetime. */
     public static HostedCatalog publishActions(Plugin owner, EnchantmentCatalog catalog, Set<String> capabilities,
             Set<com.magmaguy.magmacore.scripting.ScriptHook> queryHooks,
             Set<com.magmaguy.magmacore.scripting.ScriptHook> actionHooks, EnchantmentProviders.Handler domainHandler) {
+        return publishActions(owner, catalog, capabilities, queryHooks, actionHooks, domainHandler, null);
+    }
+
+    /**
+     * As above, with the owner's say over who may run its actions: a timed action does not start for an entity the
+     * predicate refuses, and a running one stops once it does. Null permits everyone.
+     */
+    public static HostedCatalog publishActions(Plugin owner, EnchantmentCatalog catalog, Set<String> capabilities,
+            Set<com.magmaguy.magmacore.scripting.ScriptHook> queryHooks,
+            Set<com.magmaguy.magmacore.scripting.ScriptHook> actionHooks, EnchantmentProviders.Handler domainHandler,
+            Predicate<LivingEntity> actorPermitted) {
         EnchantmentProviders.requireServerThread();
-        return new HostedCatalog(owner, catalog, capabilities, domainHandler, Set.copyOf(queryHooks), Set.copyOf(actionHooks));
+        return new HostedCatalog(owner, catalog, capabilities, domainHandler, Set.copyOf(queryHooks), Set.copyOf(actionHooks),
+                actorPermitted);
     }
 
     public static final class HostedCatalog implements AutoCloseable {
@@ -50,7 +64,8 @@ public final class EnchantmentDefinitions {
         private HostedCatalog(Plugin owner, EnchantmentCatalog initial, Set<String> capabilities,
                               EnchantmentProviders.Handler domainHandler,
                               Set<com.magmaguy.magmacore.scripting.ScriptHook> queryHooks,
-                              Set<com.magmaguy.magmacore.scripting.ScriptHook> actionHooks) {
+                              Set<com.magmaguy.magmacore.scripting.ScriptHook> actionHooks,
+                              Predicate<LivingEntity> actorPermitted) {
             catalog = Objects.requireNonNull(initial, "catalog");
             Objects.requireNonNull(domainHandler, "domainHandler");
             Set<String> publishedCapabilities = new LinkedHashSet<>(capabilities);
@@ -61,7 +76,8 @@ public final class EnchantmentDefinitions {
             if (actionHooks != null) supported.addAll(actionHooks);
             queries = queryHooks == null ? null : new EnchantmentQueryExecutor(initial, queryHooks, supported,
                     publishedCapabilities, owner.getLogger()::warning);
-            actions = actionHooks == null ? null : new EnchantmentActionExecutor(owner, initial, actionHooks, publishedCapabilities, domainHandler);
+            actions = actionHooks == null ? null : new EnchantmentActionExecutor(owner, initial, actionHooks, publishedCapabilities,
+                    domainHandler, actorPermitted);
             try {
             registration = EnchantmentProviders.register(owner, initial.namespace(), publishedCapabilities, (operation, request) -> {
                 if (actions != null && operation == EnchantmentProviders.Operation.EVALUATE

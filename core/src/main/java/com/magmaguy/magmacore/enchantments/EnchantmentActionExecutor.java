@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Predicate;
 
 /** Uses ordinary ScriptInstance ownership/watchdogs; there is no separate enchantment tick engine. */
 final class EnchantmentActionExecutor implements Listener, AutoCloseable {
@@ -38,6 +39,8 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
     private final EnchantmentInputs inputs;
     private final ItemSetRefresher setLore;
     private final EnchantmentProviders.Handler domainHandler;
+    // The owning plugin's say over who may run its actions; checked at start and on every owner check.
+    private final Predicate<LivingEntity> actorPermitted;
     private final Map<String, Running> active = new HashMap<>();
     // Activations are short lived; cooldowns belong to the player and authored effect.
     // Keep them through action completion, equipment swaps, world changes and valid reloads.
@@ -49,12 +52,14 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
     private boolean closed;
 
     EnchantmentActionExecutor(Plugin plugin, EnchantmentCatalog catalog, Set<ScriptHook> hooks,
-                              Set<String> capabilities, EnchantmentProviders.Handler domainHandler) {
+                              Set<String> capabilities, EnchantmentProviders.Handler domainHandler,
+                              Predicate<LivingEntity> actorPermitted) {
         this.plugin = plugin;
         this.catalog = catalog;
         this.hooks = Set.copyOf(hooks);
         this.capabilities = Set.copyOf(capabilities);
         this.domainHandler = domainHandler;
+        this.actorPermitted = actorPermitted == null ? actor -> true : actorPermitted;
         Bukkit.getPluginManager().registerEvents(this, plugin);
         inputs = new EnchantmentInputs(plugin, catalog.namespace());
         Bukkit.getPluginManager().registerEvents(inputs, plugin);
@@ -249,6 +254,7 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
             return !closed && plugin.isEnabled() && actor instanceof LivingEntity && actor.isValid() && !actor.isDead()
                     && (!(actor instanceof Player player) || player.isOnline())
                     && actor.getWorld().getUID().equals(source.world())
+                    && actorPermitted.test((LivingEntity) actor)
                     && (!stopOnUnequip || (pieces != null ? pieces.stream().allMatch(EnchantmentItemAccess::isEquipped)
                     : item != null && item.isEquipped()));
         }
