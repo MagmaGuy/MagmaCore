@@ -8,6 +8,7 @@ public abstract class ContentPackage extends MenuButton {
     }
 
     public ItemStack getItemstack() {
+        if (isComingSoon()) return getComingSoonItemStack();
         return switch (getContentState()) {
             case INSTALLED -> getInstalledItemStack();
             case PARTIALLY_INSTALLED -> getPartiallyInstalledItemStack();
@@ -43,9 +44,28 @@ public abstract class ContentPackage extends MenuButton {
 
     protected abstract ContentState getContentState();
 
+    /**
+     * True when this package is not released yet. The setup menu lists it under Coming soon instead of with the
+     * rest, and clicking it only says so.
+     */
+    public boolean isComingSoon() {
+        return false;
+    }
+
+    protected ItemStack getComingSoonItemStack() {
+        return getNotDownloadedItemStack();
+    }
+
+    protected void doShowComingSoon(Player player) {
+    }
+
     @Override
     public void onClick(Player player) {
         player.closeInventory();
+        if (isComingSoon()) {
+            doShowComingSoon(player);
+            return;
+        }
         switch (getContentState()) {
             case INSTALLED -> doUninstall(player);
             case PARTIALLY_INSTALLED -> doDownload(player);

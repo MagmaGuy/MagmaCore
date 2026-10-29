@@ -68,6 +68,19 @@ public class NightbreakContentManager {
         return slug != null && !slug.isEmpty() && !versionCache.isEmpty() && !versionCache.containsKey(slug);
     }
 
+    /** True when a package is not released yet: its plugin marks it coming soon, or the catalog does not list it. */
+    public static boolean isUnreleased(NightbreakManagedContent content) {
+        return content.isMarkedComingSoon() || isKnownUnpublished(content.getNightbreakSlug());
+    }
+
+    /**
+     * True when the setup menu shows a package as coming soon: it is not released yet and this server has not
+     * downloaded it. A server that already has its files, such as a tester's, manages it like any other package.
+     */
+    public static boolean isComingSoon(NightbreakManagedContent content) {
+        return isUnreleased(content) && !content.isDownloaded();
+    }
+
     /**
      * Clears all caches.
      */

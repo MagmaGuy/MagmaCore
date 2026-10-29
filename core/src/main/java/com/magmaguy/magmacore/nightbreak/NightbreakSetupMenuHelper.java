@@ -80,6 +80,11 @@ public final class NightbreakSetupMenuHelper {
                 List.of("&eContent is not downloaded yet.", "&7Click to download it."));
     }
 
+    public static ItemStack createComingSoonItem(String displayName, List<String> description) {
+        return createItem(displayName, description, Material.CLOCK, null,
+                List.of("&bComing soon!", "&7This content isn't released yet."));
+    }
+
     public static ItemStack createNeedsAccessItem(String displayName,
                                                   List<String> description,
                                                   NightbreakAccount.AccessInfo accessInfo) {

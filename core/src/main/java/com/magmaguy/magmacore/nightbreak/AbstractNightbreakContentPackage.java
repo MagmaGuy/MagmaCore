@@ -72,8 +72,27 @@ public abstract class AbstractNightbreakContentPackage extends ContentPackage im
     }
 
     @Override
+    public boolean isComingSoon() {
+        return NightbreakContentManager.isComingSoon(this);
+    }
+
+    @Override
+    protected ItemStack getComingSoonItemStack() {
+        return NightbreakSetupMenuHelper.createComingSoonItem(getDisplayName(), getPackageDescription());
+    }
+
+    @Override
+    protected void doShowComingSoon(Player player) {
+        Logger.sendSimpleMessage(player, "&b" + getDisplayName() + "&b is coming soon. It isn't released yet.");
+    }
+
+    @Override
     protected void doDownload(Player player) {
         player.closeInventory();
+        if (isMarkedComingSoon()) {
+            doShowComingSoon(player);
+            return;
+        }
         String slug = getNightbreakSlug();
         if (slug == null || slug.isEmpty()) {
             NightbreakSetupMenuHelper.sendManualDownloadMessage(player, getDownloadLink(),

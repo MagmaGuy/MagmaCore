@@ -87,15 +87,19 @@ public class SetupMenuBuilder {
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
-    private List<ContentPackage> filterPackages(Predicate<? extends ContentPackage> predicate) {
-        List<ContentPackage> result = new ArrayList<>();
-        if (packages == null) return result;
-        result.addAll(prependedPackages);
+    private List<ContentPackage> filterPackages(List<ContentPackage> released, Predicate<? extends ContentPackage> predicate) {
+        List<ContentPackage> result = new ArrayList<>(prependedPackages);
         Predicate rawPredicate = predicate;
-        for (ContentPackage pkg : packages) {
+        for (ContentPackage pkg : released) {
             if (rawPredicate.test(pkg)) result.add(pkg);
         }
         return result;
+    }
+
+    private static ItemStack comingSoonCategoryItem(int count) {
+        return ItemStackGenerator.generateItemStack(Material.CLOCK, "&bComing soon",
+                List.of("&7" + count + " package" + (count == 1 ? " isn't" : "s aren't") + " released yet.",
+                        "&7Click to see what's coming."));
     }
 
     public SetupMenu open() {
@@ -108,15 +112,22 @@ public class SetupMenuBuilder {
             return null;
         }
 
+        // Packages that are not released yet leave the main list and the filters for their own Coming soon category.
+        List<ContentPackage> released = new ArrayList<>();
+        List<ContentPackage> comingSoon = new ArrayList<>();
+        for (ContentPackage pkg : packages) (pkg.isComingSoon() ? comingSoon : released).add(pkg);
+
         filters.clear();
         for (FilterDefinition filterDefinition : filterDefinitions) {
             ItemStack filterItem = ItemStackGenerator.generateItemStack(filterDefinition.material(), filterDefinition.name());
-            List<ContentPackage> filtered = filterPackages(filterDefinition.predicate());
+            List<ContentPackage> filtered = filterPackages(released, filterDefinition.predicate());
             filters.add(new SetupMenu.SetupMenuFilter(filterItem, filtered));
         }
+        if (!comingSoon.isEmpty())
+            filters.add(new SetupMenu.SetupMenuFilter(comingSoonCategoryItem(comingSoon.size()), comingSoon));
 
         List<ContentPackage> finalPackages = new ArrayList<>(prependedPackages);
-        finalPackages.addAll(packages);
+        finalPackages.addAll(released);
         finalPackages.addAll(appendedPackages);
 
         String finalTitle = title;
