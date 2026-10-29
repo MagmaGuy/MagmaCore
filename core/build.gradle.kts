@@ -3,6 +3,8 @@ dependencies {
     compileOnly("com.magmaguy:FreeMinecraftModels:2.3.17")
     compileOnly("com.sk89q.worldedit:worldedit-bukkit:7.3.0")
     compileOnly("com.sk89q.worldguard:worldguard-bukkit:7.0.7")
+    // The server ships log4j-core; NamedDeathLogFilter adds a filter to its configuration.
+    compileOnly("org.apache.logging.log4j:log4j-core:2.24.3")
     implementation("org.reflections:reflections:0.10.2")
     implementation("org.luaj:luaj-jse:3.0.1")
 

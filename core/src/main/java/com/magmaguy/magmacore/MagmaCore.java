@@ -25,6 +25,7 @@ import com.magmaguy.magmacore.nightbreak.NightbreakPluginStateRegistry;
 import com.magmaguy.magmacore.nightbreak.NightbreakPluginUpdater;
 import com.magmaguy.magmacore.thirdparty.CustomBiomeCompatibility;
 import com.magmaguy.magmacore.util.Logger;
+import com.magmaguy.magmacore.util.NamedDeathLogFilter;
 import com.magmaguy.magmacore.util.TemporaryBlockManager;
 import com.magmaguy.magmacore.util.VersionChecker;
 import lombok.Getter;
@@ -149,6 +150,7 @@ public final class MagmaCore {
         InstanceProtector.shutdown();
         instanceProtectorRegistered = false;
         TemporaryBlockManager.shutdown();
+        NamedDeathLogFilter.shutdown();
     }
 
     public static void shutdown(JavaPlugin plugin) {
