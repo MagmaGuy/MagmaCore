@@ -48,6 +48,7 @@ public class TemporaryWorldManager {
             worldCreator.environment(environment);
             worldCreator.generator(voidGenerator());
             World world = Bukkit.createWorld(worldCreator);
+            WorldBlueprints.restoreLevelBorder(world);
             prepareTemporaryWorld(world);
             Logger.info("Successfully loaded world " + worldName + " !");
 //            Bukkit.getLogger().setFilter(previousFilter);
@@ -91,6 +92,7 @@ public class TemporaryWorldManager {
             worldCreator.environment(environment);
             worldCreator.generator(generator);
             World world = Bukkit.createWorld(worldCreator);
+            WorldBlueprints.restoreLevelBorder(world);
             prepareTemporaryWorld(world);
             Logger.info("Successfully loaded world " + worldName + " !");
             return world;

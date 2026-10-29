@@ -9,6 +9,7 @@ import org.bukkit.plugin.Plugin;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -28,8 +29,21 @@ public final class WorldBlueprints {
     private static final AtomicBoolean converting = new AtomicBoolean();
     // Copies read blueprints; a conversion replaces one under the write lock, off the main thread.
     private static final ReentrantReadWriteLock blueprintLock = new ReentrantReadWriteLock();
+    // The level.dat border of each copy that has not loaded yet, by world name; see restoreLevelBorder.
+    private static final Map<String, WorldBlueprint.LevelBorder> pendingBorders = new ConcurrentHashMap<>();
 
     private WorldBlueprints() {
+    }
+
+    /**
+     * Gives a world copied from a blueprint the border its blueprint's level.dat sets, the first time it loads.
+     * Servers from Minecraft 1.21.9 convert that border into per-dimension storage, and some divide a nether world's
+     * center by eight while doing it, which leaves the whole map outside the border. Main thread, right after loading.
+     */
+    public static void restoreLevelBorder(World world) {
+        if (world == null) return;
+        WorldBlueprint.LevelBorder border = pendingBorders.remove(world.getName());
+        if (border != null) border.applyTo(world);
     }
 
     /** Restores a blueprint an interrupted conversion left half replaced, then checks that this server can copy it. */
@@ -64,6 +78,9 @@ public final class WorldBlueprints {
             Path destination = blueprint.usesModernDestination(modern)
                     ? WorldFolderResolver.modernFolder(worldName) : WorldFolderResolver.legacyFolder(worldName);
             blueprint.copyTo(destination, environment, modern, listener);
+            WorldBlueprint.LevelBorder border = blueprint.levelBorder();
+            if (border == null) pendingBorders.remove(worldName);
+            else pendingBorders.put(worldName, border);
             return destination;
         } finally {
             blueprintLock.readLock().unlock();
@@ -140,6 +157,8 @@ public final class WorldBlueprints {
         private boolean modern;
         private int dataVersion;
         private WorldBlueprint blueprint;
+        // Read before the conversion replaces level.dat, so the converted blueprint keeps the author's border.
+        private WorldBlueprint.LevelBorder border;
         private Path converted;
         private volatile boolean worldStillLoaded;
 
@@ -181,6 +200,7 @@ public final class WorldBlueprints {
                 blueprint = WorldBlueprint.inspect(root, environment);
                 // An earlier conversion or an import may have made the blueprint current since it was queued.
                 if (!blueprint.needsConversion(modern, dataVersion)) return false;
+                border = blueprint.levelBorder();
                 blueprint.copyForConversion(WorldFolderResolver.legacyFolder(worldName));
                 return true;
             } finally {
@@ -194,6 +214,7 @@ public final class WorldBlueprints {
                 World world = Bukkit.createWorld(new WorldCreator(worldName)
                         .environment(environment).generator(TemporaryWorldManager.voidGenerator()));
                 if (world == null) throw new IOException("the server did not load the conversion world");
+                if (border != null) border.applyTo(world);
                 if (!Bukkit.unloadWorld(world, true)) {
                     worldStillLoaded = true;
                     throw new IOException("the server did not unload the conversion world");

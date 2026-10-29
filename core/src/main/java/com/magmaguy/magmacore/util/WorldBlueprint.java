@@ -2,6 +2,7 @@ package com.magmaguy.magmacore.util;
 
 import com.magmaguy.magmacore.MagmaCore;
 import org.bukkit.World;
+import org.bukkit.WorldBorder;
 
 import java.io.DataInputStream;
 import java.io.IOException;
@@ -9,7 +10,9 @@ import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Stream;
 import java.util.zip.GZIPInputStream;
@@ -32,6 +35,9 @@ public final class WorldBlueprint {
     private static final List<Path> CONVERSION_LEFTOVERS = List.of(
             Path.of("uid.dat"), Path.of("session.lock"), Path.of("level.dat_old"),
             Path.of("data", "paper", "metadata.dat"), Path.of("data", "paper", "metadata.dat_old"));
+    private static final Set<String> BORDER_FIELDS = Set.of("BorderCenterX", "BorderCenterZ", "BorderSize",
+            "BorderDamagePerBlock", "BorderSafeZone", "BorderWarningBlocks", "BorderWarningTime");
+    private static final double DEFAULT_BORDER_SIZE = 5.9999968E7;
     private final Path root;
     private final Path terrain;
     private final Layout layout;
@@ -154,6 +160,67 @@ public final class WorldBlueprint {
         } catch (IOException | RuntimeException unreadable) {
             return -1;
         }
+    }
+
+    /**
+     * The world border level.dat sets, which is the border the blueprint's author saw. From Minecraft 1.21.9 servers
+     * keep the border per dimension and convert level.dat's into it, and some of those conversions divide a nether
+     * world's center by the nether's coordinate scale, which moves the border off the map.
+     *
+     * @return the border, or null when level.dat sets none (newer saves keep it elsewhere) or cannot be read
+     */
+    public LevelBorder levelBorder() {
+        Path file = root.resolve("level.dat");
+        if (!Files.isRegularFile(file)) file = root.resolve("level.dat_old");
+        if (!Files.isRegularFile(file)) return null;
+        Map<String, Double> fields;
+        try (DataInputStream input = new DataInputStream(new GZIPInputStream(Files.newInputStream(file)))) {
+            fields = readLevelDoubles(input, BORDER_FIELDS);
+        } catch (IOException | RuntimeException unreadable) {
+            return null;
+        }
+        Double size = fields.get("BorderSize"), centerX = fields.get("BorderCenterX"), centerZ = fields.get("BorderCenterZ");
+        if (size == null || centerX == null || centerZ == null) return null;
+        // Vanilla's default border is no border at all.
+        if (size >= DEFAULT_BORDER_SIZE && centerX == 0 && centerZ == 0) return null;
+        return new LevelBorder(centerX, centerZ, size, fields.getOrDefault("BorderDamagePerBlock", 0.2),
+                fields.getOrDefault("BorderSafeZone", 5.0), fields.getOrDefault("BorderWarningBlocks", 5.0),
+                fields.getOrDefault("BorderWarningTime", 15.0));
+    }
+
+    /** A world border as level.dat stores it. */
+    public record LevelBorder(double centerX, double centerZ, double size, double damagePerBlock, double safeZone,
+                              double warningBlocks, double warningTime) {
+        public void applyTo(World world) {
+            WorldBorder border = world.getWorldBorder();
+            border.setCenter(centerX, centerZ);
+            border.setSize(size);
+            border.setDamageAmount(damagePerBlock);
+            border.setDamageBuffer(safeZone);
+            border.setWarningDistance((int) warningBlocks);
+            border.setWarningTime((int) warningTime);
+        }
+    }
+
+    // Collects the named double fields of level.dat's Data compound.
+    private static Map<String, Double> readLevelDoubles(DataInputStream input, Set<String> names) throws IOException {
+        Map<String, Double> values = new HashMap<>();
+        if (input.readByte() != 10) return values;
+        input.readUTF();
+        for (byte type = input.readByte(); type != 0; type = input.readByte()) {
+            String name = input.readUTF();
+            if (type != 10 || !name.equals("Data")) {
+                skipTag(input, type);
+                continue;
+            }
+            for (byte field = input.readByte(); field != 0; field = input.readByte()) {
+                String key = input.readUTF();
+                if (field == 6 && names.contains(key)) values.put(key, input.readDouble());
+                else skipTag(input, field);
+            }
+            return values;
+        }
+        return values;
     }
 
     // level.dat is a gzipped NBT compound; its Data compound records the DataVersion that saved it.
