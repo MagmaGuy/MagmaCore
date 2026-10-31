@@ -51,6 +51,14 @@ public class ScriptInstance {
     private LivingEntity currentEventActor = null;
     private LivingEntity currentDirectTarget = null;
 
+    // Death phase (see retire). Hosts that never retire keep all of these at their defaults.
+    private boolean retiring = false;
+    private Integer retirementCapTaskId = null;
+    // True while code runs whose newly scheduled tasks outlive the owner: an owner-marked hook
+    // call, or the body of a task that itself outlives the owner.
+    private boolean schedulingSurvivors = false;
+    private int ownedTaskDepth = 0;
+
     public ScriptInstance(ScriptDefinition definition, ScriptableEntity entity) {
         this.definition = definition;
         this.entity = entity;
@@ -58,6 +66,11 @@ public class ScriptInstance {
 
     public boolean isClosed() {
         return closed;
+    }
+
+    /** True between {@link #retire} and the final shutdown. */
+    public boolean isRetiring() {
+        return retiring && !closed;
     }
 
     /** Allows a single-input host to release an idle activation without counting its own lifetime guard. */
@@ -122,44 +135,69 @@ public class ScriptInstance {
 
     /** Schedule a one-shot owned Java task; auto-cancelled on shutdown. Returns its id. */
     public int ownLater(int ticks, Runnable runnable) {
+        return ownLater(ticks, runnable, false);
+    }
+
+    /**
+     * Schedule a one-shot owned Java task. With {@code outlivesOwner}, the task keeps running
+     * through {@link #retire}; otherwise retirement cancels it. Shutdown always cancels it.
+     */
+    public int ownLater(int ticks, Runnable runnable, boolean outlivesOwner) {
         requireOpen();
+        boolean survives = survivesRetirement(outlivesOwner);
         JavaPlugin plugin = MagmaCore.getInstance().getRequestingPlugin();
         int[] holder = new int[1];
         BukkitTask task = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
             if (paused) return;
             Bukkit.getScheduler().cancelTask(holder[0]);
             ownedTasks.remove(holder[0]);
-            runnable.run();
+            runOwnedTask(survives, runnable);
         }, ticks, 1L);
         holder[0] = task.getTaskId();
-        ownedTasks.put(holder[0], () -> Bukkit.getScheduler().cancelTask(holder[0]));
+        ownedTasks.put(holder[0], new OwnedTask(() -> Bukkit.getScheduler().cancelTask(holder[0]), survives));
         return holder[0];
     }
 
     /** Schedule a repeating owned Java task; auto-cancelled on shutdown. Returns its id. */
     public int ownRepeating(int delayTicks, int intervalTicks, Runnable runnable) {
+        return ownRepeating(delayTicks, intervalTicks, runnable, false);
+    }
+
+    /** Repeating variant of {@link #ownLater(int, Runnable, boolean)}. */
+    public int ownRepeating(int delayTicks, int intervalTicks, Runnable runnable, boolean outlivesOwner) {
         requireOpen();
+        boolean survives = survivesRetirement(outlivesOwner);
         JavaPlugin plugin = MagmaCore.getInstance().getRequestingPlugin();
         BukkitTask task = Bukkit.getScheduler().runTaskTimer(
                 plugin,
                 () -> {
-                    if (!paused) runnable.run();
+                    if (!paused) runOwnedTask(survives, runnable);
                 },
                 delayTicks,
                 intervalTicks);
         int id = task.getTaskId();
-        ownedTasks.put(id, () -> Bukkit.getScheduler().cancelTask(id));
+        ownedTasks.put(id, new OwnedTask(() -> Bukkit.getScheduler().cancelTask(id), survives));
         return id;
     }
 
     /** Schedule a one-shot owned Lua callback, invoked with a fresh context table. */
     public int ownLuaLater(int ticks, LuaFunction callback) {
-        return ownLaterTask(ticks, callback);
+        return ownLaterTask(ticks, callback, false);
+    }
+
+    /** One-shot owned Lua callback that, with {@code outlivesOwner}, keeps running through {@link #retire}. */
+    public int ownLuaLater(int ticks, LuaFunction callback, boolean outlivesOwner) {
+        return ownLaterTask(ticks, callback, outlivesOwner);
     }
 
     /** Schedule a repeating owned Lua callback, each invoked with a fresh context table. */
     public int ownLuaRepeating(int delayTicks, int intervalTicks, LuaFunction callback) {
-        return ownRepeatingTask(delayTicks, intervalTicks, callback);
+        return ownRepeatingTask(delayTicks, intervalTicks, callback, false);
+    }
+
+    /** Repeating owned Lua callback that, with {@code outlivesOwner}, keeps running through {@link #retire}. */
+    public int ownLuaRepeating(int delayTicks, int intervalTicks, LuaFunction callback, boolean outlivesOwner) {
+        return ownRepeatingTask(delayTicks, intervalTicks, callback, outlivesOwner);
     }
 
     /** Cancel an owned task by id. */
@@ -187,7 +225,19 @@ public class ScriptInstance {
      */
     public void handleEvent(ScriptHook hook, Event event,
                             LivingEntity directTarget, LivingEntity eventActor) {
-        invokeHook(hook, event, directTarget, eventActor);
+        invokeHook(hook, event, directTarget, eventActor, false);
+    }
+
+    /**
+     * Same as {@link #handleEvent(ScriptHook, Event, LivingEntity, LivingEntity)}. With
+     * {@code tasksOutliveOwner}, every task this hook call schedules outlives {@link #retire},
+     * and so does every task those tasks' callbacks schedule. Owners use this for the hook that
+     * announces their own end (for example a boss's on_death).
+     */
+    public void handleEvent(ScriptHook hook, Event event,
+                            LivingEntity directTarget, LivingEntity eventActor,
+                            boolean tasksOutliveOwner) {
+        invokeHook(hook, event, directTarget, eventActor, tasksOutliveOwner);
     }
 
     /**
@@ -202,7 +252,7 @@ public class ScriptInstance {
             Event event,
             LivingEntity directTarget,
             LivingEntity eventActor) {
-        HookInvocation invocation = invokeHook(hook, event, directTarget, eventActor);
+        HookInvocation invocation = invokeHook(hook, event, directTarget, eventActor, false);
         if (invocation.kind() == HookInvocationKind.UNHANDLED) {
             return ScriptQueryResult.unhandled();
         }
@@ -229,14 +279,17 @@ public class ScriptInstance {
             ScriptHook hook,
             Event event,
             LivingEntity directTarget,
-            LivingEntity eventActor) {
-        if (closed || paused || hook == null || !definition.supportsHook(hook)) {
+            LivingEntity eventActor,
+            boolean tasksOutliveOwner) {
+        // A retiring owner no longer receives hooks; only its surviving tasks still run.
+        if (closed || retiring || paused || hook == null || !definition.supportsHook(hook)) {
             return HookInvocation.unhandled();
         }
 
         Event previousEvent = currentEvent;
         LivingEntity previousEventActor = currentEventActor;
         LivingEntity previousDirectTarget = currentDirectTarget;
+        boolean previousSchedulingSurvivors = schedulingSurvivors;
         try {
             ensureScriptTable();
             LuaValue function = scriptTable.get(hook.getKey());
@@ -245,6 +298,7 @@ public class ScriptInstance {
             currentEvent = event;
             currentEventActor = eventActor;
             currentDirectTarget = directTarget;
+            schedulingSurvivors = tasksOutliveOwner;
             LuaValue result = LuaExecutionBudget.run(() ->
                     function.checkfunction().call(buildContext(event, directTarget, eventActor)));
             return HookInvocation.handled(result);
@@ -256,6 +310,7 @@ public class ScriptInstance {
             currentEvent = previousEvent;
             currentEventActor = previousEventActor;
             currentDirectTarget = previousDirectTarget;
+            schedulingSurvivors = previousSchedulingSurvivors;
         }
     }
 
@@ -263,7 +318,7 @@ public class ScriptInstance {
      * Called each server tick when ON_TICK is supported.
      */
     public void onTick() {
-        if (closed || paused) return;
+        if (closed || retiring || paused) return;
         if (!entity.isScriptOwnerActive()) {
             shutdown();
             return;
@@ -288,6 +343,11 @@ public class ScriptInstance {
             Bukkit.getScheduler().cancelTask(tickTaskId);
             tickTaskId = null;
         }
+        // Only set by retire(); null for every instance that never entered the death phase.
+        if (retirementCapTaskId != null) {
+            Bukkit.getScheduler().cancelTask(retirementCapTaskId);
+            retirementCapTaskId = null;
+        }
 
         for (OwnedTask task : new ArrayList<>(ownedTasks.values())) {
             task.cancel();
@@ -304,6 +364,60 @@ public class ScriptInstance {
             catch (RuntimeException failure) { logLuaError("owned cleanup", failure); }
         }
         entity.onShutdown();
+    }
+
+    /**
+     * Opt-in death phase for owners whose script may finish work after the owner itself ends
+     * (an EliteMobs boss dying). Hosts that never call this keep {@link #shutdown()} unchanged.
+     *
+     * <p>Retiring stops the tick task, hook dispatch and zone watches, cancels every owned task
+     * that does not outlive the owner, and clears any pause. Owned tasks that outlive the owner
+     * keep running, and callbacks still run through {@link #invokeOwnedCallback}. The full
+     * {@link #shutdown()}, with its owned cleanups, follows when the last surviving task ends,
+     * when {@code maxTicks} pass, or when the host calls it. If nothing survives, it happens now.
+     *
+     * @param maxTicks    hard limit on the death phase, in ticks
+     * @param onCapReached runs once, before the shutdown, if the limit cuts surviving tasks; may be null
+     * @return true when the instance stays in the death phase, false when it is already shut down
+     */
+    public boolean retire(int maxTicks, Runnable onCapReached) {
+        if (closed) return false;
+        if (retiring) return true;
+        retiring = true;
+        paused = false;
+
+        if (tickTaskId != null) {
+            Bukkit.getScheduler().cancelTask(tickTaskId);
+            tickTaskId = null;
+        }
+        for (ScriptZone zone : zoneWatches.values()) {
+            zone.shutdown();
+        }
+        zoneWatches.clear();
+
+        Iterator<OwnedTask> tasks = ownedTasks.values().iterator();
+        while (tasks.hasNext()) {
+            OwnedTask task = tasks.next();
+            if (task.outlivesOwner()) continue;
+            tasks.remove();
+            task.cancel();
+        }
+
+        if (ownedTasks.isEmpty() || maxTicks <= 0) {
+            shutdown();
+            return false;
+        }
+        JavaPlugin plugin = MagmaCore.getInstance().getRequestingPlugin();
+        retirementCapTaskId = Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            retirementCapTaskId = null;
+            if (closed) return;
+            if (onCapReached != null) {
+                try { onCapReached.run(); }
+                catch (RuntimeException failure) { logLuaError("death phase limit", failure); }
+            }
+            shutdown();
+        }, maxTicks).getTaskId();
+        return true;
     }
 
     // ── Lazy VM creation ─────────────────────────────────────────────────
@@ -410,13 +524,13 @@ public class ScriptInstance {
         scheduler.set("run_later", method(scheduler, args -> {
             int ticks = args.checkint(1);
             LuaFunction callback = args.checkfunction(2);
-            return LuaValue.valueOf(ownLaterTask(ticks, callback));
+            return LuaValue.valueOf(ownLaterTask(ticks, callback, false));
         }));
         scheduler.set("run_repeating", method(scheduler, args -> {
             int delay = args.checkint(1);
             int interval = args.checkint(2);
             LuaFunction callback = args.checkfunction(3);
-            return LuaValue.valueOf(ownRepeatingTask(delay, interval, callback));
+            return LuaValue.valueOf(ownRepeatingTask(delay, interval, callback, false));
         }));
         scheduler.set("cancel", method(scheduler, args -> {
             cancelOwnedTask(args.checkint(1));
@@ -428,12 +542,12 @@ public class ScriptInstance {
         scheduler.set("run_after", method(scheduler, args -> {
             int ticks = args.checkint(1);
             LuaFunction callback = args.checkfunction(2);
-            return LuaValue.valueOf(ownLaterTask(ticks, callback));
+            return LuaValue.valueOf(ownLaterTask(ticks, callback, false));
         }));
         scheduler.set("run_every", method(scheduler, args -> {
             int interval = args.checkint(1);
             LuaFunction callback = args.checkfunction(2);
-            return LuaValue.valueOf(ownRepeatingTask(0, interval, callback));
+            return LuaValue.valueOf(ownRepeatingTask(0, interval, callback, false));
         }));
         scheduler.set("cancel_task", method(scheduler, args -> {
             cancelOwnedTask(args.checkint(1));
@@ -533,6 +647,7 @@ public class ScriptInstance {
 
     private void updateTickRegistration() {
         boolean shouldTick = !closed
+                && !retiring
                 && entity.isScriptOwnerActive()
                 && (definition.supportsHook(ScriptHook.ON_TICK) || !zoneWatches.isEmpty());
         if (shouldTick && tickTaskId == null) {
@@ -545,34 +660,67 @@ public class ScriptInstance {
         }
     }
 
-    private int ownLaterTask(int ticks, LuaFunction callback) {
+    private int ownLaterTask(int ticks, LuaFunction callback, boolean outlivesOwner) {
         requireOpen();
+        boolean survives = survivesRetirement(outlivesOwner);
         JavaPlugin plugin = MagmaCore.getInstance().getRequestingPlugin();
         int[] taskIdHolder = new int[1];
         BukkitTask task = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
             if (paused) return;
             Bukkit.getScheduler().cancelTask(taskIdHolder[0]);
             ownedTasks.remove(taskIdHolder[0]);
-            runCallback(callback);
+            runOwnedTask(survives, () -> runCallback(callback));
         }, ticks, 1L);
         taskIdHolder[0] = task.getTaskId();
-        ownedTasks.put(taskIdHolder[0], () -> Bukkit.getScheduler().cancelTask(taskIdHolder[0]));
+        ownedTasks.put(taskIdHolder[0],
+                new OwnedTask(() -> Bukkit.getScheduler().cancelTask(taskIdHolder[0]), survives));
         return taskIdHolder[0];
     }
 
-    private int ownRepeatingTask(int delay, int interval, LuaFunction callback) {
+    private int ownRepeatingTask(int delay, int interval, LuaFunction callback, boolean outlivesOwner) {
         requireOpen();
+        boolean survives = survivesRetirement(outlivesOwner);
         JavaPlugin plugin = MagmaCore.getInstance().getRequestingPlugin();
         BukkitTask task = Bukkit.getScheduler().runTaskTimer(
                 plugin,
                 () -> {
-                    if (!paused) runCallback(callback);
+                    if (!paused) runOwnedTask(survives, () -> runCallback(callback));
                 },
                 delay,
                 interval);
         int taskId = task.getTaskId();
-        ownedTasks.put(taskId, () -> Bukkit.getScheduler().cancelTask(taskId));
+        ownedTasks.put(taskId, new OwnedTask(() -> Bukkit.getScheduler().cancelTask(taskId), survives));
         return taskId;
+    }
+
+    /**
+     * A task outlives the owner when asked to, when it is scheduled from code that does (an
+     * owner-marked hook call or a surviving task's body), or when the owner is already retiring.
+     */
+    private boolean survivesRetirement(boolean outlivesOwner) {
+        return outlivesOwner || schedulingSurvivors || retiring;
+    }
+
+    /**
+     * Runs one owned task body. Tasks it schedules inherit its survival, and once the body
+     * returns, a retiring instance whose last surviving task has ended shuts down.
+     */
+    private void runOwnedTask(boolean survives, Runnable body) {
+        boolean previousSchedulingSurvivors = schedulingSurvivors;
+        schedulingSurvivors = survives;
+        ownedTaskDepth++;
+        try {
+            body.run();
+        } finally {
+            ownedTaskDepth--;
+            schedulingSurvivors = previousSchedulingSurvivors;
+            if (ownedTaskDepth == 0) finishRetirementIfIdle();
+        }
+    }
+
+    private void finishRetirementIfIdle() {
+        if (!retiring || closed || !ownedTasks.isEmpty()) return;
+        shutdown();
     }
 
     private void requireOpen() {
@@ -584,6 +732,9 @@ public class ScriptInstance {
         if (task != null) {
             task.cancel();
         }
+        // Inside a task body the check waits until the body returns, so a callback that cancels
+        // its own task can still schedule a follow-up.
+        if (ownedTaskDepth == 0) finishRetirementIfIdle();
     }
 
     private void runCallback(LuaFunction callback) {
@@ -810,8 +961,9 @@ public class ScriptInstance {
         }
     }
 
-    @FunctionalInterface
-    private interface OwnedTask {
-        void cancel();
+    private record OwnedTask(Runnable canceller, boolean outlivesOwner) {
+        void cancel() {
+            canceller.run();
+        }
     }
 }
