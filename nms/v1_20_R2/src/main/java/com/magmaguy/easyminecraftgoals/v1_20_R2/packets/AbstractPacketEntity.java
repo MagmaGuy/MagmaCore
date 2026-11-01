@@ -2,6 +2,7 @@ package com.magmaguy.easyminecraftgoals.v1_20_R2.packets;
 
 import com.google.common.collect.Sets;
 import com.magmaguy.easyminecraftgoals.internal.PacketEntityInterface;
+import com.magmaguy.easyminecraftgoals.internal.ViewerPlayers;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.*;
 import net.minecraft.network.syncher.SynchedEntityData;
@@ -23,15 +24,11 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
     private final List<Runnable> removeCallbacks = new LinkedList<>();
     protected boolean visible = true;
 
+    // Updates queue a packet for the viewers every tick; the list is only rebuilt when a viewer changes.
+    private final ViewerPlayers viewerPlayers = new ViewerPlayers();
+
     public List<Player> getViewersAsPlayers() {
-        List<Player> players = new ArrayList<>();
-        for (UUID viewer : viewers) {
-            Player player = Bukkit.getPlayer(viewer);
-            if (player != null) {
-                players.add(player);
-            }
-        }
-        return players;
+        return viewerPlayers.of(viewers);
     }
 
     @Override

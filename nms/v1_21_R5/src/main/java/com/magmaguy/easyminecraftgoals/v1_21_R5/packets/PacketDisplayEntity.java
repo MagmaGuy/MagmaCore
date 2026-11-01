@@ -169,12 +169,11 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
                 Math.toDegrees(eulerAngle.getY()),
                 Math.toDegrees(eulerAngle.getZ()));
 
-        Transformation transformation = getTransformation();
-        transformation = new Transformation(
+        Transformation transformation = new Transformation(
                 new Vector3f(0, 0, 0),  // keep translation out of the transformation
                 quaternionf,
                 new Vector3f(scaleX, scaleY, scaleZ),
-                transformation.getRightRotation()
+                keptRightRotation()
         );
 
         entity.setTransformation(transformation);
@@ -201,9 +200,9 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
     public void generateRiddenTransformationPackets(AbstractPacketBundle packetBundle, Location seat, Vector3f translation,
                                                     EulerAngle eulerAngle, float scaleX, float scaleY, float scaleZ,
                                                     int interpolationTicks) {
-        // Viewers put this passenger at the seat themselves; the server copy only spawns there.
-        if (entity.getX() != seat.getX() || entity.getY() != seat.getY() || entity.getZ() != seat.getZ())
-            entity.setPos(seat.getX(), seat.getY(), seat.getZ());
+        // Viewers put this passenger at the seat themselves; the server copy only spawns there, so it takes the seat
+        // once a new viewer's spawn packet, or anything else, reads its position.
+        deferPosition(seat.getX(), seat.getY(), seat.getZ());
         entity.setTransformation(new Transformation(
                 translation,
                 eulerToQuaternion(
@@ -211,7 +210,7 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
                         Math.toDegrees(eulerAngle.getY()),
                         Math.toDegrees(eulerAngle.getZ())),
                 new Vector3f(scaleX, scaleY, scaleZ),
-                getTransformation().getRightRotation()));
+                keptRightRotation()));
         entity.setTransformationInterpolationDuration(interpolationTicks);
         if (interpolationTicks > 0) {
             // Each pose restarts the glide from what the viewer shows now; see setTransformation.
@@ -301,6 +300,11 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
                 transformation.getScale(),
                 rotation);
         setTransformation(newTransformation);
+    }
+
+    /** The right rotation the entity data holds, read through one transformation instead of two. */
+    private Quaternionf keptRightRotation() {
+        return Display.createTransformation(this.entity.getEntityData()).getRightRotation();
     }
 
     public Transformation getTransformation() {

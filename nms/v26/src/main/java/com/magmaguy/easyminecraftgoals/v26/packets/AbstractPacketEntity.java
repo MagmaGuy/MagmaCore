@@ -3,6 +3,7 @@ package com.magmaguy.easyminecraftgoals.v26.packets;
 import com.google.common.collect.Sets;
 import com.magmaguy.easyminecraftgoals.internal.AbstractPacketBundle;
 import com.magmaguy.easyminecraftgoals.internal.PacketEntityInterface;
+import com.magmaguy.easyminecraftgoals.internal.ViewerPlayers;
 import com.magmaguy.easyminecraftgoals.internal.PacketPassengerRegistry;
 import com.magmaguy.easyminecraftgoals.v26.CraftBukkitBridge;
 import net.minecraft.network.protocol.Packet;
@@ -40,15 +41,38 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
         EntityID = entity.getId();
     }
 
+    // Updates queue a packet for the viewers every tick; the list is only rebuilt when a viewer changes.
+    private final ViewerPlayers viewerPlayers = new ViewerPlayers();
+
     public List<Player> getViewersAsPlayers() {
-        List<Player> players = new ArrayList<>(viewers.size());
-        for (UUID viewer : viewers) {
-            Player player = Bukkit.getPlayer(viewer);
-            if (player != null) {
-                players.add(player);
-            }
+        return viewerPlayers.of(viewers);
+    }
+
+    // A ridden display defers moving its server copy to the seat until something reads or replaces the copy's
+    // position: viewers place it themselves, and the move rebuilds its boxes every pose. See deferPosition.
+    private final Object deferredPositionLock = new Object();
+    private volatile boolean positionDeferred;
+    private double deferredX, deferredY, deferredZ;
+
+    /** Moves the server copy here once something reads or replaces its position, instead of now. */
+    protected final void deferPosition(double x, double y, double z) {
+        synchronized (deferredPositionLock) {
+            deferredX = x;
+            deferredY = y;
+            deferredZ = z;
+            positionDeferred = true;
         }
-        return players;
+    }
+
+    /** Puts a deferred position on the server copy; runs before anything reads or replaces the copy's position. */
+    protected final void applyDeferredPosition() {
+        if (!positionDeferred) return;
+        synchronized (deferredPositionLock) {
+            if (!positionDeferred) return;
+            positionDeferred = false;
+            if (entity.getX() != deferredX || entity.getY() != deferredY || entity.getZ() != deferredZ)
+                entity.setPos(deferredX, deferredY, deferredZ);
+        }
     }
 
     @Override
@@ -97,6 +121,7 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
     }
 
     public Location getLocation() {
+        applyDeferredPosition();
         return new Location(CraftBukkitBridge.getBukkitWorld(entity.level()), entity.getX(), entity.getY(), entity.getZ(), entity.getYRot(), entity.getXRot());
     }
 
@@ -186,6 +211,7 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
 
     // Display to specific player - Already correct, but cleaned up
     public void displayTo(Player player) {
+        applyDeferredPosition();
         if (viewers.contains(player.getUniqueId())) {
             return;
         }
@@ -223,6 +249,7 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
 
         viewers.add(player.getUniqueId());
         List<Player> playerOnly = List.of(player);
+        applyDeferredPosition();
         packetBundle.addPacket(new ClientboundAddEntityPacket(
                 EntityID,
                 entity.getUUID(),
@@ -253,6 +280,7 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
 
     //Teleports - affects all viewers
     public void teleport(Location location) {
+        applyDeferredPosition();
         entity.teleportTo(location.getX(), location.getY(), location.getZ());
         applyRotation(location);
         sendTeleportPacket();
@@ -280,6 +308,7 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
     }
 
     protected Packet<?> generateTeleportPacket() {
+        applyDeferredPosition();
         // Use ClientboundEntityPositionSyncPacket on 1.21.2+ — Mojang renamed
         // ClientboundTeleportEntityPacket in 24w40a/1.21.2 and Geyser only translates
         // the new one for Bedrock viewers. v26 targets MC 26.1, so the legacy packet
@@ -316,6 +345,7 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
     }
 
     public Packet<?> generateMovePacket(Location location) {
+        applyDeferredPosition();
         // Display.setPos rebuilds bounding/culling boxes even when only rotation
         // changed. Width/height changes refresh display culling independently.
         // Keep other entity types' position-update side effects unchanged.

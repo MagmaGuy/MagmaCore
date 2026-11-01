@@ -5,6 +5,7 @@ import com.magmaguy.easyminecraftgoals.internal.PacketModelEntity;
 import com.magmaguy.easyminecraftgoals.v26.CraftBukkitBridge;
 import com.mojang.math.Transformation;
 import net.minecraft.network.syncher.EntityDataAccessor;
+import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.world.entity.Display;
 import org.bukkit.*;
 import org.bukkit.entity.Player;
@@ -23,18 +24,22 @@ import java.util.UUID;
 
 
 public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDisplay> implements PacketModelEntity {
-    private static final EntityDataAccessor<Quaternionfc> RIGHT_ROTATION = resolveRightRotationAccessor();
+    // The transformation's parts in the entity data, read and set one by one so no unused matrix is composed.
+    private static final EntityDataAccessor<Vector3fc> TRANSLATION = displayAccessor("DATA_TRANSLATION_ID");
+    private static final EntityDataAccessor<Quaternionfc> LEFT_ROTATION = displayAccessor("DATA_LEFT_ROTATION_ID");
+    private static final EntityDataAccessor<Vector3fc> SCALE = displayAccessor("DATA_SCALE_ID");
+    private static final EntityDataAccessor<Quaternionfc> RIGHT_ROTATION = displayAccessor("DATA_RIGHT_ROTATION_ID");
+    private static final Vector3fc NO_TRANSLATION = new Vector3f();
 
     @SuppressWarnings("unchecked")
-    private static EntityDataAccessor<Quaternionfc> resolveRightRotationAccessor() {
+    private static <T> EntityDataAccessor<T> displayAccessor(String name) {
         try {
-            // 26.x uses Mojang field names on both Paper and Spigot. Resolve once;
-            // reading this component must not compose an otherwise unused matrix.
-            Field field = Display.class.getDeclaredField("DATA_RIGHT_ROTATION_ID");
+            // 26.x uses Mojang field names on both Paper and Spigot. Resolve once.
+            Field field = Display.class.getDeclaredField(name);
             field.setAccessible(true);
-            return (EntityDataAccessor<Quaternionfc>) field.get(null);
+            return (EntityDataAccessor<T>) field.get(null);
         } catch (ReflectiveOperationException failure) {
-            throw new IllegalStateException("Unable to access the display right rotation", failure);
+            throw new IllegalStateException("Unable to access the display entity data " + name, failure);
         }
     }
 
@@ -61,6 +66,51 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
         double z = cr * cp * sy - sr * sp * cy;
 
         return new Quaternionf(x, y, z, w);
+    }
+
+    /**
+     * Gives the entity data the translation, left rotation (XYZ Euler angles in radians, as
+     * {@link #eulerToQuaternion}) and scale that {@code Display.setTransformation} would, keeping the right rotation,
+     * without composing the matrix the server copy never reads. The entity data keeps the object it is handed and
+     * marks a part changed only when it differs from the kept one, so a new object is made only for a part that
+     * changed and the same values go out as before.
+     */
+    private void setPose(Vector3fc translation, double rotationX, double rotationY, double rotationZ,
+                         float scaleX, float scaleY, float scaleZ) {
+        SynchedEntityData data = entity.getEntityData();
+        if (!sameVector(data.get(TRANSLATION), translation.x(), translation.y(), translation.z()))
+            data.set(TRANSLATION, new Vector3f(translation));
+
+        double cy = Math.cos(rotationZ * 0.5);
+        double sy = Math.sin(rotationZ * 0.5);
+        double cp = Math.cos(rotationY * 0.5);
+        double sp = Math.sin(rotationY * 0.5);
+        double cr = Math.cos(rotationX * 0.5);
+        double sr = Math.sin(rotationX * 0.5);
+        float w = (float) (cr * cp * cy + sr * sp * sy);
+        float x = (float) (sr * cp * cy - cr * sp * sy);
+        float y = (float) (cr * sp * cy + sr * cp * sy);
+        float z = (float) (cr * cp * sy - sr * sp * cy);
+        if (!sameQuaternion(data.get(LEFT_ROTATION), x, y, z, w)) data.set(LEFT_ROTATION, new Quaternionf(x, y, z, w));
+
+        if (!sameVector(data.get(SCALE), scaleX, scaleY, scaleZ))
+            data.set(SCALE, new Vector3f(scaleX, scaleY, scaleZ));
+    }
+
+    // As Vector3f.equals and Quaternionf.equals decide: the same class and bit-identical components.
+    private static boolean sameVector(Vector3fc kept, float x, float y, float z) {
+        return kept != null && kept.getClass() == Vector3f.class
+                && Float.floatToIntBits(kept.x()) == Float.floatToIntBits(x)
+                && Float.floatToIntBits(kept.y()) == Float.floatToIntBits(y)
+                && Float.floatToIntBits(kept.z()) == Float.floatToIntBits(z);
+    }
+
+    private static boolean sameQuaternion(Quaternionfc kept, float x, float y, float z, float w) {
+        return kept != null && kept.getClass() == Quaternionf.class
+                && Float.floatToIntBits(kept.w()) == Float.floatToIntBits(w)
+                && Float.floatToIntBits(kept.x()) == Float.floatToIntBits(x)
+                && Float.floatToIntBits(kept.y()) == Float.floatToIntBits(y)
+                && Float.floatToIntBits(kept.z()) == Float.floatToIntBits(z);
     }
 
     @Override
@@ -162,18 +212,8 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
         List<Player> updateViewers = getViewersAsPlayers();
         packetBundle.addPacket(generateMovePacket(location), updateViewers);
 
-        // Always update transformation for rotation/scale
-        Quaternionf quaternionf = eulerToQuaternion(
-                eulerAngle.getX(), eulerAngle.getY(), eulerAngle.getZ());
-
-        Transformation transformation = new Transformation(
-                new Vector3f(0, 0, 0),  // keep translation out of the transformation
-                quaternionf,
-                new Vector3f(scaleX, scaleY, scaleZ),
-                entity.getEntityData().get(RIGHT_ROTATION)
-        );
-
-        entity.setTransformation(transformation);
+        // Always update transformation for rotation/scale; the translation stays out of it.
+        setPose(NO_TRANSLATION, eulerAngle.getX(), eulerAngle.getY(), eulerAngle.getZ(), scaleX, scaleY, scaleZ);
         // A ridden pass may have left viewers interpolating; free poses snap like before.
         if (entity.getTransformationInterpolationDuration() != 0) entity.setTransformationInterpolationDuration(0);
 
@@ -202,14 +242,10 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
     public void generateRiddenTransformationPackets(AbstractPacketBundle packetBundle, Location seat, Vector3f translation,
                                                     EulerAngle eulerAngle, float scaleX, float scaleY, float scaleZ,
                                                     int interpolationTicks) {
-        // Viewers put this passenger at the seat themselves; the server copy only spawns there.
-        if (entity.getX() != seat.getX() || entity.getY() != seat.getY() || entity.getZ() != seat.getZ())
-            entity.setPos(seat.getX(), seat.getY(), seat.getZ());
-        entity.setTransformation(new Transformation(
-                translation,
-                eulerToQuaternion(eulerAngle.getX(), eulerAngle.getY(), eulerAngle.getZ()),
-                new Vector3f(scaleX, scaleY, scaleZ),
-                entity.getEntityData().get(RIGHT_ROTATION)));
+        // Viewers put this passenger at the seat themselves; the server copy only spawns there, so it takes the seat
+        // once a new viewer's spawn packet, or anything else, reads its position.
+        deferPosition(seat.getX(), seat.getY(), seat.getZ());
+        setPose(translation, eulerAngle.getX(), eulerAngle.getY(), eulerAngle.getZ(), scaleX, scaleY, scaleZ);
         entity.setTransformationInterpolationDuration(interpolationTicks);
         if (interpolationTicks > 0) {
             // Each pose restarts the glide from what the viewer shows now; see setTransformation.
