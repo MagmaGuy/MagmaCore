@@ -115,8 +115,10 @@ public final class OutdatedConfigurationArchive {
             Path storage = data.getParent().resolve("MagmaCore").resolve(DIRECTORY);
             List<Path> archived = archive(data, storage, rules, plugin.getLogger()::warning);
             if (!archived.isEmpty()) plugin.getLogger().warning("Archived " + archived.size()
-                    + " outdated configuration file(s) to " + storage.resolve(data.getFileName())
-                    + ". Their original contents were preserved. Download updated content to replace retired DLC files.");
+                    + " outdated file(s) to " + storage.resolve(data.getFileName())
+                    + " with their original contents unchanged. " + plugin.getName()
+                    + " writes current copies of its built-in defaults. Files that came with downloaded content"
+                    + " come back when you download that content again.");
         } catch (IOException failure) {
             throw new UncheckedIOException("Cannot safely archive outdated " + plugin.getName() + " configuration", failure);
         }
