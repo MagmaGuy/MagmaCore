@@ -16,9 +16,12 @@ import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -31,6 +34,7 @@ import java.util.LinkedHashSet;
 import java.util.UUID;
 import java.util.IdentityHashMap;
 import java.util.HashSet;
+import java.util.function.Consumer;
 
 /** Preserves whole retired configuration files using the owning plugin's explicit format rules. */
 public final class OutdatedConfigurationArchive {
@@ -109,7 +113,7 @@ public final class OutdatedConfigurationArchive {
             Map<String, Set<Rule>> rules = readRules(readBounded(resource));
             Path data = plugin.getDataFolder().toPath().toAbsolutePath().normalize();
             Path storage = data.getParent().resolve("MagmaCore").resolve(DIRECTORY);
-            List<Path> archived = archive(data, storage, rules);
+            List<Path> archived = archive(data, storage, rules, plugin.getLogger()::warning);
             if (!archived.isEmpty()) plugin.getLogger().warning("Archived " + archived.size()
                     + " outdated configuration file(s) to " + storage.resolve(data.getFileName())
                     + ". Their original contents were preserved. Download updated content to replace retired DLC files.");
@@ -304,6 +308,16 @@ public final class OutdatedConfigurationArchive {
     /** Package-private filesystem seam also used by focused upgrade tests. */
     static List<Path> archive(Path dataDirectory, Path archiveDirectory,
                               Map<String, Set<Rule>> rules) throws IOException {
+        return archive(dataDirectory, archiveDirectory, rules, warning -> { });
+    }
+
+    /**
+     * Files are never archived through a link (symlink or junction). A linked content root, category, folder or file
+     * is skipped with a warning and keeps its files where they are, as before these rules existed; servers do link
+     * shared content folders in. A path that turns into a link between classification and its move still aborts.
+     */
+    static List<Path> archive(Path dataDirectory, Path archiveDirectory,
+                              Map<String, Set<Rule>> rules, Consumer<String> warn) throws IOException {
         Path data = dataDirectory.toAbsolutePath().normalize();
         Path storage = archiveDirectory.toAbsolutePath().normalize();
         if (storage.startsWith(data)) throw new IOException("Archive storage must be outside the content root");
@@ -311,7 +325,12 @@ public final class OutdatedConfigurationArchive {
         // Only reuse path checks within this classification pass. Before moving a
         // retired file, validate its path and contents again against the live filesystem.
         Set<Path> inspectedPaths = new HashSet<>();
-        requireNoLinks(data, inspectedPaths);
+        Path linkedRoot = linkedPath(data, inspectedPaths);
+        if (linkedRoot != null) {
+            warn.accept("Skipped the outdated file check for " + data + " because " + linkedRoot
+                    + " is a link (symlink or junction). No file in it was archived or replaced.");
+            return List.of();
+        }
         Yaml parser = newParser();
         Map<Path, byte[]> matches = new LinkedHashMap<>();
         // Finish classification before any move. Invalid applicable YAML aborts the batch;
@@ -320,7 +339,7 @@ public final class OutdatedConfigurationArchive {
             Path category = data.resolve(rule.getKey()).normalize();
             if (!category.startsWith(data) || category.equals(data)) throw new IOException("Invalid content category");
             if (!Files.exists(category, LinkOption.NOFOLLOW_LINKS)) continue;
-            requireNoLinks(category, inspectedPaths);
+            if (skipLinked(category, inspectedPaths, warn)) continue;
             if ((rule.getKey().endsWith(".yml") || rule.getKey().endsWith(".yaml"))
                     && !Files.isRegularFile(category, LinkOption.NOFOLLOW_LINKS))
                 throw new IOException("Not a regular YAML file: " + category);
@@ -330,36 +349,51 @@ public final class OutdatedConfigurationArchive {
                     .map(LuaSourceRule.class::cast).toList();
             List<Rule> yamlRules = rule.getValue().stream()
                     .filter(selected -> !(selected instanceof LuaScriptRule) && !(selected instanceof LuaSourceRule)).toList();
-            try (var paths = Files.walk(category)) {
-                for (Path path : paths.sorted().toList()) {
-                    requireNoLinks(path, inspectedPaths);
-                    String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
-                    if (Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) continue;
-                    boolean lua = name.endsWith(".lua")
-                            && (!luaRules.isEmpty() || sourceRules.stream().anyMatch(selected -> selected.appliesTo(name)));
-                    boolean yaml = (name.endsWith(".yml") || name.endsWith(".yaml"))
-                            && yamlRules.stream().anyMatch(selected -> selected.appliesTo(name));
-                    if (!lua && !yaml) continue;
-                    if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) throw new IOException("Not a regular configuration file: " + path);
-                    byte[] original;
-                    try (InputStream input = Files.newInputStream(path)) {
-                        original = readBounded(input);
-                    } catch (IOException unreadable) {
-                        if (lua) continue;
-                        throw unreadable;
-                    }
-                    // Classify actual parsed definitions, never comments or text fragments.
-                    if (lua) {
-                        if (sourceRules.stream().anyMatch(selected -> selected.matchesSource(name, original))
-                                || luaRules.stream().anyMatch(selected -> selected.matchesScript(path, original)))
-                            matches.put(path, original);
-                    } else if (matchesYaml(name, original, yamlRules, parser)) {
+            List<Path> files = new ArrayList<>();
+            // A symlink is reported as a file and never followed; a junction shows up as a folder and is not entered.
+            Files.walkFileTree(category, new SimpleFileVisitor<>() {
+                @Override public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes) throws IOException {
+                    return skipLinked(directory, inspectedPaths, warn) ? FileVisitResult.SKIP_SUBTREE : FileVisitResult.CONTINUE;
+                }
+
+                @Override public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
+                    if (!skipLinked(file, inspectedPaths, warn)) files.add(file);
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+            files.sort(null);
+            for (Path path : files) {
+                String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
+                boolean lua = name.endsWith(".lua")
+                        && (!luaRules.isEmpty() || sourceRules.stream().anyMatch(selected -> selected.appliesTo(name)));
+                boolean yaml = (name.endsWith(".yml") || name.endsWith(".yaml"))
+                        && yamlRules.stream().anyMatch(selected -> selected.appliesTo(name));
+                if (!lua && !yaml) continue;
+                if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) throw new IOException("Not a regular configuration file: " + path);
+                byte[] original;
+                try (InputStream input = Files.newInputStream(path)) {
+                    original = readBounded(input);
+                } catch (IOException unreadable) {
+                    if (lua) continue;
+                    throw unreadable;
+                }
+                // Classify actual parsed definitions, never comments or text fragments.
+                if (lua) {
+                    if (sourceRules.stream().anyMatch(selected -> selected.matchesSource(name, original))
+                            || luaRules.stream().anyMatch(selected -> selected.matchesScript(path, original)))
                         matches.put(path, original);
-                    }
+                } else if (matchesYaml(name, original, yamlRules, parser)) {
+                    matches.put(path, original);
                 }
             }
         }
         if (matches.isEmpty()) return List.of();
+        Path linkedStorage = linkedPath(storage, new HashSet<>());
+        if (linkedStorage != null) {
+            warn.accept("Did not archive " + matches.size() + " outdated file(s) from " + data + " because the archive folder "
+                    + linkedStorage + " is a link (symlink or junction). They were left in place.");
+            return List.of();
+        }
         requireNoLinks(storage);
         Files.createDirectories(storage);
         requireNoLinks(storage);
@@ -404,15 +438,31 @@ public final class OutdatedConfigurationArchive {
     }
 
     private static void requireNoLinks(Path path, Set<Path> inspectedPaths) throws IOException {
+        Path linked = linkedPath(path, inspectedPaths);
+        if (linked != null) throw new IOException("Refusing linked or redirected archive/content path: " + linked);
+    }
+
+    /** Warns about and reports a path that is, or sits under, a link. */
+    private static boolean skipLinked(Path path, Set<Path> inspectedPaths, Consumer<String> warn) throws IOException {
+        Path linked = linkedPath(path, inspectedPaths);
+        if (linked == null) return false;
+        warn.accept("Skipped " + linked + " while checking for outdated files: it is a link (symlink or junction), so "
+                + "nothing in it is archived or replaced. Update files there by hand.");
+        return true;
+    }
+
+    /** The path itself or the nearest ancestor that is a symlink or resolves elsewhere (a junction); null if none. */
+    private static Path linkedPath(Path path, Set<Path> inspectedPaths) throws IOException {
         Path absolute = path.toAbsolutePath().normalize();
         for (Path parent = absolute; parent != null; parent = parent.getParent()) {
             if (inspectedPaths.contains(parent)) break;
-            if (Files.isSymbolicLink(parent)) throw new IOException("Refusing linked archive/content path: " + parent);
+            if (Files.isSymbolicLink(parent)) return parent;
             if (Files.exists(parent, LinkOption.NOFOLLOW_LINKS)
                     && !parent.toRealPath().equals(parent))
-                throw new IOException("Refusing redirected archive/content path: " + parent);
+                return parent;
             inspectedPaths.add(parent);
         }
+        return null;
     }
 
     private static byte[] readBounded(InputStream input) throws IOException {

@@ -8,6 +8,7 @@ import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -293,5 +294,90 @@ class OutdatedConfigurationArchiveTest {
                 "enchantments:\n  - {files: [grappling_hook.lua], sha256: []}\n",
                 "config.yml:\n  - {files: [grappling_hook.lua], sha256: [" + hash + "]}\n"))
             assertThrows(IOException.class, () -> OutdatedConfigurationArchive.readRules(rules.getBytes(StandardCharsets.UTF_8)), rules);
+    }
+
+    private static final boolean WINDOWS = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win");
+    private static final String SHIPPED_MODULE = "return {api_version=1}\n";
+
+    /** A Lua source rule for pet_behaviors, the shape FreeMinecraftModels ships. */
+    private static Map<String, Set<OutdatedConfigurationArchive.Rule>> moduleRules() throws Exception {
+        String hash = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                .digest(SHIPPED_MODULE.getBytes(StandardCharsets.UTF_8)));
+        return OutdatedConfigurationArchive.readRules(("pet_behaviors:\n  - files: [drift.lua, hover.lua]\n    sha256: ["
+                + hash + "]\n").getBytes(StandardCharsets.UTF_8));
+    }
+
+    private Path outside(String path) throws IOException {
+        Path file = temporary.resolve("store").resolve(path);
+        Files.createDirectories(file.getParent());
+        return Files.writeString(file, SHIPPED_MODULE, StandardCharsets.UTF_8);
+    }
+
+    /** Links a folder to another: a junction on Windows, which needs no privilege, elsewhere a symbolic link. */
+    private static void linkFolder(Path link, Path target) throws Exception {
+        Files.createDirectories(link.getParent());
+        if (!WINDOWS) {
+            Files.createSymbolicLink(link, target);
+            return;
+        }
+        assertEquals(0, new ProcessBuilder("cmd", "/c", "mklink", "/J", link.toString(), target.toString())
+                .redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.DISCARD).start().waitFor(), "mklink /J " + link);
+    }
+
+    /** Removes a folder link on its own, never what it leads to. */
+    private static void unlinkFolder(Path link) throws Exception {
+        if (!WINDOWS) {
+            Files.delete(link);
+            return;
+        }
+        assertEquals(0, new ProcessBuilder("cmd", "/c", "rmdir", link.toString())
+                .redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.DISCARD).start().waitFor(), "rmdir " + link);
+    }
+
+    @Test void aLinkedFolderIsSkippedWithAWarningWhileTheRestIsArchived() throws Exception {
+        Path local = write("pet_behaviors/drift.lua", SHIPPED_MODULE);
+        Path shared = outside("hover.lua");
+        Path link = data().resolve("pet_behaviors/shared");
+        linkFolder(link, shared.getParent());
+        List<String> warnings = new ArrayList<>();
+        try {
+            List<Path> archived = OutdatedConfigurationArchive.archive(data(), storage(), moduleRules(), warnings::add);
+            assertEquals(1, archived.size());
+            assertTrue(archived.getFirst().endsWith(Path.of("pet_behaviors/drift.lua")));
+            assertFalse(Files.exists(local));
+        } finally {
+            unlinkFolder(link);
+        }
+        assertEquals(SHIPPED_MODULE, Files.readString(shared));
+        assertEquals(1, warnings.size(), warnings.toString());
+        assertTrue(warnings.getFirst().contains("shared"), warnings.getFirst());
+    }
+
+    @Test void aLinkedCategoryIsSkippedWithAWarning() throws Exception {
+        Path shared = outside("drift.lua");
+        Path link = data().resolve("pet_behaviors");
+        linkFolder(link, shared.getParent());
+        List<String> warnings = new ArrayList<>();
+        try {
+            assertTrue(OutdatedConfigurationArchive.archive(data(), storage(), moduleRules(), warnings::add).isEmpty());
+        } finally {
+            unlinkFolder(link);
+        }
+        assertEquals(SHIPPED_MODULE, Files.readString(shared));
+        assertFalse(Files.exists(storage()));
+        assertEquals(1, warnings.size(), warnings.toString());
+    }
+
+    @Test void aLinkedContentRootArchivesNothingAndWarns() throws Exception {
+        Path shared = outside("pet_behaviors/drift.lua");
+        linkFolder(data(), temporary.resolve("store"));
+        List<String> warnings = new ArrayList<>();
+        try {
+            assertTrue(OutdatedConfigurationArchive.archive(data(), storage(), moduleRules(), warnings::add).isEmpty());
+        } finally {
+            unlinkFolder(data());
+        }
+        assertEquals(SHIPPED_MODULE, Files.readString(shared));
+        assertEquals(1, warnings.size(), warnings.toString());
     }
 }
