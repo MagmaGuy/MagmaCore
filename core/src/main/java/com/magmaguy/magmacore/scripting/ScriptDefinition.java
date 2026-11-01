@@ -78,7 +78,8 @@ public class ScriptDefinition {
 
     private static Prototype compile(String fileName, String source, Globals globals) {
         try {
-            return globals.compilePrototype(new java.io.StringReader(source), fileName);
+            return globals.compilePrototype(
+                    new java.io.StringReader(LuaEnvironmentFactory.withoutByteOrderMark(source)), fileName);
         } catch (java.io.IOException exception) {
             throw new IllegalArgumentException("Could not compile script " + fileName, exception);
         }

@@ -20,6 +20,14 @@ public final class LuaEnvironmentFactory {
     private LuaEnvironmentFactory() {
     }
 
+    /**
+     * Drops a leading UTF-8 byte order mark. Windows editors such as Notepad can save one, and LuaJ reads it as
+     * an unexpected symbol on line 1, so an otherwise valid script would fail to load.
+     */
+    static String withoutByteOrderMark(String source) {
+        return !source.isEmpty() && source.charAt(0) == 0xFEFF ? source.substring(1) : source;
+    }
+
     public static Globals createGlobals() {
         Globals globals = JsePlatform.standardGlobals();
         lockStringMetatable(globals);

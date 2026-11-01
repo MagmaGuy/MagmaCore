@@ -45,7 +45,7 @@ final class LuaMindSourceReader {
     static Prototype compile(Globals globals, String sourceName, String source) {
         COMPILATIONS.incrementAndGet();
         try {
-            return globals.compilePrototype(new StringReader(source), sourceName);
+            return globals.compilePrototype(new StringReader(LuaEnvironmentFactory.withoutByteOrderMark(source)), sourceName);
         } catch (IOException exception) {
             throw new UncheckedIOException(exception);
         }
