@@ -236,6 +236,16 @@ public abstract class NMSAdapter {
     }
 
     /**
+     * The horizontal distance within which the server's entity tracker sends {@code entity} to {@code viewer}: its
+     * tracking range, raised by its passengers' ranges and capped by the viewer's view distance, exactly as the
+     * tracker computes it. The tracker also needs the entity's chunk loaded for the viewer and the viewer allowed
+     * to see it. -1 when this version cannot tell or the entity is not tracked.
+     */
+    public double getTrackingDistance(Entity entity, org.bukkit.entity.Player viewer) {
+        return -1;
+    }
+
+    /**
      * Sends {@code viewer} a client-only scoreboard team named {@code teamName} whose single member is
      * {@code member} with name tags always visible, which keeps that player's name while something rides
      * them; {@code create} false removes the team again. Versions without the packet do nothing.
