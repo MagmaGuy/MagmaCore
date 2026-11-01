@@ -49,6 +49,15 @@ public interface PacketModelEntity extends PacketEntityInterface {
     default void setViewRange(float range) {
     }
 
+    /**
+     * Box viewers test against their view to skip drawing this display while it is off screen: {@code width}
+     * across, centred on the entity, and {@code height} up from its position, in blocks; a negative height hangs
+     * the box down from the position instead. Viewers widen it by half a block on every side. 0 for either draws
+     * the display wherever it is. Goes out with the next metadata.
+     */
+    default void setCullingBox(float width, float height) {
+    }
+
     /** How many ticks viewers take to glide to a new position after a move. */
     default void setTeleportDuration(int ticks) {
     }

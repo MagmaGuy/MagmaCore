@@ -340,6 +340,12 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
     }
 
     @Override
+    public void setCullingBox(float width, float height) {
+        entity.setWidth(width);
+        entity.setHeight(height);
+    }
+
+    @Override
     public void setTeleportDuration(int ticks) {
         int clamped = Math.max(0, Math.min(59, ticks));
         // The setter is private: Mojang name on Paper, obfuscated "d" on Spigot.

@@ -339,6 +339,12 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
     }
 
     @Override
+    public void setCullingBox(float width, float height) {
+        entity.setWidth(width);
+        entity.setHeight(height);
+    }
+
+    @Override
     public void setTeleportDuration(int ticks) {
         CraftBukkitBridge.setDisplayTeleportDuration(entity, Math.max(0, Math.min(59, ticks)));
     }
