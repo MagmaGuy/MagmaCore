@@ -234,6 +234,16 @@ public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter {
     }
 
     @Override
+    public int getTrackingRange(Entity entity) {
+        return com.magmaguy.easyminecraftgoals.v26.tracking.TrackingDistance.range(entity);
+    }
+
+    @Override
+    public boolean setTrackingRange(Entity entity, int range) {
+        return com.magmaguy.easyminecraftgoals.v26.tracking.TrackingDistance.setRange(entity, range);
+    }
+
+    @Override
     public boolean move(LivingEntity livingEntity, double speedModifier, Location location) {
         net.minecraft.world.entity.LivingEntity nmsLivingEntity = CraftBukkitBridge.getNMSLivingEntity(livingEntity);
         PathfinderMob pathfinderMob;

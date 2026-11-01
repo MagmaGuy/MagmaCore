@@ -246,6 +246,26 @@ public abstract class NMSAdapter {
     }
 
     /**
+     * The tracking range in blocks the server's entity tracker starts from for {@code entity}, before its passengers
+     * raise it and each viewer's view distance caps it ({@link #getTrackingDistance}). -1 when this version cannot
+     * tell or the entity is not tracked.
+     */
+    public int getTrackingRange(Entity entity) {
+        return -1;
+    }
+
+    /**
+     * Sets the tracking range {@link #getTrackingRange} reads, so the server sends {@code entity} as far as
+     * {@code range} blocks whatever its type's configured range, and rechecks which players track it at once. A
+     * negative range restores the configured one. The range lasts as long as the entity's tracker: a chunk reload or
+     * a change of world gives it a new one at the configured range. Primary thread only. False when this version
+     * cannot change it or the entity is not tracked.
+     */
+    public boolean setTrackingRange(Entity entity, int range) {
+        return false;
+    }
+
+    /**
      * Sends {@code viewer} a client-only scoreboard team named {@code teamName} whose single member is
      * {@code member} with name tags always visible, which keeps that player's name while something rides
      * them; {@code create} false removes the team again. Versions without the packet do nothing.
