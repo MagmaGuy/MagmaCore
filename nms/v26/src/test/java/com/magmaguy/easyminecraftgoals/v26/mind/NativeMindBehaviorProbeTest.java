@@ -35,6 +35,15 @@ import static org.mockito.Mockito.when;
 /** Probe intervals and sensor phases, through the real Brain that offers every stopped behavior a start each tick. */
 class NativeMindBehaviorProbeTest {
     private static final long FIRST_TICK = 1_000L;
+    /**
+     * DEFAULT's limits with wall-clock budgets no callback reaches, for the checks of probe and sensor timing. The
+     * first callback in a fresh JVM loads classes and can pass DEFAULT's 2 ms callback budget, and the scheduler
+     * then rightly skips the rest of that tick, which moves every later ask and start by a tick. The budget checks
+     * pass their own policies.
+     */
+    private static final MindExecutionPolicy UNTIMED = new MindExecutionPolicy(1_000_000_000L, 1_000_000_000L,
+            1_000_000_000L, MindExecutionPolicy.DEFAULT.maxCallbacksPerEntityTick(),
+            MindExecutionPolicy.DEFAULT.maxActionRequestsPerEntityTick(), MindRunawayPolicy.DEFAULT);
 
     @BeforeAll
     static void bootstrapMinecraft() {
@@ -117,7 +126,7 @@ class NativeMindBehaviorProbeTest {
         private final MindMemoryStore store;
 
         Entity(UUID owner, MindBehavior... behaviors) {
-            this(owner, program(MindExecutionPolicy.DEFAULT, behaviors), new NativeMindServerBudget());
+            this(owner, program(UNTIMED, behaviors), new NativeMindServerBudget());
         }
 
         Entity(UUID owner, MindProgram program, NativeMindServerBudget budget) {
@@ -386,7 +395,7 @@ class NativeMindBehaviorProbeTest {
 
     /** A program with one sensor every {@code interval} ticks that records the ticks it senses on. */
     private static MindProgram sensing(List<Long> sensed, int interval) {
-        return MindProgram.builder("fixture:sensing", 1L).sensor(new MindSensor() {
+        return MindProgram.builder("fixture:sensing", 1L).executionPolicy(UNTIMED).sensor(new MindSensor() {
             @Override
             public String identifier() {
                 return "fixture:sense";
