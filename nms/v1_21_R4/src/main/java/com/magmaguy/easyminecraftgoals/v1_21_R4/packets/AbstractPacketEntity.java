@@ -1,9 +1,11 @@
 package com.magmaguy.easyminecraftgoals.v1_21_R4.packets;
 
 import com.google.common.collect.Sets;
+import com.magmaguy.easyminecraftgoals.internal.AbstractPacketBundle;
 import com.magmaguy.easyminecraftgoals.internal.PacketEntityInterface;
 import com.magmaguy.easyminecraftgoals.internal.ViewerPlayers;
 import com.magmaguy.easyminecraftgoals.internal.PacketPassengerRegistry;
+import com.magmaguy.easyminecraftgoals.thirdparty.BedrockChecker;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.*;
 import net.minecraft.network.syncher.SynchedEntityData;
@@ -194,8 +196,14 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
         // Send remove packet ONLY to this specific player
         sendPacketToPlayer(player, new ClientboundRemoveEntitiesPacket(EntityID));
 
-        // THEN remove from viewers list
-        removeViewer(uuid);
+        if (BedrockChecker.isBedrock(player)) {
+            removeViewer(uuid);
+            return;
+        }
+        // A Java client takes a removed entity off its vehicle itself. A passenger list here would only re-seat
+        // the vehicle's other passengers, each of which would then need its rotation again.
+        forgetPassengerFor(uuid);
+        viewers.remove(uuid);
     }
 
     // Display to specific player - Already correct, but cleaned up
@@ -225,6 +233,44 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
                 createEntityDataPacket()
         );
         refreshPassengerFor(player.getUniqueId());
+    }
+
+    /**
+     * Puts the display in a bundle that goes out once the whole model is in it, so the client takes it in one go.
+     * Bundles reach Bedrock viewers unwrapped, so they get the packets one at a time as before.
+     */
+    public void displayTo(Player player, AbstractPacketBundle packetBundle) {
+        if (packetBundle == null || player == null || BedrockChecker.isBedrock(player)) {
+            if (player != null) displayTo(player);
+            return;
+        }
+        if (!player.isOnline() || viewers.contains(player.getUniqueId())) {
+            return;
+        }
+
+        viewers.add(player.getUniqueId());
+        List<Player> playerOnly = List.of(player);
+        applyDeferredPosition();
+        packetBundle.addPacket(new ClientboundAddEntityPacket(
+                EntityID,
+                entity.getUUID(),
+                entity.getX(),
+                entity.getY(),
+                entity.getZ(),
+                entity.getXRot(),
+                entity.getYRot(),
+                entity.getType(),
+                0,
+                new Vec3(0, 0, 0), headYaw()), playerOnly);
+        packetBundle.addPacket(generateHeadRotationPacket(), playerOnly);
+        packetBundle.addPacket(createEntityDataPacket(), playerOnly);
+        if (currentVehicleId != -1 && visible) {
+            PacketPassengerRegistry.attach(player.getUniqueId(), currentVehicleId, EntityID, entity.getYRot(), entity.getXRot());
+            int[] nativePassengers = nativePassengerIds();
+            if (nativePassengers != null)
+                packetBundle.addPacket(PassengerPackets.create(currentVehicleId,
+                        PacketPassengerRegistry.compose(player.getUniqueId(), currentVehicleId, nativePassengers)), playerOnly);
+        }
     }
 
     //Teleports - affects all viewers
@@ -336,6 +382,10 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
         if (nativePassengers == null) return; // The next main-thread display or remount sends it.
         sendPacketToPlayer(player, PassengerPackets.create(currentVehicleId,
                 PacketPassengerRegistry.compose(viewer, currentVehicleId, nativePassengers)));
+    }
+
+    private void forgetPassengerFor(UUID viewer) {
+        if (currentVehicleId != -1) PacketPassengerRegistry.detach(viewer, currentVehicleId, EntityID);
     }
 
     private void detachPassengerFor(UUID viewer) {

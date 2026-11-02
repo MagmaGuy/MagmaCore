@@ -5,6 +5,7 @@ import com.magmaguy.easyminecraftgoals.internal.AbstractPacketBundle;
 import com.magmaguy.easyminecraftgoals.internal.PacketEntityInterface;
 import com.magmaguy.easyminecraftgoals.internal.ViewerPlayers;
 import com.magmaguy.easyminecraftgoals.internal.PacketPassengerRegistry;
+import com.magmaguy.easyminecraftgoals.thirdparty.BedrockChecker;
 import com.magmaguy.easyminecraftgoals.v26.CraftBukkitBridge;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.*;
@@ -205,8 +206,14 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
         // Send remove packet ONLY to this specific player
         sendPacketToPlayer(player, new ClientboundRemoveEntitiesPacket(EntityID));
 
-        // THEN remove from viewers list
-        removeViewer(uuid);
+        if (BedrockChecker.isBedrock(player)) {
+            removeViewer(uuid);
+            return;
+        }
+        // A Java client takes a removed entity off its vehicle itself. A passenger list here would only re-seat
+        // the vehicle's other passengers, each of which would then need its rotation again.
+        forgetPassengerFor(uuid);
+        viewers.remove(uuid);
     }
 
     // Display to specific player - Already correct, but cleaned up
@@ -416,6 +423,10 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
         if (nativePassengers == null) return; // The next main-thread display or remount sends it.
         sendPacketToPlayer(player, PassengerPackets.create(currentVehicleId,
                 PacketPassengerRegistry.compose(viewer, currentVehicleId, nativePassengers)));
+    }
+
+    private void forgetPassengerFor(UUID viewer) {
+        if (currentVehicleId != -1) PacketPassengerRegistry.detach(viewer, currentVehicleId, EntityID);
     }
 
     private void detachPassengerFor(UUID viewer) {

@@ -125,6 +125,43 @@ class OutboundRewriteTest {
         assertInstanceOf(ClientboundMoveEntityPacket.Rot.class, children.get(3));
     }
 
+    @Test
+    void aVehicleSeatedAgainLaterInABundleTurnsItsPassengersBackOnlyAfterTheLastList() {
+        PacketPassengerRegistry.attach(viewer, BODY, BONE, 90, 0);
+        PacketPassengerRegistry.attach(viewer, BODY, BONE + 1, 180, 0);
+        Packet<ClientGamePacketListener> pose = flags(BONE + 1, (byte) 0);
+        ClientboundBundlePacket bundle = bundle(
+                PassengerPackets.create(BODY, new int[]{7}), pose, PassengerPackets.create(BODY, new int[]{7}));
+
+        List<Packet<?>> children = children(PassengerPackets.compose(viewer, bundle));
+
+        assertEquals(5, children.size());
+        ClientboundSetPassengersPacket first = assertInstanceOf(ClientboundSetPassengersPacket.class, children.get(0));
+        assertArrayEquals(new int[]{7, BONE, BONE + 1}, first.getPassengers());
+        assertSame(pose, children.get(1));
+        ClientboundSetPassengersPacket last = assertInstanceOf(ClientboundSetPassengersPacket.class, children.get(2));
+        assertArrayEquals(new int[]{7, BONE, BONE + 1}, last.getPassengers());
+        ClientboundMoveEntityPacket.Rot turn = assertInstanceOf(ClientboundMoveEntityPacket.Rot.class, children.get(3));
+        assertEquals(90F, turn.getYRot(), 1.5F);
+        assertInstanceOf(ClientboundMoveEntityPacket.Rot.class, children.get(4));
+    }
+
+    @Test
+    void eachVehicleSeatedOnceInABundleKeepsItsRotations() {
+        PacketPassengerRegistry.attach(viewer, BODY, BONE, 90, 0);
+        PacketPassengerRegistry.attach(viewer, BODY + 1, BONE + 1, 90, 0);
+        ClientboundBundlePacket bundle = bundle(
+                PassengerPackets.create(BODY, new int[0]), PassengerPackets.create(BODY + 1, new int[0]));
+
+        List<Packet<?>> children = children(PassengerPackets.compose(viewer, bundle));
+
+        assertEquals(4, children.size());
+        assertArrayEquals(new int[]{BONE}, assertInstanceOf(ClientboundSetPassengersPacket.class, children.get(0)).getPassengers());
+        assertInstanceOf(ClientboundMoveEntityPacket.Rot.class, children.get(1));
+        assertArrayEquals(new int[]{BONE + 1}, assertInstanceOf(ClientboundSetPassengersPacket.class, children.get(2)).getPassengers());
+        assertInstanceOf(ClientboundMoveEntityPacket.Rot.class, children.get(3));
+    }
+
     private static void assertFlags(Packet<?> packet, int id, byte flags) {
         ClientboundSetEntityDataPacket data = assertInstanceOf(ClientboundSetEntityDataPacket.class, packet);
         assertEquals(id, data.id());

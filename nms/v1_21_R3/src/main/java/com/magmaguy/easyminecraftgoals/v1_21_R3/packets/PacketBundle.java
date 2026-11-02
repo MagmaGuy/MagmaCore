@@ -71,7 +71,8 @@ public class PacketBundle implements AbstractPacketBundle {
                 int end = Math.min(i + MAX_PACKETS_PER_BUNDLE, packets.size());
                 List<Packet<ClientGamePacketListener>> chunk = packets.subList(i, end);
 
-                ClientboundBundlePacket bundle = new ClientboundBundlePacket(new HashSet<>(chunk));
+                // In order: a model's admission puts each display's spawn before its data and its seat.
+                ClientboundBundlePacket bundle = new ClientboundBundlePacket(new ArrayList<>(chunk));
                 sendPacketBundle(player, bundle);
             }
         });

@@ -3,6 +3,7 @@ package com.magmaguy.easyminecraftgoals.v1_21_R5.packets;
 import com.magmaguy.easyminecraftgoals.internal.AbstractPacketBundle;
 import com.magmaguy.easyminecraftgoals.internal.PacketModelEntity;
 import com.magmaguy.easyminecraftgoals.internal.PacketTextEntity;
+import com.magmaguy.easyminecraftgoals.thirdparty.BedrockChecker;
 import com.mojang.datafixers.util.Pair;
 import net.minecraft.core.Rotations;
 import net.minecraft.network.chat.Component;
@@ -113,6 +114,20 @@ public class PacketArmorStandEntity extends AbstractPacketEntity<ArmorStand> imp
         super.displayTo(player);
         if (nmsLeatherHorseArmor != null) {
             sendPacket(player, new ClientboundSetEquipmentPacket(entity.getId(), List.of(Pair.of(EquipmentSlot.HEAD, nmsLeatherHorseArmor))));
+        }
+    }
+
+    public void displayTo(Player player, AbstractPacketBundle packetBundle) {
+        if (packetBundle == null || player == null || BedrockChecker.isBedrock(player)) {
+            displayTo(player);
+            return;
+        }
+        if (hasViewer(player.getUniqueId())) return;
+        super.displayTo(player, packetBundle);
+        if (nmsLeatherHorseArmor != null) {
+            packetBundle.addPacket(
+                    new ClientboundSetEquipmentPacket(entity.getId(), List.of(Pair.of(EquipmentSlot.HEAD, nmsLeatherHorseArmor))),
+                    List.of(player));
         }
     }
 
