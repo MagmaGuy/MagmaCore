@@ -162,6 +162,17 @@ class OutboundRewriteTest {
         assertInstanceOf(ClientboundMoveEntityPacket.Rot.class, children.get(3));
     }
 
+    @Test
+    void bonesLeavingTogetherInABundlePassAsTheyAreAndTurnNothingBack() {
+        // The viewer still sees another model's bone, so the rewrite looks at this bundle at all.
+        PacketPassengerRegistry.attach(viewer, BODY + 1, BONE + 2, 90, 0);
+        // Each bone's dismount lists the bones still seated when it was made; all are gone by the time it is sent.
+        ClientboundBundlePacket bundle = bundle(
+                PassengerPackets.create(BODY, new int[]{7, BONE + 1}), PassengerPackets.create(BODY, new int[]{7}));
+
+        assertSame(bundle, PassengerPackets.compose(viewer, bundle));
+    }
+
     private static void assertFlags(Packet<?> packet, int id, byte flags) {
         ClientboundSetEntityDataPacket data = assertInstanceOf(ClientboundSetEntityDataPacket.class, packet);
         assertEquals(id, data.id());

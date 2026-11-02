@@ -333,15 +333,31 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
 
     @Override
     public void mountTo(int vehicleEntityId) {
-        if (currentVehicleId != vehicleEntityId) dismount();
+        mountTo(vehicleEntityId, null);
+    }
+
+    /**
+     * Each Java viewer's passenger list goes into {@code bundle}, so the bones a model seats together reach a viewer
+     * as one bundle, whose last list for the vehicle puts back every rotation once. Seated one by one, each list
+     * re-seated and turned back every bone before it. Without a bundle, and for Bedrock viewers, each list goes out
+     * at once as before.
+     */
+    @Override
+    public void mountTo(int vehicleEntityId, AbstractPacketBundle bundle) {
+        if (currentVehicleId != vehicleEntityId) dismount(bundle);
         currentVehicleId = vehicleEntityId;
-        for (UUID viewer : viewers) refreshPassengerFor(viewer);
+        for (UUID viewer : viewers) refreshPassengerFor(viewer, bundle);
     }
 
     @Override
     public void dismount() {
+        dismount(null);
+    }
+
+    @Override
+    public void dismount(AbstractPacketBundle bundle) {
         if (currentVehicleId == -1) return;
-        for (UUID viewer : viewers) detachPassengerFor(viewer);
+        for (UUID viewer : viewers) detachPassengerFor(viewer, bundle);
         currentVehicleId = -1;
         vehicleHandle = null;
     }
@@ -363,6 +379,10 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
     }
 
     private void refreshPassengerFor(UUID viewer) {
+        refreshPassengerFor(viewer, null);
+    }
+
+    private void refreshPassengerFor(UUID viewer, AbstractPacketBundle bundle) {
         if (currentVehicleId == -1 || !visible) return;
         Player player = Bukkit.getPlayer(viewer);
         if (player == null) {
@@ -372,8 +392,8 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
         PacketPassengerRegistry.attach(viewer, currentVehicleId, EntityID, entity.getYRot(), entity.getXRot());
         int[] nativePassengers = nativePassengerIds();
         if (nativePassengers == null) return; // The next main-thread display or remount sends it.
-        sendPacketToPlayer(player, PassengerPackets.create(currentVehicleId,
-                PacketPassengerRegistry.compose(viewer, currentVehicleId, nativePassengers)));
+        sendPassengers(player, PassengerPackets.create(currentVehicleId,
+                PacketPassengerRegistry.compose(viewer, currentVehicleId, nativePassengers)), bundle);
     }
 
     private void forgetPassengerFor(UUID viewer) {
@@ -381,14 +401,24 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
     }
 
     private void detachPassengerFor(UUID viewer) {
+        detachPassengerFor(viewer, null);
+    }
+
+    private void detachPassengerFor(UUID viewer, AbstractPacketBundle bundle) {
         if (currentVehicleId == -1) return;
         PacketPassengerRegistry.detach(viewer, currentVehicleId, EntityID);
         Player player = Bukkit.getPlayer(viewer);
         int[] nativePassengers = player == null ? null : nativePassengerIds();
         if (nativePassengers != null) {
-            sendPacketToPlayer(player, PassengerPackets.create(currentVehicleId,
-                    PacketPassengerRegistry.compose(viewer, currentVehicleId, nativePassengers)));
+            sendPassengers(player, PassengerPackets.create(currentVehicleId,
+                    PacketPassengerRegistry.compose(viewer, currentVehicleId, nativePassengers)), bundle);
         }
+    }
+
+    /** One viewer's passenger list: into the bundle for a Java viewer, at once without one or for Bedrock. */
+    private void sendPassengers(Player player, Packet<?> packet, AbstractPacketBundle bundle) {
+        if (bundle == null || BedrockChecker.isBedrock(player)) sendPacketToPlayer(player, packet);
+        else bundle.addPacket(packet, List.of(player));
     }
 
     // ==== Packet sending methods - RENAMED AND CLARIFIED ====

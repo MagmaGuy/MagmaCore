@@ -53,6 +53,19 @@ public interface PacketEntityInterface {
     }
 
     /**
+     * Bundled mount: adds each viewer's passenger list to {@code bundle} instead of sending it, so entities that
+     * mount the same vehicle together reach each viewer in one bundle. The default mounts at once.
+     */
+    default void mountTo(int vehicleEntityId, AbstractPacketBundle bundle) {
+        mountTo(vehicleEntityId);
+    }
+
+    /** Bundled dismount, like {@link #mountTo(int, AbstractPacketBundle)}. The default dismounts at once. */
+    default void dismount(AbstractPacketBundle bundle) {
+        dismount();
+    }
+
+    /**
      * Gets the entity ID of this packet entity.
      *
      * @return The entity ID
