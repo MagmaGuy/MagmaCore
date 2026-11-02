@@ -22,7 +22,8 @@ import java.util.UUID;
  * set and the glowing bit cleared, since a client outlines an invisible mob that glows, so a viewer who tracks a
  * model's body sees nothing of the mob under the model. A spawn whose flags are all
  * default sends no flags at all, so every veiled spawn is followed by an invisible-flags entry of its own. Never
- * changes a packet shared with another player.
+ * changes a packet shared with another player, and copies nothing until a packet needs veiling: every packet the
+ * server sends a viewer with veils passes through here.
  */
 public final class EquipmentPackets {
     private static final int SHARED_FLAGS = 0;
@@ -31,25 +32,30 @@ public final class EquipmentPackets {
 
     private EquipmentPackets() { }
 
-    @SuppressWarnings("unchecked")
     static Packet<?> veil(UUID viewer, Packet<?> packet) {
         if (!(packet instanceof ClientboundSetEquipmentPacket) && !(packet instanceof ClientboundSetEntityDataPacket)
                 && !(packet instanceof ClientboundAddEntityPacket) && !(packet instanceof ClientboundBundlePacket)) return packet;
-        if (!PacketEquipmentVeil.hasVeils(viewer)) return packet;
+        int[] veils = PacketEquipmentVeil.veils(viewer);
+        if (veils == null) return packet;
+        return veil(veils, packet);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Packet<?> veil(int[] veils, Packet<?> packet) {
         if (packet instanceof ClientboundAddEntityPacket add) {
             // Outside a bundle the spawn and its invisible flags travel as a bundle of two.
-            return PacketEquipmentVeil.isVeiled(viewer, add.getId())
+            return PacketEquipmentVeil.isVeiled(veils, add.getId())
                     ? new ClientboundBundlePacket(List.of((Packet<? super ClientGamePacketListener>) packet, invisibleFlags(add.getId())))
                     : packet;
         }
         if (packet instanceof ClientboundSetEquipmentPacket equipment) {
-            if (!PacketEquipmentVeil.isVeiled(viewer, equipment.getEntity())) return packet;
+            if (!PacketEquipmentVeil.isVeiled(veils, equipment.getEntity())) return packet;
             List<Pair<EquipmentSlot, ItemStack>> emptied = new ArrayList<>(equipment.getSlots().size());
             for (Pair<EquipmentSlot, ItemStack> slot : equipment.getSlots()) emptied.add(Pair.of(slot.getFirst(), ItemStack.EMPTY));
             return new ClientboundSetEquipmentPacket(equipment.getEntity(), emptied);
         }
         if (packet instanceof ClientboundSetEntityDataPacket data) {
-            if (!PacketEquipmentVeil.isVeiled(viewer, data.id())) return packet;
+            if (!PacketEquipmentVeil.isVeiled(veils, data.id())) return packet;
             List<SynchedEntityData.DataValue<?>> values = data.packedItems();
             List<SynchedEntityData.DataValue<?>> replaced = null;
             for (int i = 0; i < values.size(); i++) {
@@ -63,31 +69,34 @@ public final class EquipmentPackets {
             return replaced == null ? packet : new ClientboundSetEntityDataPacket(data.id(), replaced);
         }
         if (packet instanceof ClientboundBundlePacket bundle) {
-            boolean hasVeiled = false;
-            for (Packet<?> child : bundle.subPackets()) {
-                if (child instanceof ClientboundSetEquipmentPacket || child instanceof ClientboundSetEntityDataPacket
-                        || child instanceof ClientboundAddEntityPacket || child instanceof ClientboundBundlePacket) {
-                    hasVeiled = true;
-                    break;
-                }
-            }
-            if (!hasVeiled) return packet;
-            List<Packet<? super ClientGamePacketListener>> packets = new ArrayList<>();
-            boolean changed = false;
+            // The copy starts at the first child that changes, with the children before it.
+            List<Packet<? super ClientGamePacketListener>> packets = null;
+            int index = 0;
             for (Packet<? super ClientGamePacketListener> child : bundle.subPackets()) {
-                if (child instanceof ClientboundAddEntityPacket add && PacketEquipmentVeil.isVeiled(viewer, add.getId())) {
+                if (child instanceof ClientboundAddEntityPacket add && PacketEquipmentVeil.isVeiled(veils, add.getId())) {
+                    if (packets == null) packets = leading(bundle, index);
                     packets.add(child);
                     packets.add(invisibleFlags(add.getId()));
-                    changed = true;
-                    continue;
+                } else {
+                    Packet<?> veiled = veil(veils, child);
+                    if (veiled != child && packets == null) packets = leading(bundle, index);
+                    if (packets != null) packets.add((Packet<? super ClientGamePacketListener>) veiled);
                 }
-                Packet<?> veiled = veil(viewer, child);
-                changed |= veiled != child;
-                packets.add((Packet<? super ClientGamePacketListener>) veiled);
+                index++;
             }
-            return changed ? new ClientboundBundlePacket(packets) : packet;
+            return packets == null ? packet : new ClientboundBundlePacket(packets);
         }
         return packet;
+    }
+
+    /** A new list holding the bundle's first {@code count} children. */
+    private static List<Packet<? super ClientGamePacketListener>> leading(ClientboundBundlePacket bundle, int count) {
+        List<Packet<? super ClientGamePacketListener>> packets = new ArrayList<>();
+        for (Packet<? super ClientGamePacketListener> child : bundle.subPackets()) {
+            if (packets.size() == count) break;
+            packets.add(child);
+        }
+        return packets;
     }
 
     private static ClientboundSetEntityDataPacket invisibleFlags(int entityId) {

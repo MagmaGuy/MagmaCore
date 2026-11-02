@@ -35,46 +35,58 @@ public final class PassengerPackets {
         if (!PacketPassengerRegistry.hasAttachments(viewer)) return packet;
         if (packet instanceof ClientboundSetPassengersPacket mount) {
             List<Packet<? super ClientGamePacketListener>> packets = composeMount(viewer, mount);
+            if (packets == null) return packet;
             return packets.size() == 1 ? packets.get(0) : new ClientboundBundlePacket(packets);
         }
         if (packet instanceof ClientboundBundlePacket bundle) {
-            boolean hasMount = false;
-            for (Packet<?> child : bundle.subPackets()) {
-                if (child instanceof ClientboundSetPassengersPacket || child instanceof ClientboundBundlePacket) {
-                    hasMount = true;
-                    break;
-                }
-            }
-            if (!hasMount) return packet;
-            List<Packet<? super ClientGamePacketListener>> packets = new ArrayList<>();
-            boolean changed = false;
+            // The copy starts at the first child that changes, with the children before it.
+            List<Packet<? super ClientGamePacketListener>> packets = null;
+            int index = 0;
             for (Packet<? super ClientGamePacketListener> child : bundle.subPackets()) {
                 if (child instanceof ClientboundSetPassengersPacket mount) {
                     List<Packet<? super ClientGamePacketListener>> composed = composeMount(viewer, mount);
-                    changed |= composed.size() != 1 || composed.get(0) != child;
-                    packets.addAll(composed);
-                    continue;
+                    if (composed != null && packets == null) packets = leading(bundle, index);
+                    if (packets != null) {
+                        if (composed != null) packets.addAll(composed);
+                        else packets.add(child);
+                    }
+                } else {
+                    Packet<?> composed = compose(viewer, child);
+                    if (composed != child && packets == null) packets = leading(bundle, index);
+                    if (packets != null) packets.add((Packet<? super ClientGamePacketListener>) composed);
                 }
-                Packet<?> composed = compose(viewer, child);
-                changed |= composed != child;
-                packets.add((Packet<? super ClientGamePacketListener>) composed);
+                index++;
             }
-            return changed ? new ClientboundBundlePacket(packets) : packet;
+            return packets == null ? packet : new ClientboundBundlePacket(packets);
         }
         return packet;
     }
 
+    /** A new list holding the bundle's first {@code count} children. */
+    private static List<Packet<? super ClientGamePacketListener>> leading(ClientboundBundlePacket bundle, int count) {
+        List<Packet<? super ClientGamePacketListener>> packets = new ArrayList<>();
+        for (Packet<? super ClientGamePacketListener> child : bundle.subPackets()) {
+            if (packets.size() == count) break;
+            packets.add(child);
+        }
+        return packets;
+    }
+
     /**
-     * The composed passenger list, followed by each synthetic passenger's own rotation. A client re-seats
+     * The composed passenger list, followed by each synthetic passenger's own rotation, or null when the mount
+     * goes out as it is: no synthetic passenger rides the vehicle for this viewer. A client re-seats
      * every passenger it is sent, and vehicles such as horses turn each one they take to their own view
      * (AbstractHorse.addPassenger); a fixed-billboard display pose is built on the rotation it was spawned
      * with, so that rotation is put back in the same bundle.
      */
     private static List<Packet<? super ClientGamePacketListener>> composeMount(UUID viewer, ClientboundSetPassengersPacket mount) {
         int[] passengers = PacketPassengerRegistry.compose(viewer, mount.getVehicle(), mount.getPassengers());
-        List<Packet<? super ClientGamePacketListener>> packets = new ArrayList<>();
-        packets.add(Arrays.equals(passengers, mount.getPassengers()) ? mount : create(mount.getVehicle(), passengers));
-        for (PacketPassengerRegistry.Attachment attachment : PacketPassengerRegistry.attachments(viewer, mount.getVehicle()))
+        List<PacketPassengerRegistry.Attachment> attachments = PacketPassengerRegistry.attachments(viewer, mount.getVehicle());
+        boolean unchanged = Arrays.equals(passengers, mount.getPassengers());
+        if (unchanged && attachments.isEmpty()) return null;
+        List<Packet<? super ClientGamePacketListener>> packets = new ArrayList<>(1 + attachments.size());
+        packets.add(unchanged ? mount : create(mount.getVehicle(), passengers));
+        for (PacketPassengerRegistry.Attachment attachment : attachments)
             packets.add(new ClientboundMoveEntityPacket.Rot(attachment.passenger(), angle(attachment.yaw()), angle(attachment.pitch()), false));
         return packets;
     }
