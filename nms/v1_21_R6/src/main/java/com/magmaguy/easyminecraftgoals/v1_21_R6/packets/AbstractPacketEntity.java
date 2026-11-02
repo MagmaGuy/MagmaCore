@@ -226,6 +226,7 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
                 generateHeadRotationPacket(),
                 createEntityDataPacket()
         );
+        refreshPassengerFor(player.getUniqueId());
     }
 
     /**
@@ -257,6 +258,13 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
                 new Vec3(0, 0, 0), headYaw()), playerOnly);
         packetBundle.addPacket(generateHeadRotationPacket(), playerOnly);
         packetBundle.addPacket(createEntityDataPacket(), playerOnly);
+        if (currentVehicleId != -1 && visible) {
+            PacketPassengerRegistry.attach(player.getUniqueId(), currentVehicleId, EntityID, entity.getYRot(), entity.getXRot());
+            int[] nativePassengers = nativePassengerIds();
+            if (nativePassengers != null)
+                packetBundle.addPacket(PassengerPackets.create(currentVehicleId,
+                        PacketPassengerRegistry.compose(player.getUniqueId(), currentVehicleId, nativePassengers)), playerOnly);
+        }
     }
 
     @Override
