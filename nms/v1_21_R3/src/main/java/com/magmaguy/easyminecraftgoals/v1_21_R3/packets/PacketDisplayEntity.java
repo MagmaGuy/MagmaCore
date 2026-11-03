@@ -186,34 +186,34 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
 
     /**
      * Adds a pose to the bundle: the move, when there is one, and the entity data that changed. A viewer whose
-     * connection is behind skips it, and a viewer that skipped an earlier one gets every value sent so far instead of
-     * the change; see {@link com.magmaguy.easyminecraftgoals.internal.PoseCatchUp}.
+     * connection is behind skips it, and a viewer that skipped earlier ones gets, with this one, the last value of
+     * each slot that changed meanwhile; see {@link com.magmaguy.easyminecraftgoals.internal.PoseCatchUp}.
      */
     private void addPose(AbstractPacketBundle packetBundle, net.minecraft.network.protocol.Packet<?> move) {
         java.util.List<Player> viewers = getViewersAsPlayers();
         if (!com.magmaguy.easyminecraftgoals.internal.PacketEntityTuning.useDeltaMetadataUpdates) {
             // A full snapshot carries every value, so a viewer that skipped one catches up with the next.
-            com.magmaguy.easyminecraftgoals.internal.PoseCatchUp.Recipients to = poseCatchUp.split(viewers, true);
+            com.magmaguy.easyminecraftgoals.internal.PoseCatchUp.Recipients to = poseCatchUp.split(viewers,
+                    com.magmaguy.easyminecraftgoals.internal.PoseCatchUp.EVERY_SLOT, move != null);
             if (move != null) packetBundle.addPosePacket(move, to.all());
             packetBundle.addPosePacket(createEntityDataPacket(), to.all());
             return;
         }
         java.util.List<net.minecraft.network.syncher.SynchedEntityData.DataValue<?>> changed =
                 entity.getEntityData().packDirty();
-        boolean changes = changed != null && !changed.isEmpty();
-        poseCatchUp.record(changed, net.minecraft.network.syncher.SynchedEntityData.DataValue::id);
+        long changedSlots = poseCatchUp.record(changed, net.minecraft.network.syncher.SynchedEntityData.DataValue::id);
         com.magmaguy.easyminecraftgoals.internal.PoseCatchUp.Recipients to =
-                poseCatchUp.split(viewers, changes || move != null);
+                poseCatchUp.split(viewers, changedSlots, move != null);
         if (move != null) packetBundle.addPosePacket(move, to.all());
-        if (changes && !to.current().isEmpty())
+        if (changedSlots != 0 && !to.current().isEmpty())
             packetBundle.addPosePacket(new net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket(
                     entity.getId(), changed), to.current());
-        if (!to.catchingUp().isEmpty()) {
-            java.util.List<net.minecraft.network.syncher.SynchedEntityData.DataValue<?>> everything =
-                    poseCatchUp.everything();
-            if (!everything.isEmpty())
+        for (com.magmaguy.easyminecraftgoals.internal.PoseCatchUp.CatchingUp group : to.catchingUp()) {
+            java.util.List<net.minecraft.network.syncher.SynchedEntityData.DataValue<?>> missed =
+                    poseCatchUp.values(group.slots());
+            if (!missed.isEmpty())
                 packetBundle.addPosePacket(new net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket(
-                        entity.getId(), everything), to.catchingUp());
+                        entity.getId(), missed), group.viewers());
         }
     }
 

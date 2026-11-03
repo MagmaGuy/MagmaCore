@@ -17,6 +17,8 @@ class PoseCatchUpTest {
     /** An entity-data value: its slot and what it holds. */
     private record Value(int slot, String held) { }
 
+    private static final int ROTATION = 11, SCALE = 12;
+
     private final PoseCatchUp<Value> catchUp = new PoseCatchUp<>();
     private final Player fast = player(), slow = player();
 
@@ -29,7 +31,7 @@ class PoseCatchUpTest {
     @Test
     void viewersKeepingUpGetTheChange() {
         List<Player> viewers = List.of(fast, slow);
-        PoseCatchUp.Recipients to = catchUp.split(viewers, true);
+        PoseCatchUp.Recipients to = catchUp.split(viewers, record(ROTATION, "rotation 1"), true);
         assertSame(viewers, to.current());
         assertTrue(to.catchingUp().isEmpty());
     }
@@ -38,40 +40,98 @@ class PoseCatchUpTest {
     void aViewerBehindSkipsPosesAndCatchesUpOnceItsBundleLeft() {
         Runnable left = PoseBacklog.leaving(slow.getUniqueId());
 
-        PoseCatchUp.Recipients skipped = catchUp.split(List.of(fast, slow), true);
+        PoseCatchUp.Recipients skipped = catchUp.split(List.of(fast, slow), record(ROTATION, "rotation 1"), true);
         assertEquals(List.of(fast), skipped.current());
         assertTrue(skipped.catchingUp().isEmpty());
         assertTrue(catchUp.owesAny());
 
         left.run();
-        PoseCatchUp.Recipients resumed = catchUp.split(List.of(fast, slow), true);
+        PoseCatchUp.Recipients resumed = catchUp.split(List.of(fast, slow), record(ROTATION, "rotation 2"), true);
         assertEquals(List.of(fast), resumed.current());
-        assertEquals(List.of(slow), resumed.catchingUp());
+        assertEquals(1, resumed.catchingUp().size());
+        assertEquals(List.of(slow), resumed.catchingUp().getFirst().viewers());
         assertEquals(List.of(fast, slow), resumed.all());
         assertFalse(catchUp.owesAny());
 
-        assertEquals(List.of(fast, slow), catchUp.split(List.of(fast, slow), true).current());
+        assertEquals(List.of(fast, slow), catchUp.split(List.of(fast, slow), 0, true).current());
+    }
+
+    @Test
+    void aViewerCatchingUpGetsOnlyTheSlotsItMissedAndThisUpdatesChanges() {
+        // Both slots reach everyone, then the slow viewer misses a rotation and a later scale arrives with its catch-up.
+        catchUp.split(List.of(fast, slow), record(ROTATION, "rotation 1") | record(SCALE, "scale 1"), true);
+        Runnable left = PoseBacklog.leaving(slow.getUniqueId());
+        catchUp.split(List.of(fast, slow), record(ROTATION, "rotation 2"), true);
+        left.run();
+
+        PoseCatchUp.Recipients nothingNew = catchUp.split(List.of(fast, slow), 0, true);
+        assertEquals(List.of(new Value(ROTATION, "rotation 2")), catchUp.values(nothingNew.catchingUp().getFirst().slots()));
+
+        Runnable leftAgain = PoseBacklog.leaving(slow.getUniqueId());
+        catchUp.split(List.of(slow), record(ROTATION, "rotation 3"), true);
+        leftAgain.run();
+        PoseCatchUp.Recipients withScale = catchUp.split(List.of(slow), record(SCALE, "scale 2"), true);
+        assertEquals(List.of(new Value(ROTATION, "rotation 3"), new Value(SCALE, "scale 2")),
+                catchUp.values(withScale.catchingUp().getFirst().slots()));
     }
 
     @Test
     void skippingAnUpdateThatChangesNothingOwesNothing() {
         PoseBacklog.leaving(slow.getUniqueId());
-        catchUp.split(List.of(slow), false);
+        catchUp.split(List.of(slow), 0, false);
         assertFalse(catchUp.owesAny());
     }
 
     @Test
-    void aViewerCatchingUpGetsTheLastValueOfEverySlot() {
-        catchUp.record(List.of(new Value(11, "rotation 1"), new Value(12, "scale 1")), Value::slot);
-        catchUp.record(List.of(new Value(11, "rotation 2")), Value::slot);
-        catchUp.record(null, Value::slot);
-        assertEquals(List.of(new Value(11, "rotation 2"), new Value(12, "scale 1")), catchUp.everything());
+    void aSkippedMoveIsOwedEvenWithoutDataChanges() {
+        Runnable left = PoseBacklog.leaving(slow.getUniqueId());
+        catchUp.split(List.of(slow), 0, true);
+        assertTrue(catchUp.owesAny(), "the next update must reach the viewer with a move");
+
+        left.run();
+        PoseCatchUp.Recipients resumed = catchUp.split(List.of(slow), 0, true);
+        assertEquals(List.of(slow), resumed.all());
+        assertTrue(catchUp.values(resumed.catchingUp().getFirst().slots()).isEmpty());
+    }
+
+    @Test
+    void everySlotIsTheLastValueSentForIt() {
+        catchUp.record(List.of(new Value(ROTATION, "rotation 1"), new Value(SCALE, "scale 1")), Value::slot);
+        catchUp.record(List.of(new Value(ROTATION, "rotation 2")), Value::slot);
+        assertEquals(0, catchUp.record(null, Value::slot));
+        assertEquals(List.of(new Value(ROTATION, "rotation 2"), new Value(SCALE, "scale 1")),
+                catchUp.values(PoseCatchUp.EVERY_SLOT));
+        assertEquals(List.of(new Value(SCALE, "scale 1")), catchUp.values(1L << SCALE));
+    }
+
+    @Test
+    void aSlotBeyondTheMaskCountsAsEverySlot() {
+        assertEquals(PoseCatchUp.EVERY_SLOT, catchUp.record(List.of(new Value(64, "beyond")), Value::slot));
+    }
+
+    @Test
+    void viewersOwedDifferentSlotsCatchUpSeparately() {
+        Player other = player();
+        catchUp.split(List.of(slow, other), record(ROTATION, "rotation 1") | record(SCALE, "scale 1"), true);
+        Runnable slowLeft = PoseBacklog.leaving(slow.getUniqueId());
+        catchUp.split(List.of(slow, other), record(ROTATION, "rotation 2"), true);
+        Runnable otherLeft = PoseBacklog.leaving(other.getUniqueId());
+        catchUp.split(List.of(slow, other), record(SCALE, "scale 2"), true);
+        slowLeft.run();
+        otherLeft.run();
+
+        List<PoseCatchUp.CatchingUp> groups = catchUp.split(List.of(slow, other), 0, true).catchingUp();
+        assertEquals(2, groups.size());
+        assertEquals(List.of(slow), groups.get(0).viewers());
+        assertEquals((1L << ROTATION) | (1L << SCALE), groups.get(0).slots());
+        assertEquals(List.of(other), groups.get(1).viewers());
+        assertEquals(1L << SCALE, groups.get(1).slots());
     }
 
     @Test
     void anAdmittedOrDepartedViewerOwesNothing() {
         PoseBacklog.leaving(slow.getUniqueId());
-        catchUp.split(List.of(slow), true);
+        catchUp.split(List.of(slow), record(ROTATION, "rotation 1"), true);
         catchUp.forget(slow.getUniqueId());
         assertFalse(catchUp.owesAny());
     }
@@ -91,7 +151,12 @@ class PoseCatchUpTest {
     void theSwitchSendsEveryPoseHoweverFarBehind() {
         PoseBacklog.leaving(slow.getUniqueId());
         PacketEntityTuning.skipPosesWhileBehind = false;
-        assertEquals(List.of(fast, slow), catchUp.split(List.of(fast, slow), true).current());
+        assertEquals(List.of(fast, slow), catchUp.split(List.of(fast, slow), record(ROTATION, "rotation 1"), true).current());
+    }
+
+    /** Records one value as an update would and returns the slots it changed. */
+    private long record(int slot, String held) {
+        return catchUp.record(List.of(new Value(slot, held)), Value::slot);
     }
 
     private static Player player() {
