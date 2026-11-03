@@ -24,6 +24,10 @@ import java.util.*;
 public abstract class AbstractPacketEntity<T extends Entity> implements PacketEntityInterface {
     protected final T entity;
     private final Set<UUID> viewers = Sets.newConcurrentHashSet();
+    // The viewers that skipped a pose because their connection was behind, and the values they will need.
+    protected final com.magmaguy.easyminecraftgoals.internal.PoseCatchUp<
+            net.minecraft.network.syncher.SynchedEntityData.DataValue<?>> poseCatchUp =
+            new com.magmaguy.easyminecraftgoals.internal.PoseCatchUp<>();
     private final List<Runnable> removeCallbacks = new LinkedList<>();
     protected boolean visible = true;
     private final int EntityID;
@@ -94,6 +98,7 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
 
     @Override
     public void removeViewer(UUID player) {
+        poseCatchUp.forget(player);
         detachPassengerFor(player);
         viewers.remove(player);
     }
@@ -155,6 +160,7 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
      */
     protected Packet<?> createDirtyEntityDataPacket() {
         List<SynchedEntityData.DataValue<?>> dataValues = entity.getEntityData().packDirty();
+        poseCatchUp.record(dataValues, SynchedEntityData.DataValue::id);
 
         if (dataValues == null || dataValues.isEmpty()) {
             return null;
@@ -213,6 +219,7 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
         // A Java client takes a removed entity off its vehicle itself. A passenger list here would only re-seat
         // the vehicle's other passengers, each of which would then need its rotation again.
         forgetPassengerFor(uuid);
+        poseCatchUp.forget(uuid);
         viewers.remove(uuid);
     }
 
@@ -225,6 +232,7 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
 
         // Add to viewers first
         viewers.add(player.getUniqueId());
+        poseCatchUp.forget(player.getUniqueId());
 
         // Send packets ONLY to this specific player
         sendPacketToPlayer(player,
@@ -255,6 +263,7 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
         }
 
         viewers.add(player.getUniqueId());
+        poseCatchUp.forget(player.getUniqueId());
         List<Player> playerOnly = List.of(player);
         applyDeferredPosition();
         packetBundle.addPacket(new ClientboundAddEntityPacket(

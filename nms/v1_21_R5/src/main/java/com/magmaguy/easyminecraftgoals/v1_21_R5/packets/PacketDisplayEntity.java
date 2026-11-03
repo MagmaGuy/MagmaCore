@@ -156,11 +156,12 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
     public AbstractPacketBundle generateLocationAndRotationAndScalePackets(
             AbstractPacketBundle packetBundle, Location location, EulerAngle eulerAngle, float scaleX, float scaleY, float scaleZ) {
 
+        net.minecraft.network.protocol.Packet<?> move;
         if (!getLocation().getWorld().equals(location.getWorld())) {
-            packetBundle.addPacket(generateMovePacket(location), getViewersAsPlayers());
+            move = generateMovePacket(location);
         } else {
             // Always move — keeps things in sync for display entities
-            packetBundle.addPacket(generateMovePacket(location), getViewersAsPlayers());
+            move = generateMovePacket(location);
         }
 
         // Always update transformation for rotation/scale
@@ -179,16 +180,47 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
         entity.setTransformation(transformation);
         // A ridden pass may have left viewers interpolating; free poses snap like before.
         if (entity.getTransformationInterpolationDuration() != 0) entity.setTransformationInterpolationDuration(0);
-        if (com.magmaguy.easyminecraftgoals.internal.PacketEntityTuning.useDeltaMetadataUpdates) {
-            java.util.List<net.minecraft.network.syncher.SynchedEntityData.DataValue<?>> dirty = entity.getEntityData().packDirty();
-            if (dirty != null && !dirty.isEmpty()) {
-                packetBundle.addPacket(new net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket(entity.getId(), dirty), getViewersAsPlayers());
-            }
-        } else {
-            packetBundle.addPacket(createEntityDataPacket(), getViewersAsPlayers());
-        }
+        addPose(packetBundle, move);
 
         return packetBundle;
+    }
+
+    /**
+     * Adds a pose to the bundle: the move, when there is one, and the entity data that changed. A viewer whose
+     * connection is behind skips it, and a viewer that skipped an earlier one gets every value sent so far instead of
+     * the change; see {@link com.magmaguy.easyminecraftgoals.internal.PoseCatchUp}.
+     */
+    private void addPose(AbstractPacketBundle packetBundle, net.minecraft.network.protocol.Packet<?> move) {
+        java.util.List<Player> viewers = getViewersAsPlayers();
+        if (!com.magmaguy.easyminecraftgoals.internal.PacketEntityTuning.useDeltaMetadataUpdates) {
+            // A full snapshot carries every value, so a viewer that skipped one catches up with the next.
+            com.magmaguy.easyminecraftgoals.internal.PoseCatchUp.Recipients to = poseCatchUp.split(viewers, true);
+            if (move != null) packetBundle.addPosePacket(move, to.all());
+            packetBundle.addPosePacket(createEntityDataPacket(), to.all());
+            return;
+        }
+        java.util.List<net.minecraft.network.syncher.SynchedEntityData.DataValue<?>> changed =
+                entity.getEntityData().packDirty();
+        boolean changes = changed != null && !changed.isEmpty();
+        poseCatchUp.record(changed, net.minecraft.network.syncher.SynchedEntityData.DataValue::id);
+        com.magmaguy.easyminecraftgoals.internal.PoseCatchUp.Recipients to =
+                poseCatchUp.split(viewers, changes || move != null);
+        if (move != null) packetBundle.addPosePacket(move, to.all());
+        if (changes && !to.current().isEmpty())
+            packetBundle.addPosePacket(new net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket(
+                    entity.getId(), changed), to.current());
+        if (!to.catchingUp().isEmpty()) {
+            java.util.List<net.minecraft.network.syncher.SynchedEntityData.DataValue<?>> everything =
+                    poseCatchUp.everything();
+            if (!everything.isEmpty())
+                packetBundle.addPosePacket(new net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket(
+                        entity.getId(), everything), to.catchingUp());
+        }
+    }
+
+    @Override
+    public boolean owesPose() {
+        return poseCatchUp.owesAny();
     }
 
     @Override
@@ -217,14 +249,7 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
             entity.setTransformationInterpolationDelay(-1);
             entity.setTransformationInterpolationDelay(0);
         }
-        if (com.magmaguy.easyminecraftgoals.internal.PacketEntityTuning.useDeltaMetadataUpdates) {
-            java.util.List<net.minecraft.network.syncher.SynchedEntityData.DataValue<?>> dirty = entity.getEntityData().packDirty();
-            if (dirty != null && !dirty.isEmpty()) {
-                packetBundle.addPacket(new net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket(entity.getId(), dirty), getViewersAsPlayers());
-            }
-        } else {
-            packetBundle.addPacket(createEntityDataPacket(), getViewersAsPlayers());
-        }
+        addPose(packetBundle, null);
     }
 
     @Override

@@ -25,4 +25,11 @@ public final class PacketEntityTuning {
      * rollback).</p>
      */
     public static volatile boolean useDeltaMetadataUpdates = true;
+
+    /**
+     * When true (default), a player whose last bundle of poses is still waiting to leave the server skips new poses
+     * until it has, and then catches up with every value it missed; see {@link PoseBacklog}. Set to false to send
+     * every pose to every player however far behind its connection is (A/B comparison or rollback).
+     */
+    public static volatile boolean skipPosesWhileBehind = true;
 }

@@ -191,6 +191,7 @@ public class PacketInteractionListener implements Listener {
 
     private void uninjectPlayer(Player player) {
         com.magmaguy.easyminecraftgoals.internal.ClientFrameLatency.clearViewer(player.getUniqueId());
+        com.magmaguy.easyminecraftgoals.internal.PoseBacklog.clearViewer(player.getUniqueId());
         com.magmaguy.easyminecraftgoals.internal.PacketPassengerRegistry.clearViewer(player.getUniqueId());
         com.magmaguy.easyminecraftgoals.internal.PacketEquipmentVeil.clearViewer(player.getUniqueId());
         com.magmaguy.easyminecraftgoals.internal.PacketNameTagTeams.clearViewer(player.getUniqueId());

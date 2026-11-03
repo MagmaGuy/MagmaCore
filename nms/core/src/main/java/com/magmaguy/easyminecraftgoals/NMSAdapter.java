@@ -416,6 +416,7 @@ public abstract class NMSAdapter {
         // Default no-op
         PacketEntityInteractionManager.getInstance().shutdown();
         com.magmaguy.easyminecraftgoals.internal.ClientFrameLatency.clear();
+        com.magmaguy.easyminecraftgoals.internal.PoseBacklog.clear();
     }
 
     /**

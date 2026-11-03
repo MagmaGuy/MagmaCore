@@ -20,13 +20,20 @@ public class PacketBundle implements AbstractPacketBundle {
 
     @Override
     public void addPacket(Object packet, List<Player> viewers) {
-        entries.add(new PacketBundleEntry((Packet<?>) packet, viewers));
+        entries.add(new PacketBundleEntry((Packet<?>) packet, viewers, false));
+    }
+
+    @Override
+    public void addPosePacket(Object packet, List<Player> viewers) {
+        entries.add(new PacketBundleEntry((Packet<?>) packet, viewers, true));
     }
 
     @Override
     public void send() {
         // Group packets by player for efficiency
         Map<Player, List<Packet<ClientGamePacketListener>>> playerPackets = new HashMap<>();
+        // The players whose packets include poses; their bundle reports when it has left the server.
+        java.util.Set<Player> posed = new java.util.HashSet<>();
 
         for (PacketBundleEntry entry : entries) {
             // Skip if no viewers
@@ -42,6 +49,7 @@ public class PacketBundle implements AbstractPacketBundle {
             for (Player viewer : entry.viewers()) {
                 playerPackets.computeIfAbsent(viewer, k -> new ArrayList<>()).add(clientPacket);
             }
+            if (entry.pose()) posed.addAll(entry.viewers());
         }
 
         // Send bundles to each player, splitting into chunks of 3000 if needed.
@@ -73,7 +81,7 @@ public class PacketBundle implements AbstractPacketBundle {
 
                 // In order: a model's admission puts each display's spawn before its data and its seat.
                 ClientboundBundlePacket bundle = new ClientboundBundlePacket(new ArrayList<>(chunk));
-                sendPacketBundle(player, bundle);
+                sendPacketBundle(player, bundle, end == packets.size() && posed.contains(player));
             }
         });
 
@@ -89,11 +97,25 @@ public class PacketBundle implements AbstractPacketBundle {
         return packet != null;
     }
 
-    private void sendPacketBundle(Player player, Packet<?> nmsPacket) {
+    /**
+     * Sends one bundle. The last bundle of a tick that carries poses tells
+     * {@link com.magmaguy.easyminecraftgoals.internal.PoseBacklog} when the connection has written it.
+     */
+    private void sendPacketBundle(Player player, Packet<?> nmsPacket, boolean poses) {
         if (nmsPacket == null) return;
 
         ServerPlayer nmsPlayer = ((CraftPlayer) player).getHandle();
-        nmsPlayer.connection.send(nmsPacket);
+        if (!poses) {
+            nmsPlayer.connection.send(nmsPacket);
+            return;
+        }
+        Runnable left = com.magmaguy.easyminecraftgoals.internal.PoseBacklog.leaving(player.getUniqueId());
+        try {
+            nmsPlayer.connection.send(nmsPacket, future -> left.run());
+        } catch (RuntimeException failure) {
+            left.run();
+            throw failure;
+        }
     }
 
     /** Send a single packet directly to a player without bundle wrapping. */
@@ -103,7 +125,7 @@ public class PacketBundle implements AbstractPacketBundle {
         nmsPlayer.connection.send(nmsPacket);
     }
 
-    private record PacketBundleEntry(Packet<?> packet, List<Player> viewers) {
+    private record PacketBundleEntry(Packet<?> packet, List<Player> viewers, boolean pose) {
     }
 
 }

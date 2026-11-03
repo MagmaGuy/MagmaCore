@@ -78,6 +78,15 @@ public interface PacketModelEntity extends PacketEntityInterface {
     default void queueMetadataUpdate(AbstractPacketBundle packetBundle) {
     }
 
+    /**
+     * True while a viewer skipped one of this entity's poses, because its connection was behind, and has not caught up.
+     * Callers that send poses only when they change still send one then, so the viewer catches up even if the entity
+     * holds still.
+     */
+    default boolean owesPose() {
+        return false;
+    }
+
     /** True when viewers can place this display as a passenger of another entity through its transformation. */
     default boolean supportsRiddenPlacement() {
         return false;
