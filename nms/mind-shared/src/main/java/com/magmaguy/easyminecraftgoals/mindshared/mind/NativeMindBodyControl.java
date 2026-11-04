@@ -88,7 +88,8 @@ final class NativeMindBodyControl {
         mob.setNoAi(true);
         mob.getSensing().tick();
         if (profile.locomotion() == MindBodyLocomotion.AQUATIC
-                || profile.locomotion() == MindBodyLocomotion.AMPHIBIOUS) {
+                || profile.locomotion() == MindBodyLocomotion.AMPHIBIOUS
+                || profile.breathesUnderwater()) {
             mob.setAirSupply(mob.getMaxAirSupply());
         }
         if (profile.locomotion() == MindBodyLocomotion.FLYING) mob.setNoGravity(true);
