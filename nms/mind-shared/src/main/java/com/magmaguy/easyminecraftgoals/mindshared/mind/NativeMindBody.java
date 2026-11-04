@@ -79,6 +79,8 @@ final class NativeMindBody implements MobBody {
 
     void tickPausedPhysics() { control.tickPausedPhysics(); }
 
+    void release() { control.release(); }
+
     void steerFlight(net.minecraft.world.phys.Vec3 velocity) { control.steerFlight(velocity); }
 
     Entity.RemovalReason removalReason() {

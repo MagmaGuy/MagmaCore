@@ -115,6 +115,15 @@ final class NativeMindBodyControl {
 
     void steerFlight(Vec3 velocity) { flightVelocity = velocity; }
 
+    /**
+     * Hands the body to vanilla, for a rider whose client steers it. Clearing NoAI lets native
+     * ridden travel run; the goal selectors stay empty and the next Mind tick sets NoAI again.
+     */
+    void release() {
+        stopMovement();
+        mob.setNoAi(false);
+    }
+
     void tickPausedPhysics() {
         beforeMindTick();
         mob.getNavigation().stop();

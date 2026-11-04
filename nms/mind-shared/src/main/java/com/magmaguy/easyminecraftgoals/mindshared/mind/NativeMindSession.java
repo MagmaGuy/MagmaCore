@@ -51,7 +51,10 @@ final class NativeMindSession implements MindHandle {
     private boolean preserveMarkerOnClose;
     private Boolean requestedPause;
     private boolean paused;
-    private long pausedAtGameTick = Long.MIN_VALUE;
+    private Boolean requestedRelease;
+    private boolean released;
+    // Memory time stands still while the Mind is paused or released.
+    private long frozenAtGameTick = Long.MIN_VALUE;
     private boolean closed;
 
     NativeMindSession(
@@ -161,11 +164,11 @@ final class NativeMindSession implements MindHandle {
             try {
                 nativeBody.attach(this);
                 candidate.actuatorStopAll();
-                if (paused && pausedAtGameTick == Long.MIN_VALUE) {
-                    pausedAtGameTick = nativeBody.level().getGameTime();
-                    memory.view(pausedAtGameTick);
+                if (paused || released) {
+                    freezeClock();
                     nativeBody.stopMovement();
                 }
+                if (released) nativeBody.release();
                 writeMarker(nativeBody);
         } catch (RuntimeException exception) {
             nativeBody.detach(this);
@@ -211,6 +214,17 @@ final class NativeMindSession implements MindHandle {
     }
 
     @Override
+    public void setReleased(boolean released) {
+        NativeMindHost.requirePrimaryThread();
+        requireOpen();
+        if (inBrainTick || inLifecycleBoundary) {
+            requestedRelease = released;
+            return;
+        }
+        applyRelease(released);
+    }
+
+    @Override
     public SwapReceipt replace(MindProgram next, StateTransfer transfer) {
         NativeMindHost.requirePrimaryThread();
         requireOpen();
@@ -240,6 +254,7 @@ final class NativeMindSession implements MindHandle {
                 active,
                 memory.persistentState(),
                 requestedPause == null ? paused : requestedPause,
+                requestedRelease == null ? released : requestedRelease,
                 closed);
     }
 
@@ -283,6 +298,12 @@ final class NativeMindSession implements MindHandle {
         try {
             applyAttachedSwaps(level);
             if (runtime == null || body == null) return;
+            if (released) {
+                // The rider's client steers the body; Mind keeps only its marker current.
+                if (pathfinding != null) pathfinding.tick(true);
+                writeMarkerIfChanged(tickingBody);
+                return;
+            }
             NativeMindFleeOverride movementOverride = activeMovementOverride();
             if (pathfinding != null) pathfinding.tick(paused || movementOverride != null);
             if (paused && movementOverride == null) {
@@ -305,6 +326,7 @@ final class NativeMindSession implements MindHandle {
         } finally {
             inBrainTick = false;
             applyRequestedPause();
+            applyRequestedRelease();
             if (closeRequested) {
                 closeRequested = false;
                 boolean preserveMarker = preserveMarkerOnClose;
@@ -431,22 +453,54 @@ final class NativeMindSession implements MindHandle {
 
     private void applyPause(boolean next) {
         if (paused == next) return;
+        paused = next;
         if (next) {
-            paused = true;
+            freezeClock();
             if (body != null) {
-                pausedAtGameTick = body.level().getGameTime();
-                memory.view(pausedAtGameTick);
                 if (runtime != null) runtime.actuatorStopAll();
                 body.stopMovement();
             }
             return;
         }
-        if (pausedAtGameTick != Long.MIN_VALUE && body != null) {
-            long currentGameTick = body.level().getGameTime();
-            memory.shiftClock(Math.max(0L, currentGameTick - pausedAtGameTick));
+        thawClock();
+    }
+
+    private void applyRequestedRelease() {
+        if (requestedRelease == null || closed) return;
+        boolean next = requestedRelease;
+        requestedRelease = null;
+        applyRelease(next);
+    }
+
+    private void applyRelease(boolean next) {
+        if (released == next) return;
+        released = next;
+        if (next) {
+            freezeClock();
+            closeFleeOverrides();
+            if (body != null) {
+                if (runtime != null) runtime.actuatorStopAll();
+                body.release();
+            }
+            return;
         }
-        pausedAtGameTick = Long.MIN_VALUE;
-        paused = false;
+        // The next Brain tick re-applies NoAI, so Mind's own controls take the body back.
+        thawClock();
+    }
+
+    private void freezeClock() {
+        if (frozenAtGameTick != Long.MIN_VALUE || body == null) return;
+        frozenAtGameTick = body.level().getGameTime();
+        memory.view(frozenAtGameTick);
+    }
+
+    private void thawClock() {
+        if (paused || released) return;
+        if (frozenAtGameTick != Long.MIN_VALUE && body != null) {
+            long currentGameTick = body.level().getGameTime();
+            memory.shiftClock(Math.max(0L, currentGameTick - frozenAtGameTick));
+        }
+        frozenAtGameTick = Long.MIN_VALUE;
     }
 
     private void closeNow(boolean preserveMarker) {
@@ -458,7 +512,8 @@ final class NativeMindSession implements MindHandle {
         }
         swaps.clear();
         requestedPause = null;
-        pausedAtGameTick = Long.MIN_VALUE;
+        requestedRelease = null;
+        frozenAtGameTick = Long.MIN_VALUE;
         closeRequested = false;
         detachRequested = false;
         closed = true;
@@ -538,6 +593,10 @@ final class NativeMindSession implements MindHandle {
 
     private void closeMovementOverrides() {
         if (pathfinding != null) pathfinding.close();
+        closeFleeOverrides();
+    }
+
+    private void closeFleeOverrides() {
         for (NativeMindFleeOverride movementOverride : new ArrayList<>(movementOverrides)) {
             movementOverride.close();
         }

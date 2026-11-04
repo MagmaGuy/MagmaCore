@@ -19,6 +19,16 @@ public interface MindHandle extends AutoCloseable {
      */
     void setPaused(boolean paused);
 
+    /**
+     * Releases this Mind's body to its native movement, or takes it back.
+     *
+     * <p>A released Mind keeps its program, memory and body marker but runs no Brain ticks and
+     * leaves the body alone: no NoAI, no paused physics, no movement overrides. Use it while a
+     * rider's client steers the body. Memory time stands still as it does while paused. Releasing
+     * is idempotent and independent of pause; inside a Brain tick it applies after the tick.</p>
+     */
+    void setReleased(boolean released);
+
     SwapReceipt replace(MindProgram next, StateTransfer transfer);
 
     MindSnapshot inspect();

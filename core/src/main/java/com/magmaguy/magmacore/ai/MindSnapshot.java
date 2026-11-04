@@ -15,6 +15,7 @@ public record MindSnapshot(
         Set<String> activeBehaviors,
         MindPersistentState persistentState,
         boolean paused,
+        boolean released,
         boolean closed) {
 
     public MindSnapshot {

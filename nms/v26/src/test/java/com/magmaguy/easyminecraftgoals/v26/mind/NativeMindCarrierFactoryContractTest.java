@@ -88,6 +88,27 @@ class NativeMindCarrierFactoryContractTest {
         assertFalse(session.inspect().paused());
     }
 
+    @Test
+    void releasingIsIdempotentAndIndependentOfPause() {
+        NativeMindSession session = new NativeMindSession(
+                mock(NativeMindHost.class),
+                UUID.randomUUID(),
+                MindProgram.builder("fixture:released", 1L).build(),
+                MindPersistentState.empty(),
+                new NativeMindServerBudget());
+
+        session.setReleased(true);
+        session.setReleased(true);
+        assertTrue(session.inspect().released());
+        assertFalse(session.inspect().paused());
+
+        session.setPaused(true);
+        session.setReleased(false);
+        session.setReleased(false);
+        assertFalse(session.inspect().released());
+        assertTrue(session.inspect().paused());
+    }
+
     @ParameterizedTest(name = "{0}")
     @MethodSource("carrierFamilies")
     void minecraftFactoryCreatesTheRegisteredCarrierClass(
