@@ -9,6 +9,7 @@ import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.attributes.Attribute;
 import net.minecraft.world.entity.ai.attributes.AttributeMap;
 import net.minecraft.core.Holder;
+import net.minecraft.world.entity.ai.control.BodyRotationControl;
 import net.minecraft.world.entity.ai.control.MoveControl;
 import net.minecraft.world.entity.ai.control.LookControl;
 import net.minecraft.world.entity.ai.control.SmoothSwimmingLookControl;
@@ -28,17 +29,22 @@ final class NativeMindBodyControl {
     private static final Field NAVIGATION = field(PathNavigation.class);
     private static final Field MOVE_CONTROL = field(MoveControl.class);
     private static final Field LOOK_CONTROL = field(LookControl.class);
+    private static final Field BODY_ROTATION_CONTROL = field(BodyRotationControl.class);
+    // Vanilla's BodyRotationControl counts a mob as moving past this squared horizontal step.
+    private static final double MOVING_SQUARED = 2.5000003E-7D;
     private static final Field ATTRIBUTE_INSTANCES = attributeInstances();
 
     private final Mob mob;
     private final MindBodyProfile profile;
     private final Field squidMovementVector;
+    private final NativeMindBodyRotationControl bodyRotation;
     private Vec3 flightVelocity;
 
     NativeMindBodyControl(Mob mob, MindBodyProfile profile) {
         this.mob = mob;
         this.profile = profile;
         squidMovementVector = squidMovementVector(mob, profile);
+        bodyRotation = new NativeMindBodyRotationControl(mob);
         applyProfile();
     }
 
@@ -79,6 +85,7 @@ final class NativeMindBodyControl {
             stopMovement();
             return;
         }
+        double startX = mob.getX(), startZ = mob.getZ();
         mob.getNavigation().tick();
         mob.getMoveControl().tick();
         mob.getLookControl().tick();
@@ -103,6 +110,18 @@ final class NativeMindBodyControl {
         // and GroundPathNavigation cannot start. The version bridge handles older travel guards
         // without running an entity tick, goal selector, or native Brain.
         NativeMindVersion.advancePhysics(mob, new Vec3(mob.xxa, mob.yya, mob.zza));
+        // A squid's own aiStep turns its body from its swim vector, set above.
+        if (squidMovementVector == null) faceIfMoved(startX, startZ);
+    }
+
+    /**
+     * Turns the body to its heading when the Mind moved it this tick, as vanilla turns a moving mob. Vanilla's own
+     * check runs in the entity tick and compares against a position taken after the Mind already moved the body, so
+     * it never sees the move (see {@link NativeMindBodyRotationControl}).
+     */
+    private void faceIfMoved(double startX, double startZ) {
+        double dx = mob.getX() - startX, dz = mob.getZ() - startZ;
+        if (dx * dx + dz * dz > MOVING_SQUARED) bodyRotation.moved();
     }
 
     void stopMovement() {
@@ -153,6 +172,7 @@ final class NativeMindBodyControl {
         if (mob.getBukkitEntity() instanceof org.bukkit.entity.Bat bat) bat.setAwake(true);
         set(NAVIGATION, navigation());
         set(MOVE_CONTROL, moveControl());
+        set(BODY_ROTATION_CONTROL, bodyRotation);
         // The ordinary look controller resets body pitch each tick, preventing the swimming
         // move controller from steering downward against buoyancy while pursuing a target.
         if (profile.locomotion() == MindBodyLocomotion.AQUATIC)
