@@ -2,8 +2,12 @@ package com.magmaguy.easyminecraftgoals.mindshared.mind;
 
 import com.magmaguy.magmacore.ai.MindBodyLocomotion;
 import com.magmaguy.magmacore.ai.MindBodyProfile;
+import com.magmaguy.magmacore.ai.MindSwimWave;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.tags.FluidTags;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.MoverType;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.attributes.Attribute;
@@ -32,6 +36,20 @@ final class NativeMindBodyControl {
     private static final Field BODY_ROTATION_CONTROL = field(BodyRotationControl.class);
     // Vanilla's BodyRotationControl counts a mob as moving past this squared horizontal step.
     private static final double MOVING_SQUARED = 2.5000003E-7D;
+    // A swimmer's speed against the walk its movement speed and speed modifier make on grass: half again as fast.
+    private static final double SWIM_SPEEDUP = 1.5D;
+    // A mob walking on grass reaches 0.98 x speed squared x WALK_TERMINAL blocks per tick: vanilla's ground travel
+    // adds 0.98 x speed x speed each tick and keeps 0.546 of its velocity, so it settles at 0.546 / (1 - 0.546) of it.
+    private static final double WALK_TERMINAL = 0.546D / (1D - 0.546D);
+    // Share of the gap to the wanted swimming velocity closed each tick, so a swimmer glides rather than snaps.
+    private static final double SWIM_ACCELERATION = 0.25D;
+    // A swimmer this close to where its path wants it has arrived.
+    private static final double SWIM_ARRIVAL = 0.1D;
+    // Degrees a swimmer's heading turns per tick at most.
+    private static final float SWIM_TURN = 20F;
+    // Below this share of its height under water a swimmer is at the surface: it swims on rather than climbs out,
+    // unless a shore stops it.
+    private static final double SURFACE_SHARE = 0.85D;
     private static final Field ATTRIBUTE_INSTANCES = attributeInstances();
 
     private final Mob mob;
@@ -39,6 +57,8 @@ final class NativeMindBodyControl {
     private final Field squidMovementVector;
     private final NativeMindBodyRotationControl bodyRotation;
     private Vec3 flightVelocity;
+    // Radians along the swim wave; it advances while the body swims.
+    private double wavePhase;
 
     NativeMindBodyControl(Mob mob, MindBodyProfile profile) {
         this.mob = mob;
@@ -87,6 +107,11 @@ final class NativeMindBodyControl {
         }
         double startX = mob.getX(), startZ = mob.getZ();
         mob.getNavigation().tick();
+        if (swimming()) {
+            swim();
+            faceIfMoved(startX, startZ);
+            return;
+        }
         mob.getMoveControl().tick();
         mob.getLookControl().tick();
         mob.getJumpControl().tick();
@@ -122,6 +147,62 @@ final class NativeMindBodyControl {
     private void faceIfMoved(double startX, double startZ) {
         double dx = mob.getX() - startX, dz = mob.getZ() - startZ;
         if (dx * dx + dz * dz > MOVING_SQUARED) bodyRotation.moved();
+    }
+
+    /**
+     * Whether an amphibious body swims this tick rather than walks: it is in water, and not standing on the bottom of
+     * water too shallow to swim in.
+     */
+    private boolean swimming() {
+        if (profile.locomotion() != MindBodyLocomotion.AMPHIBIOUS || !mob.isInWater()) return false;
+        return !mob.onGround() || mob.getFluidHeight(FluidTags.WATER) > mob.getFluidJumpThreshold();
+    }
+
+    /**
+     * Swims an amphibious body toward where its path wants it, through the water in three dimensions, as vanilla's
+     * swimming animals do. A land mob's own water travel paddles at a fraction of its walking push and sinks, so it
+     * walked the bottom instead. The body glides toward its wanted velocity, swims its profile's wave on top of the
+     * path's height while it travels, and at the surface swims on rather than climbing out, unless a shore blocks it.
+     * Resting in water it holds its depth. It turns toward its travel a limited amount per tick.
+     */
+    private void swim() {
+        MoveControl move = mob.getMoveControl();
+        Vec3 desired = Vec3.ZERO;
+        double fullSpeed = 0D;
+        if (move.hasWanted()) {
+            double dx = move.getWantedX() - mob.getX(), dy = move.getWantedY() - mob.getY(), dz = move.getWantedZ() - mob.getZ();
+            double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            double speed = move.getSpeedModifier() * mob.getAttributeValue(Attributes.MOVEMENT_SPEED);
+            fullSpeed = SWIM_SPEEDUP * 0.98D * speed * speed * WALK_TERMINAL;
+            if (distance > SWIM_ARRIVAL) desired = new Vec3(dx, dy, dz).scale(Math.min(fullSpeed, distance) / distance);
+            NativeMindVersion.stopControl(move);
+        }
+        MindSwimWave wave = profile.swimWave();
+        double horizontal = desired.horizontalDistance();
+        if (wave.waves() && horizontal > 1.0E-3D && fullSpeed > 0D) {
+            // The height (h / 2) sin(phase) rises at (h / 2) w cos(phase), w = 2 pi / period. Scaled by the share of
+            // full speed it swims, the wave fades out as it slows down.
+            double omega = Math.PI * 2D / wave.periodTicks();
+            wavePhase = (wavePhase + omega) % (Math.PI * 2D);
+            double share = Math.min(1D, horizontal / fullSpeed);
+            desired = desired.add(0D, wave.height() * 0.5D * omega * Math.cos(wavePhase) * share, 0D);
+        }
+        if (desired.y > 0D && !mob.horizontalCollision
+                && mob.getFluidHeight(FluidTags.WATER) < mob.getBbHeight() * SURFACE_SHARE) {
+            desired = new Vec3(desired.x, 0D, desired.z);
+        }
+        Vec3 velocity = mob.getDeltaMovement();
+        Vec3 next = velocity.add(desired.subtract(velocity).scale(SWIM_ACCELERATION));
+        mob.setDeltaMovement(next);
+        mob.move(MoverType.SELF, next);
+        mob.fallDistance = 0;
+        double travel = next.horizontalDistance();
+        if (travel > 1.0E-3D) {
+            float heading = (float) Math.toDegrees(Math.atan2(-next.x, next.z));
+            mob.setYRot(mob.getYRot() + Mth.clamp(Mth.wrapDegrees(heading - mob.getYRot()), -SWIM_TURN, SWIM_TURN));
+            mob.setXRot((float) -Math.toDegrees(Math.atan2(next.y, travel)));
+        }
+        mob.getLookControl().tick();
     }
 
     void stopMovement() {

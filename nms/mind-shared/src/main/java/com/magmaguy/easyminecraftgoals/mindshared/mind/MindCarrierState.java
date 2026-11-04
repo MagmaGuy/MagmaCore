@@ -25,6 +25,8 @@ final class MindCarrierState {
     private static final NamespacedKey SCALE = new NamespacedKey("magmacore", "mind_scale");
     private static final NamespacedKey COLLIDABLE = new NamespacedKey("magmacore", "mind_collidable");
     private static final NamespacedKey CARRIER = new NamespacedKey("magmacore", "mind_carrier");
+    private static final NamespacedKey SWIM_WAVE_HEIGHT = new NamespacedKey("magmacore", "mind_swim_wave_height");
+    private static final NamespacedKey SWIM_WAVE_TICKS = new NamespacedKey("magmacore", "mind_swim_wave_ticks");
     private static final NamespacedKey OWNER = new NamespacedKey("magmacore", "mind_owner");
     private static final NamespacedKey PROGRAM = new NamespacedKey("magmacore", "mind_program");
     private static final NamespacedKey REVISION = new NamespacedKey("magmacore", "mind_revision");
@@ -41,6 +43,13 @@ final class MindCarrierState {
         data.set(SCALE, PersistentDataType.DOUBLE, profile.uniformScale());
         data.set(COLLIDABLE, PersistentDataType.BYTE, profile.entityCollidable() ? (byte) 1 : (byte) 0);
         data.set(CARRIER, PersistentDataType.STRING, profile.carrierType());
+        if (profile.swimWave().waves()) {
+            data.set(SWIM_WAVE_HEIGHT, PersistentDataType.DOUBLE, profile.swimWave().height());
+            data.set(SWIM_WAVE_TICKS, PersistentDataType.INTEGER, profile.swimWave().periodTicks());
+        } else {
+            data.remove(SWIM_WAVE_HEIGHT);
+            data.remove(SWIM_WAVE_TICKS);
+        }
     }
 
     static boolean isMarked(LivingEntity entity) {
@@ -101,6 +110,8 @@ final class MindCarrierState {
         data.remove(SCALE);
         data.remove(COLLIDABLE);
         data.remove(CARRIER);
+        data.remove(SWIM_WAVE_HEIGHT);
+        data.remove(SWIM_WAVE_TICKS);
         data.remove(OWNER);
         data.remove(PROGRAM);
         data.remove(REVISION);
@@ -119,11 +130,16 @@ final class MindCarrierState {
             throw new IllegalStateException("MagmaCore mind carrier has an incomplete body profile");
         }
         try {
+            Double waveHeight = data.get(SWIM_WAVE_HEIGHT, PersistentDataType.DOUBLE);
+            Integer waveTicks = data.get(SWIM_WAVE_TICKS, PersistentDataType.INTEGER);
             return new MindBodyProfile(
                     MindBodyLocomotion.valueOf(locomotion),
                     scale,
                     collidable != 0,
-                    carrier == null ? MindBodyProfile.DEFAULT_CARRIER_TYPE : carrier);
+                    carrier == null ? MindBodyProfile.DEFAULT_CARRIER_TYPE : carrier,
+                    waveHeight == null || waveTicks == null
+                            ? com.magmaguy.magmacore.ai.MindSwimWave.NONE
+                            : new com.magmaguy.magmacore.ai.MindSwimWave(waveHeight, waveTicks));
         } catch (IllegalArgumentException exception) {
             throw new IllegalStateException("MagmaCore mind carrier has an invalid body profile", exception);
         }
