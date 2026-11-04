@@ -24,6 +24,7 @@ import net.minecraft.world.entity.ai.navigation.FlyingPathNavigation;
 import net.minecraft.world.entity.ai.navigation.GroundPathNavigation;
 import net.minecraft.world.entity.ai.navigation.PathNavigation;
 import net.minecraft.world.entity.ai.navigation.WaterBoundPathNavigation;
+import net.minecraft.world.level.pathfinder.Path;
 import net.minecraft.world.phys.Vec3;
 
 import java.lang.reflect.Field;
@@ -170,7 +171,12 @@ final class NativeMindBodyControl {
         Vec3 desired = Vec3.ZERO;
         double fullSpeed = 0D;
         if (move.hasWanted()) {
-            double dx = move.getWantedX() - mob.getX(), dy = move.getWantedY() - mob.getY(), dz = move.getWantedZ() - mob.getZ();
+            // It climbs or dives toward the height its path ends at, as a swimmer heads for the surface, while it
+            // steers by the next waypoint. A path through open water keeps its depth from node to node, so aiming at
+            // the next one alone left it creeping up, well below where it was going.
+            Path path = mob.getNavigation().getPath();
+            double wantedY = path != null && !path.isDone() && path.getEndNode() != null ? path.getEndNode().y : move.getWantedY();
+            double dx = move.getWantedX() - mob.getX(), dy = wantedY - mob.getY(), dz = move.getWantedZ() - mob.getZ();
             double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
             double speed = move.getSpeedModifier() * mob.getAttributeValue(Attributes.MOVEMENT_SPEED);
             fullSpeed = SWIM_SPEEDUP * 0.98D * speed * speed * WALK_TERMINAL;
