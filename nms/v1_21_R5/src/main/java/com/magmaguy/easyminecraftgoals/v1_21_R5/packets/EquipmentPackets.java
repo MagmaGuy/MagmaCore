@@ -10,8 +10,11 @@ import net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket;
 import net.minecraft.network.protocol.game.ClientboundSetEquipmentPacket;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.equipment.Equippable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -20,7 +23,9 @@ import java.util.UUID;
 /**
  * Veils an entity per recipient: its equipment arrives empty and its shared flags arrive with the invisible bit
  * set and the glowing bit cleared, since a client outlines an invisible mob that glows, so a viewer who tracks a
- * model's body sees nothing of the mob under the model. A spawn whose flags are all
+ * model's body sees nothing of the mob under the model. A worn saddle arrives as a saddle with nothing to draw
+ * instead: a client hands a rider control of a horse, pig or strider only while it sees a saddle on it, and the rider
+ * of a model's mount is one of its viewers. A spawn whose flags are all
  * default sends no flags at all, so every veiled spawn is followed by an invisible-flags entry of its own. Never
  * changes a packet shared with another player, and copies nothing until a packet needs veiling: every packet the
  * server sends a viewer with veils passes through here.
@@ -51,7 +56,9 @@ public final class EquipmentPackets {
         if (packet instanceof ClientboundSetEquipmentPacket equipment) {
             if (!PacketEquipmentVeil.isVeiled(veils, equipment.getEntity())) return packet;
             List<Pair<EquipmentSlot, ItemStack>> emptied = new ArrayList<>(equipment.getSlots().size());
-            for (Pair<EquipmentSlot, ItemStack> slot : equipment.getSlots()) emptied.add(Pair.of(slot.getFirst(), ItemStack.EMPTY));
+            for (Pair<EquipmentSlot, ItemStack> slot : equipment.getSlots())
+                emptied.add(Pair.of(slot.getFirst(), slot.getFirst() == EquipmentSlot.SADDLE && !slot.getSecond().isEmpty()
+                        ? unseenSaddle() : ItemStack.EMPTY));
             return new ClientboundSetEquipmentPacket(equipment.getEntity(), emptied);
         }
         if (packet instanceof ClientboundSetEntityDataPacket data) {
@@ -97,6 +104,13 @@ public final class EquipmentPackets {
             packets.add(child);
         }
         return packets;
+    }
+
+    /** A saddle that equips the saddle slot with no model, so the client sees a saddled mob and draws nothing. */
+    private static ItemStack unseenSaddle() {
+        ItemStack saddle = new ItemStack(Items.SADDLE);
+        saddle.set(DataComponents.EQUIPPABLE, Equippable.builder(EquipmentSlot.SADDLE).build());
+        return saddle;
     }
 
     private static ClientboundSetEntityDataPacket invisibleFlags(int entityId) {
