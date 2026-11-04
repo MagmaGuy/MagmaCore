@@ -25,6 +25,7 @@ import net.minecraft.world.entity.ai.navigation.GroundPathNavigation;
 import net.minecraft.world.entity.ai.navigation.PathNavigation;
 import net.minecraft.world.entity.ai.navigation.WaterBoundPathNavigation;
 import net.minecraft.world.level.pathfinder.Path;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 import java.lang.reflect.Field;
@@ -51,6 +52,12 @@ final class NativeMindBodyControl {
     // Below this share of its height under water a swimmer is at the surface: it swims on rather than climbs out,
     // unless a shore stops it.
     private static final double SURFACE_SHARE = 0.85D;
+    // Blocks per tick a swimmer rises climbing out onto a shore: the speed of vanilla's hop out of water.
+    private static final double CLIMB_SPEED = 0.3D;
+    // How far onto a shore a swimmer steps once level with its top; it needs room to stand that far in.
+    private static final double SHORE_STEP = 0.2D;
+    // The height steps it tries, finding a shore's top.
+    private static final double SHORE_PROBE = 1D / 16D;
     private static final Field ATTRIBUTE_INSTANCES = attributeInstances();
 
     private final Mob mob;
@@ -60,6 +67,11 @@ final class NativeMindBodyControl {
     private Vec3 flightVelocity;
     // Radians along the swim wave; it advances while the body swims.
     private double wavePhase;
+    // A swimmer climbing out onto a shore: the height its feet rise to, NaN when it isn't climbing, the way it steps
+    // onto the shore, and the ticks the climb has left.
+    private double climbY = Double.NaN;
+    private double climbX, climbZ;
+    private int climbTicks;
 
     NativeMindBodyControl(Mob mob, MindBodyProfile profile) {
         this.mob = mob;
@@ -108,6 +120,11 @@ final class NativeMindBodyControl {
         }
         double startX = mob.getX(), startZ = mob.getZ();
         mob.getNavigation().tick();
+        if (!Double.isNaN(climbY)) {
+            climbOut();
+            faceIfMoved(startX, startZ);
+            return;
+        }
         if (swimming()) {
             swim();
             faceIfMoved(startX, startZ);
@@ -164,13 +181,16 @@ final class NativeMindBodyControl {
      * swimming animals do. A land mob's own water travel paddles at a fraction of its walking push and sinks, so it
      * walked the bottom instead. The body glides toward its wanted velocity, swims its profile's wave on top of the
      * path's height while it travels, and at the surface swims on rather than climbing out, unless a shore blocks it.
-     * Resting in water it holds its depth. It turns toward its travel a limited amount per tick.
+     * Bumping into the shore its path leads onto, it climbs out (see {@link #findShore}). Resting in water it holds
+     * its depth. It turns toward its travel a limited amount per tick.
      */
     private void swim() {
         MoveControl move = mob.getMoveControl();
         Vec3 desired = Vec3.ZERO;
         double fullSpeed = 0D;
+        double nextY = Double.NaN;
         if (move.hasWanted()) {
+            nextY = move.getWantedY();
             // It climbs or dives toward the height its path ends at, as a swimmer heads for the surface, while it
             // steers by the next waypoint. A path through open water keeps its depth from node to node, so aiming at
             // the next one alone left it creeping up, well below where it was going.
@@ -208,11 +228,73 @@ final class NativeMindBodyControl {
             mob.setYRot(mob.getYRot() + Mth.clamp(Mth.wrapDegrees(heading - mob.getYRot()), -SWIM_TURN, SWIM_TURN));
             mob.setXRot((float) -Math.toDegrees(Math.atan2(next.y, travel)));
         }
+        if (mob.horizontalCollision && horizontal > 1.0E-3D) findShore(desired.x / horizontal, desired.z / horizontal, nextY);
         mob.getLookControl().tick();
+    }
+
+    /**
+     * Starts a swimmer at the surface climbing out onto the shore it bumped into, when its path leads out of the water
+     * there and the shore's top stands no higher above the water than the swimmer could step up on land. Vanilla
+     * lifts anything leaving water with a hop of the same reach (0.6 blocks, a mob's own step height), and this swim
+     * replaces vanilla's water travel, hop included. Floating with most of its body under water, the swimmer could
+     * only rise until its feet left the water, still short of a shore level with the water, then fell back in. A
+     * bank a full block above the water stops it, as it stops a player.
+     *
+     * @param dirX  the way it swims, horizontally, as is dirZ: a unit vector
+     * @param nextY the height of its path's next waypoint, NaN without one
+     */
+    private void findShore(double dirX, double dirZ, double nextY) {
+        double depth = mob.getFluidHeight(FluidTags.WATER);
+        // Fully under water it swims up first.
+        if (depth <= 0D || depth > mob.getBbHeight()) return;
+        // Only where its path climbs out of the water, not when it brushes a bank swimming along it.
+        if (!(nextY > mob.getY() + depth)) return;
+        AABB box = mob.getBoundingBox();
+        double stepX = dirX * SHORE_STEP, stepZ = dirZ * SHORE_STEP;
+        double reach = depth + mob.maxUpStep();
+        for (double rise = SHORE_PROBE; rise <= reach; rise += SHORE_PROBE) {
+            if (!mob.level().noCollision(mob, box.move(stepX, rise, stepZ))) continue;
+            climbY = mob.getY() + rise;
+            climbX = dirX;
+            climbZ = dirZ;
+            climbTicks = (int) Math.ceil(rise / CLIMB_SPEED);
+            return;
+        }
+    }
+
+    /**
+     * Rises toward the shore's top at the speed of vanilla's hop out of water, then steps onto it and walks from
+     * there. Something above it, the shore filling up, or a climb that outlasts its height gives up, and it swims on.
+     */
+    private void climbOut() {
+        double left = climbY - mob.getY();
+        AABB box = mob.getBoundingBox();
+        if (climbTicks-- < 0 || !mob.level().noCollision(mob, box.move(climbX * SHORE_STEP, left, climbZ * SHORE_STEP))) {
+            climbY = Double.NaN;
+            return;
+        }
+        mob.fallDistance = 0;
+        if (left > 1.0E-4D) {
+            double rise = Math.min(CLIMB_SPEED, left), before = mob.getY();
+            Vec3 lift = new Vec3(0D, rise, 0D);
+            mob.setDeltaMovement(lift);
+            mob.move(MoverType.SELF, lift);
+            if (mob.getY() - before < rise * 0.5D) {
+                climbY = Double.NaN;
+                return;
+            }
+            if (climbY - mob.getY() > 1.0E-4D) return;
+        }
+        Vec3 step = new Vec3(climbX * SHORE_STEP, 0D, climbZ * SHORE_STEP);
+        mob.move(MoverType.SELF, step);
+        // It walks on from rest, rather than sliding on with the step.
+        mob.setDeltaMovement(Vec3.ZERO);
+        climbY = Double.NaN;
     }
 
     void stopMovement() {
         flightVelocity = null;
+        climbY = Double.NaN;
         mob.getNavigation().stop();
         NativeMindVersion.stopControl(mob.getMoveControl());
         mob.stopInPlace();
@@ -231,6 +313,7 @@ final class NativeMindBodyControl {
     }
 
     void tickPausedPhysics() {
+        climbY = Double.NaN;
         beforeMindTick();
         mob.getNavigation().stop();
         NativeMindVersion.stopControl(mob.getMoveControl());
