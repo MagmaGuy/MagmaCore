@@ -5,6 +5,7 @@ import com.magmaguy.magmacore.ai.MindBodyLocomotion;
 import com.magmaguy.magmacore.ai.MindControl;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Mob;
+import net.minecraft.world.level.pathfinder.Path;
 import org.bukkit.Location;
 import org.bukkit.entity.LivingEntity;
 
@@ -84,12 +85,20 @@ final class NativeMindActuator {
                 throw new IllegalArgumentException("speedModifier must be finite and positive");
             }
             requireSameWorld(destination);
-            boolean started = body.profile().locomotion() != MindBodyLocomotion.STATIONARY
-                    && mob.getNavigation().moveTo(
-                            destination.getX(),
-                            destination.getY(),
-                            destination.getZ(),
-                            speedModifier);
+            boolean started = false;
+            if (body.profile().locomotion() != MindBodyLocomotion.STATIONARY) {
+                // Native navigation plans nothing while a walker is airborne or a swimmer is out of water.
+                // Handing that null plan to moveTo drops the current path, and with it all steering, so a
+                // body jumping at a one-block step rises straight up and lands where it took off. Keep the
+                // current path instead, as vanilla's moveTo(Entity, double) does; accuracy 1 matches
+                // moveTo(double, double, double, double).
+                Path path = mob.getNavigation().createPath(
+                        destination.getX(),
+                        destination.getY(),
+                        destination.getZ(),
+                        1);
+                started = path != null && mob.getNavigation().moveTo(path, speedModifier);
+            }
             navigation.destinationRequested(destination);
             return started;
         }
