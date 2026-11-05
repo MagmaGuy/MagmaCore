@@ -28,6 +28,7 @@ final class MindCarrierState {
     private static final NamespacedKey SWIM_WAVE_HEIGHT = new NamespacedKey("magmacore", "mind_swim_wave_height");
     private static final NamespacedKey SWIM_WAVE_TICKS = new NamespacedKey("magmacore", "mind_swim_wave_ticks");
     private static final NamespacedKey BREATHES_UNDERWATER = new NamespacedKey("magmacore", "mind_breathes_underwater");
+    private static final NamespacedKey SWIM_SPEED = new NamespacedKey("magmacore", "mind_swim_speed");
     private static final NamespacedKey OWNER = new NamespacedKey("magmacore", "mind_owner");
     private static final NamespacedKey PROGRAM = new NamespacedKey("magmacore", "mind_program");
     private static final NamespacedKey REVISION = new NamespacedKey("magmacore", "mind_revision");
@@ -53,6 +54,9 @@ final class MindCarrierState {
         }
         if (profile.breathesUnderwater()) data.set(BREATHES_UNDERWATER, PersistentDataType.BYTE, (byte) 1);
         else data.remove(BREATHES_UNDERWATER);
+        if (profile.swimSpeed() != MindBodyProfile.DEFAULT_SWIM_SPEED)
+            data.set(SWIM_SPEED, PersistentDataType.DOUBLE, profile.swimSpeed());
+        else data.remove(SWIM_SPEED);
     }
 
     static boolean isMarked(LivingEntity entity) {
@@ -116,6 +120,7 @@ final class MindCarrierState {
         data.remove(SWIM_WAVE_HEIGHT);
         data.remove(SWIM_WAVE_TICKS);
         data.remove(BREATHES_UNDERWATER);
+        data.remove(SWIM_SPEED);
         data.remove(OWNER);
         data.remove(PROGRAM);
         data.remove(REVISION);
@@ -137,6 +142,7 @@ final class MindCarrierState {
             Double waveHeight = data.get(SWIM_WAVE_HEIGHT, PersistentDataType.DOUBLE);
             Integer waveTicks = data.get(SWIM_WAVE_TICKS, PersistentDataType.INTEGER);
             Byte breathes = data.get(BREATHES_UNDERWATER, PersistentDataType.BYTE);
+            Double swimSpeed = data.get(SWIM_SPEED, PersistentDataType.DOUBLE);
             return new MindBodyProfile(
                     MindBodyLocomotion.valueOf(locomotion),
                     scale,
@@ -145,7 +151,8 @@ final class MindCarrierState {
                     waveHeight == null || waveTicks == null
                             ? com.magmaguy.magmacore.ai.MindSwimWave.NONE
                             : new com.magmaguy.magmacore.ai.MindSwimWave(waveHeight, waveTicks),
-                    breathes != null && breathes != 0);
+                    breathes != null && breathes != 0,
+                    swimSpeed == null ? MindBodyProfile.DEFAULT_SWIM_SPEED : swimSpeed);
         } catch (IllegalArgumentException exception) {
             throw new IllegalStateException("MagmaCore mind carrier has an invalid body profile", exception);
         }

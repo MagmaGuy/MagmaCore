@@ -38,8 +38,6 @@ final class NativeMindBodyControl {
     private static final Field BODY_ROTATION_CONTROL = field(BodyRotationControl.class);
     // Vanilla's BodyRotationControl counts a mob as moving past this squared horizontal step.
     private static final double MOVING_SQUARED = 2.5000003E-7D;
-    // A swimmer's speed against the walk its movement speed and speed modifier make on grass: half again as fast.
-    private static final double SWIM_SPEEDUP = 1.5D;
     // A mob walking on grass reaches 0.98 x speed squared x WALK_TERMINAL blocks per tick: vanilla's ground travel
     // adds 0.98 x speed x speed each tick and keeps 0.546 of its velocity, so it settles at 0.546 / (1 - 0.546) of it.
     private static final double WALK_TERMINAL = 0.546D / (1D - 0.546D);
@@ -200,7 +198,9 @@ final class NativeMindBodyControl {
             double dx = move.getWantedX() - mob.getX(), dy = wantedY - mob.getY(), dz = move.getWantedZ() - mob.getZ();
             double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
             double speed = move.getSpeedModifier() * mob.getAttributeValue(Attributes.MOVEMENT_SPEED);
-            fullSpeed = SWIM_SPEEDUP * 0.98D * speed * speed * WALK_TERMINAL;
+            // A swimmer's speed is its profile's multiple of the walk its movement speed and speed modifier make on
+            // grass.
+            fullSpeed = profile.swimSpeed() * 0.98D * speed * speed * WALK_TERMINAL;
             if (distance > SWIM_ARRIVAL) desired = new Vec3(dx, dy, dz).scale(Math.min(fullSpeed, distance) / distance);
             NativeMindVersion.stopControl(move);
         }
