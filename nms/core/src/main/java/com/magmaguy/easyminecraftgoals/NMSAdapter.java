@@ -415,18 +415,7 @@ public abstract class NMSAdapter {
     public void shutdownPacketInteractionListener() {
         // Default no-op
         PacketEntityInteractionManager.getInstance().shutdown();
-        com.magmaguy.easyminecraftgoals.internal.ClientFrameLatency.clear();
         com.magmaguy.easyminecraftgoals.internal.PoseBacklog.clear();
-    }
-
-    /**
-     * Sends a player a ping with this id, which a Java client answers from its main thread once per frame; see
-     * {@link com.magmaguy.easyminecraftgoals.internal.ClientFrameLatency}. Returns false when this adapter cannot,
-     * and then no answer comes. Adapters that install the packet interaction listener (1.21+) support it. Called
-     * off the primary thread.
-     */
-    public boolean sendPing(org.bukkit.entity.Player player, int id) {
-        return false;
     }
 
     /**

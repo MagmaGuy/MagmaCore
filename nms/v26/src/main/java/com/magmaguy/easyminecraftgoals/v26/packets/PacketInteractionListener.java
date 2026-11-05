@@ -190,7 +190,6 @@ public class PacketInteractionListener implements Listener {
     }
 
     private void uninjectPlayer(Player player) {
-        com.magmaguy.easyminecraftgoals.internal.ClientFrameLatency.clearViewer(player.getUniqueId());
         com.magmaguy.easyminecraftgoals.internal.PoseBacklog.clearViewer(player.getUniqueId());
         com.magmaguy.easyminecraftgoals.internal.PacketPassengerRegistry.clearViewer(player.getUniqueId());
         com.magmaguy.easyminecraftgoals.internal.PacketEquipmentVeil.clearViewer(player.getUniqueId());
@@ -215,10 +214,6 @@ public class PacketInteractionListener implements Listener {
 
         @Override
         public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-            // Answers to ClientFrameLatency pings carry no game state; the server never sees them.
-            if (msg instanceof net.minecraft.network.protocol.common.ServerboundPongPacket pong
-                    && com.magmaguy.easyminecraftgoals.internal.ClientFrameLatency.answer(
-                    player.getUniqueId(), pong.getId(), System.nanoTime())) return;
             // MC 26.1+ splits the old ServerboundInteractPacket: attacks now use
             // ServerboundAttackPacket, while ServerboundInteractPacket covers right-click only.
             int entityId = -1;

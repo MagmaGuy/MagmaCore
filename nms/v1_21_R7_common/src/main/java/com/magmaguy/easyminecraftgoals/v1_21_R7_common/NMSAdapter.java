@@ -379,13 +379,6 @@ public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter {
     }
 
     @Override
-    public boolean sendPing(org.bukkit.entity.Player player, int id) {
-        CraftBukkitBridge.getServerPlayer(player).connection.send(
-                new net.minecraft.network.protocol.common.ClientboundPingPacket(id));
-        return true;
-    }
-
-    @Override
     public void shutdownPacketInteractionListener() {
         if (packetInteractionListener != null) {
             packetInteractionListener.shutdown();
