@@ -72,6 +72,12 @@ public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter{
     }
 
     @Override
+    public boolean resetHitbox(Entity entity) {
+        if (entity == null) return false;
+        return Hitbox.resetHitbox(((CraftEntity) entity).getHandle());
+    }
+
+    @Override
     public float getBodyRotation(Entity entity) {
         return BodyRotation.getBodyRotation(((CraftEntity) entity).getHandle());
     }

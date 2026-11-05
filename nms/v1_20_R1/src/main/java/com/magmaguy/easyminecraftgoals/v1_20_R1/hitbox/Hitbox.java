@@ -26,4 +26,10 @@ public class Hitbox {
         entity.setBoundingBox(entityDimensions.makeBoundingBox(entity.position()));
         return true;
     }
+
+    /** Gives the entity back the box its type, pose and scale give it, dropping a custom one. */
+    public static boolean resetHitbox(Entity entity) {
+        entity.refreshDimensions();
+        return true;
+    }
 }

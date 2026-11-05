@@ -180,6 +180,12 @@ public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter {
     }
 
     @Override
+    public boolean resetHitbox(Entity entity) {
+        if (entity == null) return false;
+        return Hitbox.resetHitbox(CraftBukkitBridge.getNMSEntity(entity));
+    }
+
+    @Override
     public boolean setPassengerOffset(Entity entity, double offsetX, double offsetY, double offsetZ) {
         if (entity == null) return false;
         return PassengerOffset.setPassengerOffset(CraftBukkitBridge.getNMSEntity(entity), offsetX, offsetY, offsetZ);

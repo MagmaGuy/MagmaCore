@@ -68,6 +68,12 @@ public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter {
     }
 
     @Override
+    public boolean resetHitbox(Entity entity) {
+        if (entity == null) return false;
+        return Hitbox.resetHitbox(((CraftEntity) entity).getHandle());
+    }
+
+    @Override
     public boolean setPassengerOffset(Entity entity, double offsetX, double offsetY, double offsetZ) {
         if (entity == null) return false;
         return PassengerOffset.setPassengerOffset(((CraftEntity) entity).getHandle(), offsetX, offsetY, offsetZ);

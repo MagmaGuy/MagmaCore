@@ -10,7 +10,8 @@ public class Hitbox {
     }
 
     public static boolean setCustomHitbox(Entity entity, float width, float height, boolean fixed) {
-        EntityDimensions entityDimensions = new EntityDimensions(width, height, height, null, fixed);
+        // The mob's own attachment points stay: a rider's seat, a sheared item's drop and the name tag read them.
+        EntityDimensions entityDimensions = new EntityDimensions(width, height, height, entity.getDimensions(entity.getPose()).attachments(), fixed);
         Class<?> entityClass = Entity.class;
         try {
             Field field = entityClass.getDeclaredField("bf");
@@ -24,6 +25,12 @@ public class Hitbox {
             return false;
         }
         entity.setBoundingBox(entityDimensions.makeBoundingBox(entity.position()));
+        return true;
+    }
+
+    /** Gives the entity back the box its type, pose and scale give it, dropping a custom one. */
+    public static boolean resetHitbox(Entity entity) {
+        entity.refreshDimensions();
         return true;
     }
 }

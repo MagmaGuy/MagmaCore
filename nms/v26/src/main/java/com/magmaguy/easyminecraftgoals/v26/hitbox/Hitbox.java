@@ -22,7 +22,8 @@ public class Hitbox {
         }
         if (dimensionsField == null) return false;
 
-        EntityDimensions entityDimensions = new EntityDimensions(width, height, height, null, fixed);
+        // The mob's own attachment points stay: a rider's seat, a sheared item's drop and the name tag read them.
+        EntityDimensions entityDimensions = new EntityDimensions(width, height, height, entity.getDimensions(entity.getPose()).attachments(), fixed);
         try {
             dimensionsField.set(entity, entityDimensions);
         } catch (Exception e) {
@@ -49,5 +50,11 @@ public class Hitbox {
         }
         new RuntimeException("Hitbox: no EntityDimensions field on Entity.class; custom hitboxes disabled this session").printStackTrace();
         return null;
+    }
+
+    /** Gives the entity back the box its type, pose and scale give it, dropping a custom one. */
+    public static boolean resetHitbox(Entity entity) {
+        entity.refreshDimensions();
+        return true;
     }
 }

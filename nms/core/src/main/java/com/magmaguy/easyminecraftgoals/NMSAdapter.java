@@ -206,9 +206,20 @@ public abstract class NMSAdapter {
      * @param width Width of the hitbox. Sets the X and Z axis at the same time, that's a Minecraft limitation
      * @param height The height of the hitbox, has to be lower than 64.
      * @param fixed Whether the hitbox can scale
-     * @return
+     * @return whether the entity now has that box. Minecraft rebuilds an entity's box from its type whenever its
+     * scale or pose changes, which drops this one; the entity keeps its own passenger and name tag points.
      */
     public abstract boolean setCustomHitbox(Entity entity, float width, float height, boolean fixed);
+
+    /**
+     * Gives the entity back the box its type, pose and scale give it, dropping a box from
+     * {@link #setCustomHitbox}.
+     *
+     * @return whether this server version could reset it
+     */
+    public boolean resetHitbox(Entity entity) {
+        return false;
+    }
 
     /**
      * Sets a custom passenger riding offset for an entity, overriding where
