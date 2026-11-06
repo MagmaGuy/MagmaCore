@@ -13,6 +13,10 @@ public final class MindMemoryStore {
     private final MindMemoryView sharedView = new View();
     private long expiredAtTick;
     private boolean expiryCurrent;
+    /** Counts every change to a persistent memory, so {@link #persistentState()} rebuilds only after one. */
+    private long persistentChanges;
+    private MindPersistentState persistentCache;
+    private long persistentCacheChanges = -1L, persistentCacheTick;
 
     public MindMemoryStore(MindSchema schema) {
         this.schema = schema;
@@ -60,11 +64,21 @@ public final class MindMemoryStore {
         }
         currentTick = saturatedAdd(currentTick, elapsedTicks);
         expiryCurrent = false;
+        persistentChanges++;
     }
 
+    /**
+     * The persistent memories, encoded. Hosts ask every tick to see whether their saved copy is stale, so the same
+     * immutable state comes back until a persistent memory is set to something else, forgotten or expires, or, while
+     * one counts down a TTL, until the clock moves on.
+     */
     public MindPersistentState persistentState() {
         if (pendingRestore != null) return pendingRestore;
         expire(currentTick);
+        if (persistentCache != null && persistentCacheChanges == persistentChanges
+                && (persistentCache.remainingTtlTicks().isEmpty() || persistentCacheTick == currentTick)) {
+            return persistentCache;
+        }
         Map<String, Object> encoded = new LinkedHashMap<>();
         Map<String, Long> remainingTtl = new LinkedHashMap<>();
         for (Map.Entry<MindMemoryKey<?>, Entry> entry : values.entrySet()) {
@@ -77,7 +91,10 @@ public final class MindMemoryStore {
                         Math.max(1L, entry.getValue().expiresAtTick - currentTick));
             }
         }
-        return new MindPersistentState(MindPersistentState.CURRENT_FORMAT, encoded, remainingTtl);
+        persistentCache = new MindPersistentState(MindPersistentState.CURRENT_FORMAT, encoded, remainingTtl);
+        persistentCacheChanges = persistentChanges;
+        persistentCacheTick = currentTick;
+        return persistentCache;
     }
 
     public void restore(MindPersistentState state) {
@@ -88,12 +105,14 @@ public final class MindMemoryStore {
         values.clear();
         pendingRestore = state;
         expiryCurrent = false;
+        persistentChanges++;
     }
 
     private void materializePendingRestore(long gameTick) {
         if (pendingRestore == null) return;
         MindPersistentState state = pendingRestore;
         pendingRestore = null;
+        persistentChanges++;
         for (Map.Entry<String, Object> encoded : state.memories().entrySet()) {
             MindMemoryKey<?> key = schema.memory(encoded.getKey());
             if (key == null || !key.persistent()) continue;
@@ -109,10 +128,12 @@ public final class MindMemoryStore {
 
     private void expire(long gameTick) {
         if (expiryCurrent && expiredAtTick == gameTick) return;
-        Iterator<Entry> iterator = values.values().iterator();
+        Iterator<Map.Entry<MindMemoryKey<?>, Entry>> iterator = values.entrySet().iterator();
         while (iterator.hasNext()) {
-            Entry entry = iterator.next();
-            if (entry.expiresAtTick <= gameTick) iterator.remove();
+            Map.Entry<MindMemoryKey<?>, Entry> entry = iterator.next();
+            if (entry.getValue().expiresAtTick > gameTick) continue;
+            if (entry.getKey().persistent()) persistentChanges++;
+            iterator.remove();
         }
         expiredAtTick = gameTick;
         expiryCurrent = true;
@@ -161,7 +182,7 @@ public final class MindMemoryStore {
         @Override
         public void forget(MindMemoryKey<?> key) {
             requireDeclared(key);
-            values.remove(key);
+            if (values.remove(key) != null && key.persistent()) persistentChanges++;
         }
 
         @Override
@@ -172,7 +193,9 @@ public final class MindMemoryStore {
 
         private <T> void put(MindMemoryKey<T> key, T value, long expiresAtTick) {
             requireDeclared(key);
-            values.put(key, new Entry(key.requireType(value), expiresAtTick));
+            Entry next = new Entry(key.requireType(value), expiresAtTick);
+            Entry previous = values.put(key, next);
+            if (key.persistent() && !next.equals(previous)) persistentChanges++;
             if (expiresAtTick <= currentTick) expiryCurrent = false;
         }
 
