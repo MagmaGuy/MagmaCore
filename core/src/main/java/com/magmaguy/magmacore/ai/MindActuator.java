@@ -17,6 +17,14 @@ public interface MindActuator {
     boolean moveTo(Location destination, double speedModifier);
 
     /**
+     * Walks, or swims, straight at the destination at speedModifier times the body's movement speed, planning no
+     * path: for the last stretch to an exact spot, where {@link #moveTo}'s path ends about a block short. Nothing steers
+     * the body round what stands in the way, so call it only with a clear line, and again every tick. Requires the MOVE
+     * lease; false for a flying or stationary body, or while movement is overridden.
+     */
+    default boolean moveDirect(Location destination, double speedModifier) { return false; }
+
+    /**
      * One-tick native flight velocity in blocks/tick, scaled down to {@link #MAX_FLIGHT_SPEED} when faster;
      * requires MOVE and LOOK leases and a flying body.
      */

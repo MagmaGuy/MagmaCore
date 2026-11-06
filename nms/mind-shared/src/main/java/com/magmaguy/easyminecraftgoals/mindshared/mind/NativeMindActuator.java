@@ -104,6 +104,29 @@ final class NativeMindActuator {
         }
 
         @Override
+        public boolean moveDirect(Location destination, double speedModifier) {
+            require(MindControl.MOVE);
+            if (movementOverridden.getAsBoolean()) return false;
+            Objects.requireNonNull(destination, "destination");
+            if (!Double.isFinite(speedModifier) || speedModifier <= 0.0D) {
+                throw new IllegalArgumentException("speedModifier must be finite and positive");
+            }
+            requireSameWorld(destination);
+            MindBodyLocomotion locomotion = body.profile().locomotion();
+            if (locomotion == MindBodyLocomotion.STATIONARY || locomotion == MindBodyLocomotion.FLYING) return false;
+            // The body control ticks the move control after the Mind, walking toward its wanted point, or swimming
+            // toward it in water; with the path dropped, nothing else sets that point this tick.
+            mob.getNavigation().stop();
+            mob.getMoveControl().setWantedPosition(
+                    destination.getX(),
+                    destination.getY(),
+                    destination.getZ(),
+                    speedModifier);
+            navigation.destinationRequested(destination);
+            return true;
+        }
+
+        @Override
         public void stopMoving() {
             require(MindControl.MOVE);
             if (movementOverridden.getAsBoolean()) return;
