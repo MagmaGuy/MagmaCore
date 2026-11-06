@@ -33,6 +33,15 @@ public interface MindHandle extends AutoCloseable {
 
     MindSnapshot inspect();
 
+    /**
+     * Whether the Mind runs the behavior with this identifier now, as {@code inspect().activeBehaviors()} would say,
+     * without building a snapshot: a caller asking about many Minds each tick pays a loop, not a copy of each one's
+     * memory. Primary thread only.
+     */
+    default boolean isRunning(String behaviorIdentifier) {
+        return inspect().activeBehaviors().contains(behaviorIdentifier);
+    }
+
     @Override
     void close();
 }

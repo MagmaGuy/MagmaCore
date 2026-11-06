@@ -27,6 +27,7 @@ import java.util.UUID;
 import java.util.function.LongPredicate;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -233,6 +234,25 @@ class NativeMindBehaviorProbeTest {
         assertEquals(List.of(MindStopReason.PREEMPTED), hover.stopped);
         long phaseTick = grid(owner, "fixture:follow", 5, FIRST_TICK);
         assertTrue(follow.asked.stream().allMatch(tick -> (tick - phaseTick) % 5 == 0));
+    }
+
+    @Test
+    void isRunningSaysWhatTheActiveBehaviorsSayThroughAPreemption() {
+        UUID owner = new UUID(3L, 4L);
+        long ready = FIRST_TICK + 13;
+        Probed hover = new Probed("fixture:hover", 30, 1, tick -> true);
+        Probed follow = new Probed("fixture:follow", 10, 5, tick -> tick >= ready);
+        Entity entity = new Entity(owner, hover, follow);
+        long preempted = grid(owner, "fixture:follow", 5, ready);
+        for (long tick = FIRST_TICK; tick <= preempted + 2; tick++) {
+            entity.tick(tick);
+            for (String identifier : List.of("fixture:hover", "fixture:follow", "fixture:absent")) {
+                assertEquals(entity.runtime.activeBehaviors().contains(identifier), entity.runtime.isRunning(identifier),
+                        identifier + " at tick " + tick);
+            }
+        }
+        assertTrue(entity.runtime.isRunning("fixture:follow"));
+        assertFalse(entity.runtime.isRunning("fixture:hover"));
     }
 
     @Test

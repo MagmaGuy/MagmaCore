@@ -259,6 +259,12 @@ final class NativeMindSession implements MindHandle {
     }
 
     @Override
+    public boolean isRunning(String behaviorIdentifier) {
+        NativeMindHost.requirePrimaryThread();
+        return runtime != null && runtime.isRunning(behaviorIdentifier);
+    }
+
+    @Override
     public void close() {
         NativeMindHost.requirePrimaryThread();
         if (closed) return;

@@ -171,6 +171,13 @@ final class NativeMindProgramRuntime {
         return externalStopReason == null ? MindStopReason.COMPLETED : externalStopReason;
     }
 
+    boolean isRunning(String identifier) {
+        for (NativeMindBehaviorControl behavior : behaviors) {
+            if (behavior.running() && behavior.identifier().equals(identifier)) return true;
+        }
+        return false;
+    }
+
     Set<String> activeBehaviors() {
         Set<String> active = new LinkedHashSet<>();
         for (NativeMindBehaviorControl behavior : behaviors) {
