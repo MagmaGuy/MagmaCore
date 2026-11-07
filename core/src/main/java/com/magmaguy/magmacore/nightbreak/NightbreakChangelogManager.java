@@ -3,6 +3,7 @@ package com.magmaguy.magmacore.nightbreak;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.magmaguy.magmacore.command.CommandTreeSync;
 import com.magmaguy.magmacore.dialog.DialogManager;
 import com.magmaguy.magmacore.util.SpigotMessage;
 import com.magmaguy.magmacore.util.VersionChecker;
@@ -648,6 +649,7 @@ public final class NightbreakChangelogManager implements Listener {
                 existing.command().register(commandMap);
                 registeredCommand = existing.command();
                 registeredCommandMap = commandMap;
+                CommandTreeSync.requestSync(plugin);
                 return;
             }
 
@@ -675,6 +677,8 @@ public final class NightbreakChangelogManager implements Listener {
             }
             registeredCommand = candidate;
             registeredCommandMap = commandMap;
+            // Most plugins start this manager after the server's startup command sync.
+            CommandTreeSync.requestSync(plugin);
         } catch (ReflectiveOperationException exception) {
             plugin.getLogger().warning("Could not register /" + commandLabel + ": " + exception.getMessage());
         }
@@ -737,6 +741,7 @@ public final class NightbreakChangelogManager implements Listener {
         } finally {
             registeredCommand = null;
             registeredCommandMap = null;
+            CommandTreeSync.requestSync(plugin);
         }
     }
 
