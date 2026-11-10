@@ -17,15 +17,26 @@ final class NativeMindControlLeaseBook {
     private final EnumMap<MindControl, NativeMindBehaviorControl> owners =
             new EnumMap<>(MindControl.class);
 
+    /**
+     * Whether {@link #acquire} would grant these controls now: no other behavior holding one of them comes before the
+     * requester. Changes nothing and preempts nobody.
+     */
+    boolean wouldAcquire(NativeMindBehaviorControl requester, Set<MindControl> requested) {
+        for (MindControl control : requested) {
+            NativeMindBehaviorControl current = owners.get(control);
+            if (current != null && current != requester && ORDER.compare(current, requester) <= 0) return false;
+        }
+        return true;
+    }
+
     boolean acquire(NativeMindBehaviorControl requester, Set<MindControl> requested) {
         if (requested.isEmpty()) return true;
+        if (!wouldAcquire(requester, requested)) return false;
 
         Set<NativeMindBehaviorControl> displaced = new LinkedHashSet<>();
         for (MindControl control : requested) {
             NativeMindBehaviorControl current = owners.get(control);
-            if (current == null || current == requester) continue;
-            if (ORDER.compare(current, requester) <= 0) return false;
-            displaced.add(current);
+            if (current != null && current != requester) displaced.add(current);
         }
 
         List<NativeMindBehaviorControl> ordered = new ArrayList<>(displaced);

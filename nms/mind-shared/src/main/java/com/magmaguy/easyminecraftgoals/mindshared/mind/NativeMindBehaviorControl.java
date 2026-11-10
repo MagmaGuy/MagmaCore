@@ -68,11 +68,17 @@ final class NativeMindBehaviorControl implements BehaviorControl<Mob> {
     /**
      * The Brain offers every stopped behavior a start each tick; this one asks its {@code canStart} only on the ticks
      * of its probe grid. A probe the scheduler skips for budget, or a start it defers, is asked again on the next
-     * tick, and the ask after that is back on the grid.
+     * tick, and the ask after that is back on the grid. While a behavior that comes first holds one of its controls,
+     * the probe ends there without asking {@code canStart}: the start would be refused whatever it answered, and a
+     * {@code canStart} that searches, rolls a chance or moves a timer would spend that work on nothing.
      */
     @Override
     public boolean tryStart(ServerLevel level, Mob body, long timestamp) {
         if (!probes.due(timestamp)) return false;
+        if (!leases.wouldAcquire(this, controls)) {
+            probes.ran(timestamp);
+            return false;
+        }
         NativeMindCallbackScheduler.CallbackResult<Boolean> allowed = runtime.invoke(
                 canStartIdentifier,
                 () -> behavior.canStart(runtime.context(this)));

@@ -29,6 +29,12 @@ public interface MindBehavior {
         return 1;
     }
 
+    /**
+     * Whether this stopped behavior starts now. The host asks only while the behavior could take its
+     * {@link #controls()}: while a running behavior that comes first (a lower {@link #priority()}, then the identifier)
+     * holds one of them, that probe ends without asking. A search, a chance roll or a timer moved forward here is
+     * therefore never spent on a start the controls would refuse.
+     */
     boolean canStart(MindContext context);
 
     default boolean canContinue(MindContext context) {
