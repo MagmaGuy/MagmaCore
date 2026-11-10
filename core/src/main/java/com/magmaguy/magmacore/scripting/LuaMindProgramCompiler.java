@@ -242,7 +242,8 @@ public final class LuaMindProgramCompiler {
         requireKind(table, "behavior");
         String identifier = requiredString(table, "id");
         int priority = table.get("priority").optint(0);
-        int probeInterval = parseProbeInterval(table.get("probe_interval"));
+        int probeInterval = parseInterval(table.get("probe_interval"), "probe_interval", MindBehavior.MAX_PROBE_INTERVAL);
+        int tickInterval = parseInterval(table.get("tick_interval"), "tick_interval", MindBehavior.MAX_TICK_INTERVAL);
         Set<MindControl> controls = parseControls(table.get("controls"));
         LuaFunction canStart = optionalFunction(table, "can_start");
         LuaFunction canContinue = optionalFunction(table, "can_continue");
@@ -269,6 +270,11 @@ public final class LuaMindProgramCompiler {
             @Override
             public int probeInterval() {
                 return probeInterval;
+            }
+
+            @Override
+            public int tickInterval() {
+                return tickInterval;
             }
 
             @Override
@@ -354,17 +360,18 @@ public final class LuaMindProgramCompiler {
     }
 
     /**
-     * A behavior's {@code probe_interval}: how often, in ticks, its {@code can_start} runs while it is stopped. Absent
-     * means every tick. It must be a whole number of at least 1; like the runaway limits, a larger one loads but never
-     * exceeds {@link MindBehavior#MAX_PROBE_INTERVAL}.
+     * A behavior's {@code probe_interval}, how often in ticks its {@code can_start} runs while it is stopped, or its
+     * {@code tick_interval}, how often its {@code can_continue} and {@code tick} run while it runs (see
+     * {@link MindBehavior#tickInterval()}). Absent means every tick. It must be a whole number of at least 1; like the
+     * runaway limits, a larger one loads but never exceeds {@code max}.
      */
-    private static int parseProbeInterval(LuaValue value) {
+    private static int parseInterval(LuaValue value, String field, int max) {
         if (value.isnil()) return 1;
         double ticks = value.type() == LuaValue.TNUMBER ? value.todouble() : Double.NaN;
         if (!(ticks >= 1D) || ticks != Math.floor(ticks)) {
-            throw new IllegalArgumentException("Behavior probe_interval must be a whole number of ticks, at least 1");
+            throw new IllegalArgumentException("Behavior " + field + " must be a whole number of ticks, at least 1");
         }
-        return (int) Math.min(MindBehavior.MAX_PROBE_INTERVAL, ticks);
+        return (int) Math.min(max, ticks);
     }
 
     private static Set<MindControl> parseControls(LuaValue value) {

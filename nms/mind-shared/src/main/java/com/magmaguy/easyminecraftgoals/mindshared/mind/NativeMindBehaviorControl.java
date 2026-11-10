@@ -19,6 +19,8 @@ final class NativeMindBehaviorControl implements BehaviorControl<Mob> {
     private final NativeMindControlLeaseBook leases;
     private final Set<MindControl> controls;
     private final NativeMindProbeSchedule probes;
+    // When a running behavior's canContinue and tick run.
+    private final NativeMindProbeSchedule ticks;
     // Built once: callbacks run several times a tick for every entity.
     private final String canStartIdentifier, startIdentifier, canContinueIdentifier, tickIdentifier, stopIdentifier;
     private Behavior.Status status = Behavior.Status.STOPPED;
@@ -42,6 +44,8 @@ final class NativeMindBehaviorControl implements BehaviorControl<Mob> {
         canContinueIdentifier = identifier + ".can_continue";
         tickIdentifier = identifier + ".tick";
         stopIdentifier = identifier + ".stop";
+        int tickInterval = Math.min(MindBehavior.MAX_TICK_INTERVAL, behavior.tickInterval());
+        ticks = new NativeMindProbeSchedule(tickInterval, runtime.logicalOwner(), tickIdentifier);
     }
 
     String identifier() {
@@ -104,16 +108,28 @@ final class NativeMindBehaviorControl implements BehaviorControl<Mob> {
             stop(MindStopReason.CALLBACK_FAILED);
             return false;
         }
+        // The Brain ticks running behaviors right after starting them: the first run is on this tick.
+        ticks.runAt(timestamp);
         return true;
     }
 
+    /**
+     * Runs {@code canContinue} and {@code tick} on the tick the behavior started, then on the ticks of its tick grid
+     * ({@link MindBehavior#tickInterval()}), which at the default interval of 1 is every tick. A run the scheduler
+     * skips for budget is repeated on the next tick, and the run after that is back on the grid.
+     */
     @Override
     public void tickOrStop(ServerLevel level, Mob body, long timestamp) {
         if (!running()) return;
+        if (!ticks.due(timestamp)) return;
         NativeMindCallbackScheduler.CallbackResult<Boolean> continuing = runtime.invoke(
                 canContinueIdentifier,
                 () -> behavior.canContinue(runtime.context(this)));
-        if (continuing.wasSkipped()) return;
+        if (continuing.wasSkipped()) {
+            ticks.retry(timestamp);
+            return;
+        }
+        ticks.ran(timestamp);
         if (!continuing.successful()) {
             stop(MindStopReason.CALLBACK_FAILED);
             return;
@@ -129,7 +145,9 @@ final class NativeMindBehaviorControl implements BehaviorControl<Mob> {
                     behavior.tick(runtime.context(this));
                     return null;
                 });
-        if (!ticked.successful() && !ticked.wasSkipped()) {
+        if (ticked.wasSkipped()) {
+            ticks.retry(timestamp);
+        } else if (!ticked.successful()) {
             stop(MindStopReason.CALLBACK_FAILED);
         }
     }

@@ -103,6 +103,11 @@ public final class MindProgram {
                     throw new IllegalStateException("Mind behavior probe interval must be 1 to "
                             + MindBehavior.MAX_PROBE_INTERVAL + " ticks: " + identifier);
                 }
+                int tickInterval = behavior.tickInterval();
+                if (tickInterval < 1 || tickInterval > MindBehavior.MAX_TICK_INTERVAL) {
+                    throw new IllegalStateException("Mind behavior tick interval must be 1 to "
+                            + MindBehavior.MAX_TICK_INTERVAL + " ticks: " + identifier);
+                }
             }
         }
         return Collections.unmodifiableList(new ArrayList<>(values));

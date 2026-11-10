@@ -4,7 +4,9 @@ import java.util.UUID;
 
 /**
  * When a stopped behavior's {@code canStart} runs, every {@link com.magmaguy.magmacore.ai.MindBehavior#probeInterval()}
- * ticks, or a sensor senses, every {@link com.magmaguy.magmacore.ai.MindSensor#intervalTicks()} ticks. Each schedule
+ * ticks, a running behavior's {@code canContinue} and {@code tick} run, every
+ * {@link com.magmaguy.magmacore.ai.MindBehavior#tickInterval()} ticks, or a sensor senses, every
+ * {@link com.magmaguy.magmacore.ai.MindSensor#intervalTicks()} ticks. Each schedule
  * runs on its own grid: the ticks whose offset from a phase, taken from the entity's logical owner and the behavior's
  * or sensor's identifier, is a whole number of intervals. Entities created on the same tick, and the callbacks of one
  * entity, therefore fall on different ticks, and they stay apart: a run deferred to the next tick, or a behavior that
@@ -68,6 +70,13 @@ final class NativeMindProbeSchedule {
     /** The behavior stopped on this tick: it is next asked on the first grid tick after it. */
     void stopped(long tick) {
         ran(tick);
+    }
+
+    /** Run on this tick, whatever the grid says, as a behavior that just started does; then back on the grid. */
+    void runAt(long tick) {
+        if (interval == 1) return;
+        nextTick = tick;
+        scheduled = true;
     }
 
     /** The scheduler deferred what the callback allowed: run again on the next tick, then back on the grid. */
