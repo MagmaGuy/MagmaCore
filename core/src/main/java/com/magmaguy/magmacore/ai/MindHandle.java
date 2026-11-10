@@ -42,6 +42,17 @@ public interface MindHandle extends AutoCloseable {
         return inspect().activeBehaviors().contains(behaviorIdentifier);
     }
 
+    /**
+     * Whether the behavior with this identifier could not start now because a running behavior that comes before it
+     * (lower priority, then identifier) holds one of its controls. Such a behavior is not even asked to start (see
+     * {@link MindBehavior#canStart}), so a caller enlisting this Mind for that behavior, as a group activity enlists
+     * its members, can leave it out. False when the behavior runs already, when the Mind's program has no such
+     * behavior or no body to run it on, and from implementations that do not arbitrate controls. Primary thread only.
+     */
+    default boolean isBlocked(String behaviorIdentifier) {
+        return false;
+    }
+
     @Override
     void close();
 }

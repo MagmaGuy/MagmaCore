@@ -265,6 +265,12 @@ final class NativeMindSession implements MindHandle {
     }
 
     @Override
+    public boolean isBlocked(String behaviorIdentifier) {
+        NativeMindHost.requirePrimaryThread();
+        return runtime != null && runtime.isBlocked(behaviorIdentifier);
+    }
+
+    @Override
     public void close() {
         NativeMindHost.requirePrimaryThread();
         if (closed) return;

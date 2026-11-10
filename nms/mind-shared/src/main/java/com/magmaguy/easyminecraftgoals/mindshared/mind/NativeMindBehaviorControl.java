@@ -56,6 +56,10 @@ final class NativeMindBehaviorControl implements BehaviorControl<Mob> {
         return behavior.priority();
     }
 
+    Set<MindControl> controls() {
+        return controls;
+    }
+
     boolean running() {
         return status == Behavior.Status.RUNNING;
     }

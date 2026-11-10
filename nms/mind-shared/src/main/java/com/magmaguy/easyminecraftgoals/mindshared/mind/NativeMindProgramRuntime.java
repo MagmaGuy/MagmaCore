@@ -178,6 +178,15 @@ final class NativeMindProgramRuntime {
         return false;
     }
 
+    /** See {@link com.magmaguy.magmacore.ai.MindHandle#isBlocked}: the lease book's own test, as tryStart asks it. */
+    boolean isBlocked(String identifier) {
+        for (NativeMindBehaviorControl behavior : behaviors) {
+            if (behavior.identifier().equals(identifier))
+                return !behavior.running() && !leases.wouldAcquire(behavior, behavior.controls());
+        }
+        return false;
+    }
+
     Set<String> activeBehaviors() {
         Set<String> active = new LinkedHashSet<>();
         for (NativeMindBehaviorControl behavior : behaviors) {

@@ -256,6 +256,28 @@ class NativeMindBehaviorProbeTest {
     }
 
     @Test
+    void isBlockedAnswersWhatTheLeaseBookWouldRefuse() {
+        // fight comes first (priority 10) and holds MOVE from the first tick; march (13) comes after it, urgent (5)
+        // before it. None of the others ever wants to start.
+        Probed fight = new Probed("fixture:fight", 10, 1, tick -> true);
+        Probed march = new Probed("fixture:march", 13, 1, tick -> false);
+        Probed urgent = new Probed("fixture:urgent", 5, 1, tick -> false);
+        Entity entity = new Entity(new UUID(5L, 6L), fight, march, urgent);
+
+        assertFalse(entity.runtime.isBlocked("fixture:march"), "nothing holds MOVE before the first tick");
+        entity.tick(FIRST_TICK);
+        assertTrue(entity.runtime.isRunning("fixture:fight"));
+        assertTrue(entity.runtime.isBlocked("fixture:march"), "a behavior that comes first holds MOVE");
+        assertFalse(entity.runtime.isBlocked("fixture:urgent"), "it comes before the holder");
+        assertFalse(entity.runtime.isBlocked("fixture:fight"), "the holder runs already");
+        assertFalse(entity.runtime.isBlocked("fixture:absent"), "the program has no such behavior");
+        // The Brain offers starts in priority order, so fight held MOVE before march's first offer: tryStart, asking
+        // the same lease book, never asked march's canStart either.
+        entity.tick(FIRST_TICK + 1);
+        assertTrue(march.asked.isEmpty());
+    }
+
+    @Test
     void aProbeSkippedForTheCallbackCapIsAskedOnTheNextTick() {
         // Two behaviors due on the same ticks, and room for one callback a tick: the first takes it.
         UUID owner = new UUID(5L, 0L);
