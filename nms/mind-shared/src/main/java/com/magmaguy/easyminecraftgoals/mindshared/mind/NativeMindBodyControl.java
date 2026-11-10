@@ -3,6 +3,7 @@ package com.magmaguy.easyminecraftgoals.mindshared.mind;
 import com.magmaguy.magmacore.ai.MindBodyLocomotion;
 import com.magmaguy.magmacore.ai.MindBodyProfile;
 import com.magmaguy.magmacore.ai.MindSwimWave;
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.util.Mth;
@@ -230,7 +231,27 @@ final class NativeMindBodyControl {
             mob.setXRot((float) -Math.toDegrees(Math.atan2(next.y, travel)));
         }
         if (mob.horizontalCollision && horizontal > 1.0E-3D) findShore(desired.x / horizontal, desired.z / horizontal, nextY);
+        passReachedWaypoint();
         mob.getLookControl().tick();
+    }
+
+    /**
+     * Moves a swimmer's path on past a waypoint it has reached across the water, whatever its height. Vanilla's path
+     * following passes a waypoint only within a block of its height, or by cutting a corner within two blocks of it,
+     * but the swim steers height by where the path ends, not by the waypoint (see {@link #swim}). A path through open
+     * water keeps a depth from node to node, so a pet heading for the shore from a dive rose to the surface over a
+     * waypoint three blocks down, and a pet diving to a deep spot sank under one at the top: either way it held still
+     * there until its behavior gave up as stuck. The test is vanilla's own across the water. The path's last waypoint
+     * is left to vanilla, so a swimmer over the end of its path still rises or dives to it.
+     */
+    private void passReachedWaypoint() {
+        Path path = mob.getNavigation().getPath();
+        if (path == null || path.isDone() || path.getNextNodeIndex() >= path.getNodeCount() - 1) return;
+        BlockPos next = path.getNextNodePos();
+        float width = mob.getBbWidth();
+        double reach = width > 0.75F ? width / 2F : 0.75F - width / 2F;
+        if (Math.abs(mob.getX() - (next.getX() + 0.5D)) < reach && Math.abs(mob.getZ() - (next.getZ() + 0.5D)) < reach)
+            path.advance();
     }
 
     /**
