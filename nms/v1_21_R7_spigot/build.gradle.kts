@@ -33,6 +33,13 @@ sourceSets {
     }
 }
 
+// The jar task writes the Mojang-mapped jar as <module>-<version>-mojang.jar and the remapper
+// writes the Spigot-mapped copy beside it. They must stay two files. When the remapper wrote
+// over the jar task's output, Gradle skipped the jar task as up to date in the next build of
+// the same daemon and the remapper ran again over the already remapped jar. That second pass
+// renames server classes to ones that do not exist (dist verifyAdapterLinkage catches it).
+val remappedJarName = "${base.archivesName.get()}-${project.version}.jar"
+
 tasks {
     compileJava {
         dependsOn(transformSources)
@@ -40,18 +47,22 @@ tasks {
 
     remap {
         version.set("1.21.11")
+        archiveName.set(remappedJarName)
+        // Declared so Gradle tracks what this task reads and writes.
+        inputs.file(jar.flatMap { it.archiveFile })
+        outputs.file(layout.buildDirectory.file("libs/$remappedJarName"))
         dependsOn(jar)  // Ensure jar is built before remapping
     }
 
     jar {
+        archiveClassifier.set("mojang")
         finalizedBy("remap")
     }
 }
 
 // Make sure the remapped JAR is used as the outgoing artifact
-// The remapper plugin outputs to build/libs/<name>-<version>.jar (replacing the original)
 val remappedJar = tasks.named("remap").map {
-    layout.buildDirectory.file("libs/${base.archivesName.get()}-${project.version}.jar").get().asFile
+    layout.buildDirectory.file("libs/$remappedJarName").get().asFile
 }
 
 configurations {
