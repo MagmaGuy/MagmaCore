@@ -172,6 +172,11 @@ public abstract class AdvancedCommand {
         }
 
         @Override
+        public List<String> getSuggestions(CommandSender sender, String partialInput, List<String> earlierArguments) {
+            return delegate.getSuggestions(sender, partialInput, earlierArguments);
+        }
+
+        @Override
         public boolean isLiteral() {
             return delegate.isLiteral();
         }

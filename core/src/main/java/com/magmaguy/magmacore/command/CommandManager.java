@@ -206,7 +206,9 @@ public class CommandManager implements CommandExecutor, TabCompleter {
             }
             if (!argumentsSoFarValid) continue;
 
-            completions.addAll(currentDefinition.getSuggestions(sender, currentArgument));
+            // The values typed for the earlier arguments, without the alias, for suggestions that depend on them.
+            List<String> earlierArguments = List.of(args).subList(1, args.length - 1);
+            completions.addAll(currentDefinition.getSuggestions(sender, currentArgument, earlierArguments));
         }
 
         return completions;

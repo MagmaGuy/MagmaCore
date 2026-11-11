@@ -17,6 +17,16 @@ public interface ICommandArgument {
     // Provide tab-completion suggestions given the partial input
     List<String> getSuggestions(CommandSender sender, String partialInput);
 
+    /**
+     * Tab-completion suggestions for an argument whose choices depend on what was typed before it, such as the
+     * colours of the species named one argument earlier. {@code earlierArguments} holds the values typed for this
+     * command's earlier arguments, in order: element 0 is the first argument after the command's alias. Arguments
+     * that do not care keep the default, which ignores them.
+     */
+    default List<String> getSuggestions(CommandSender sender, String partialInput, List<String> earlierArguments) {
+        return getSuggestions(sender, partialInput);
+    }
+
     // Is this argument "literal" (fixed text) or something else?
     boolean isLiteral();
 

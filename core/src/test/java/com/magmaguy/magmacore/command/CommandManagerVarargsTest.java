@@ -133,6 +133,31 @@ class CommandManagerVarargsTest {
                 CommandManager.findAliasSuggestions(List.of(command), "SeLeCtF"));
     }
 
+    @Test
+    void tabCompletionGivesAnArgumentTheValuesTypedBeforeIt() {
+        CommandManager manager = new CommandManager("fmm");
+        List<List<String>> seen = new java.util.ArrayList<>();
+        TestCommand command = new TestCommand(List.of("petadmin"));
+        command.addArgument("action", new ListStringCommandArgument(List.of("spawn", "give"), "<action>"));
+        command.addOptionalArgument("species",
+                new ListStringCommandArgument(List.of("penguin", "jelly"), "[species]"));
+        command.addOptionalArgument("variant", new ListStringCommandArgument(List.of("blue", "pink"), "[variant]") {
+            @Override
+            public List<String> getSuggestions(CommandSender sender, String partialInput, List<String> earlier) {
+                seen.add(earlier);
+                return earlier.get(1).equals("penguin") ? List.of("blue") : List.of("pink");
+            }
+        });
+        manager.registerCommand(command);
+
+        assertEquals(List.of("blue"), manager.onTabComplete(permissiveSender(), null, "fmm",
+                new String[]{"petadmin", "spawn", "penguin", ""}));
+        assertEquals(List.of("pink"), manager.onTabComplete(permissiveSender(), null, "fmm",
+                new String[]{"petadmin", "give", "jelly", "p"}));
+        assertEquals(List.of(List.of("spawn", "penguin"), List.of("give", "jelly")), seen,
+                "through addOptionalArgument's wrapper, without the alias or the word being typed");
+    }
+
     private static CommandSender permissiveSender() {
         return (CommandSender) Proxy.newProxyInstance(
                 CommandSender.class.getClassLoader(),

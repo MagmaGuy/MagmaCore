@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -63,5 +64,38 @@ class DynamicListStringCommandArgumentTest {
         assertFalse(argument.matchesInput("anything"));
         assertEquals(List.of(), argument.literals());
         assertEquals(List.of("<filename>"), argument.getSuggestions(null, ""));
+    }
+
+    @Test
+    void suggestionsFollowTheArgumentsTypedBeforeIt() {
+        Map<String, List<String>> colours = Map.of(
+                "penguin", List.of("penguin_blue", "penguin_emperor"),
+                "driftjelly", List.of("driftjelly_pink"));
+        DynamicListStringCommandArgument argument = new DynamicListStringCommandArgument(
+                () -> colours.values().stream().flatMap(List::stream).sorted().toList(),
+                earlier -> earlier.size() < 2 ? null : colours.getOrDefault(earlier.get(1), List.of()),
+                "[variant]");
+
+        assertEquals(List.of("penguin_blue", "penguin_emperor"),
+                argument.getSuggestions(null, "", List.of("spawn", "penguin")));
+        assertEquals(List.of("penguin_emperor"),
+                argument.getSuggestions(null, "penguin_e", List.of("spawn", "penguin")));
+        assertEquals(List.of("driftjelly_pink"), argument.getSuggestions(null, "", List.of("give", "driftjelly")));
+        // A species with no colours: the hint, as for any argument with nothing to suggest.
+        assertEquals(List.of("[variant]"), argument.getSuggestions(null, "", List.of("spawn", "moth")));
+        assertEquals(List.of(), argument.getSuggestions(null, "p", List.of("spawn", "moth")));
+        // null from the function means every valid value, as without earlier arguments.
+        assertEquals(3, argument.getSuggestions(null, "", List.of("spawn")).size());
+        assertEquals(3, argument.getSuggestions(null, "").size());
+        // Validation stays independent of the earlier arguments.
+        assertTrue(argument.matchesInput("driftjelly_pink"));
+    }
+
+    @Test
+    void anArgumentWithoutTheFunctionIgnoresEarlierArguments() {
+        DynamicListStringCommandArgument argument =
+                new DynamicListStringCommandArgument(() -> List.of("a.yml", "b.yml"), "<filename>");
+
+        assertEquals(List.of("a.yml", "b.yml"), argument.getSuggestions(null, "", List.of("anything")));
     }
 }
