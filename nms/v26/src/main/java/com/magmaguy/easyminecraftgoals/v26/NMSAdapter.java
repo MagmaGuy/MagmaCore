@@ -235,6 +235,17 @@ public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter {
     }
 
     @Override
+    public boolean moveSteeredVehicle(Entity vehicle, double x, double y, double z, boolean tellRider) {
+        net.minecraft.world.entity.Entity nmsEntity = CraftBukkitBridge.getNMSEntity(vehicle);
+        nmsEntity.absSnapTo(x, y, z, nmsEntity.getYRot(), nmsEntity.getXRot());
+        // The passengers' own positions follow on their next tick; a reader before then sees them moved too.
+        for (net.minecraft.world.entity.Entity passenger : nmsEntity.getPassengers()) nmsEntity.positionRider(passenger);
+        if (tellRider && nmsEntity.getControllingPassenger() instanceof net.minecraft.server.level.ServerPlayer rider)
+            rider.connection.send(net.minecraft.network.protocol.game.ClientboundMoveVehiclePacket.fromEntity(nmsEntity));
+        return true;
+    }
+
+    @Override
     public double getTrackingDistance(Entity entity, org.bukkit.entity.Player viewer) {
         return com.magmaguy.easyminecraftgoals.v26.tracking.TrackingDistance.get(entity, viewer);
     }

@@ -247,6 +247,18 @@ public abstract class NMSAdapter {
     }
 
     /**
+     * Moves a vehicle its rider's client steers, such as a saddled horse or nautilus, to a position, carrying its
+     * passengers along, which Bukkit's teleport refuses for an entity with passengers. The rider's client moves such
+     * a vehicle itself and ignores the position the server tracks for it, so with {@code tellRider} the rider is sent
+     * the vehicle correction vanilla sends when it rejects a move: their client snaps the vehicle there and steers
+     * on from that point. Without it only the server's copy moves, until the client's next move puts it back. False
+     * when this version cannot move it, and then nothing has changed.
+     */
+    public boolean moveSteeredVehicle(Entity vehicle, double x, double y, double z, boolean tellRider) {
+        return false;
+    }
+
+    /**
      * The horizontal distance within which the server's entity tracker sends {@code entity} to {@code viewer}: its
      * tracking range, raised by its passengers' ranges and capped by the viewer's view distance, exactly as the
      * tracker computes it. The tracker also needs the entity's chunk loaded for the viewer and the viewer allowed
