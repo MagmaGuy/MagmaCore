@@ -258,15 +258,17 @@ final class NativeMindBodyControl {
     }
 
     /**
-     * Whether something solid lies in a waypoint's column between the waypoint and the swimmer's own height: the
-     * waypoint is under a ceiling or over a ledge, a doorway under water say, and the path leads through it, not over
-     * or under it. Steering height by the path's end, a swimmer at the surface was taken to such a doorway's waypoint
-     * along the surface and held against the wall over it for as long as it was steered there. For such a waypoint
-     * the swim steers at the waypoint's own height, so it dives or rises to it first, and vanilla's path following
-     * passes it once the swimmer is through.
+     * Whether something solid lies in a waypoint's column between the waypoint and the swimmer, from its feet to the
+     * top of its head: the waypoint is under a ceiling or over a ledge, a doorway under water say, and the path leads
+     * through it, not over or under it. Steering height by the path's end, a swimmer at the surface was taken to such
+     * a doorway's waypoint along the surface and held against the wall over it for as long as it was steered there.
+     * For such a waypoint the swim steers at the waypoint's own height, so it dives or rises to it first, and
+     * vanilla's path following passes it once the swimmer is through. The whole body counts: with its feet under a
+     * lintel and its head still against it, the swimmer is not through.
      */
     private boolean cutOffFrom(BlockPos waypoint) {
-        int own = Mth.floor(mob.getY()), low = Math.min(own, waypoint.getY()), high = Math.max(own, waypoint.getY());
+        int low = Math.min(Mth.floor(mob.getY()), waypoint.getY());
+        int high = Math.max(Mth.floor(mob.getY() + mob.getBbHeight()), waypoint.getY());
         BlockPos.MutableBlockPos between = new BlockPos.MutableBlockPos();
         for (int y = low; y <= high; y++) {
             // The waypoint's own block is where the path goes.
