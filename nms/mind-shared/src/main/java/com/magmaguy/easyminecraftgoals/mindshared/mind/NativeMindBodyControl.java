@@ -57,6 +57,11 @@ final class NativeMindBodyControl {
     private static final double SHORE_STEP = 0.2D;
     // The height steps it tries, finding a shore's top.
     private static final double SHORE_PROBE = 1D / 16D;
+    // A swimmer pressed against something is held up there once it has made under this share of the way it steered
+    // for this many ticks running. A swimmer turns SWIM_TURN degrees a tick, so one that meets a wall head-on needs
+    // up to 5 ticks to turn along it, and slides from then on; one still pressed after that is going nowhere.
+    private static final double HELD_SHARE = 0.1D;
+    private static final int HELD_TICKS = 5;
     private static final Field ATTRIBUTE_INSTANCES = attributeInstances();
 
     private final Mob mob;
@@ -71,8 +76,10 @@ final class NativeMindBodyControl {
     private double climbY = Double.NaN;
     private double climbX, climbZ;
     private int climbTicks;
-    // The waypoint a swimmer was blocked sideways on its way to, while that is still its next one; null otherwise.
+    // The waypoint a swimmer was held up sideways on its way to, while that is still its next one; null otherwise.
     private BlockPos heldTo;
+    // Ticks in a row a swimmer has pressed against something sideways and got nowhere.
+    private int heldTicks;
 
     NativeMindBodyControl(Mob mob, MindBodyProfile profile) {
         this.mob = mob;
@@ -227,6 +234,7 @@ final class NativeMindBodyControl {
         }
         Vec3 velocity = mob.getDeltaMovement();
         Vec3 next = velocity.add(desired.subtract(velocity).scale(SWIM_ACCELERATION));
+        double fromX = mob.getX(), fromZ = mob.getZ();
         mob.setDeltaMovement(next);
         mob.move(MoverType.SELF, next);
         mob.fallDistance = 0;
@@ -238,8 +246,13 @@ final class NativeMindBodyControl {
         }
         if (mob.horizontalCollision && horizontal > 1.0E-3D) {
             findShore(desired.x / horizontal, desired.z / horizontal, nextY);
-            // Blocked on its way to this waypoint and not climbing out: from here it swims at the waypoint itself.
-            if (Double.isNaN(climbY) && waypoint != null) heldTo = waypoint;
+            double gone = Math.hypot(mob.getX() - fromX, mob.getZ() - fromZ);
+            heldTicks = gone < horizontal * HELD_SHARE ? heldTicks + 1 : 0;
+            // Held up on its way to this waypoint and not climbing out: from here it swims at the waypoint itself.
+            // Brushing along a wall does not count; it still gets where it steers.
+            if (Double.isNaN(climbY) && waypoint != null && heldTicks >= HELD_TICKS) heldTo = waypoint;
+        } else {
+            heldTicks = 0;
         }
         passReachedWaypoint();
         mob.getLookControl().tick();
@@ -268,8 +281,8 @@ final class NativeMindBodyControl {
     /**
      * Whether the swimmer has to swim through a waypoint, at the waypoint's own height, and cannot pass it from over
      * or under: something solid lies between them in the waypoint's column (see {@link #cutOffFrom}), or the swimmer
-     * was blocked sideways on its way to it and has not passed it since. The second covers what the first cannot
-     * see. Vanilla's path following cuts a corner to the waypoint after a doorway as soon as a line from the body's
+     * was held up sideways on its way to it, pressed against something for {@link #HELD_TICKS} ticks without getting
+     * anywhere, and has not passed it since. The second covers what the first cannot see. Vanilla's path following cuts a corner to the waypoint after a doorway as soon as a line from the body's
      * feet to the doorway's waypoint is clear, and that next waypoint lies in open water beyond the wall; the body,
      * still over the doorway, then rose again and held against the wall. Being blocked on the way there says the way
      * is at another height, which is the waypoint's.
@@ -364,6 +377,7 @@ final class NativeMindBodyControl {
         flightVelocity = null;
         climbY = Double.NaN;
         heldTo = null;
+        heldTicks = 0;
         mob.getNavigation().stop();
         NativeMindVersion.stopControl(mob.getMoveControl());
         mob.stopInPlace();
