@@ -78,3 +78,53 @@ tasks {
         enabled = false
     }
 }
+
+// ---- Adapter linkage check ---------------------------------------------------------------
+// Each adapter module is built for one server. verifyAdapterLinkage resolves every server class,
+// field and method the adapters in the shaded jar use against that server's jar, and fails the
+// build when one does not exist. A module jar that was remapped twice produces such references.
+// The check runs after every shadowJar and before every publication, so a jar like that cannot
+// reach Maven Local or the repository. The check itself is src/linkage/java (AdapterLinkageCheck);
+// it also fails when the jar holds an adapter module that is missing from this list.
+val adapterServers = mapOf(
+    "v1_21_R3" to "org.spigotmc:spigot:1.21.4-R0.1-SNAPSHOT",
+    "v1_21_R4" to "org.spigotmc:spigot:1.21.5-R0.1-SNAPSHOT",
+    "v1_21_R5" to "org.spigotmc:spigot:1.21.6-R0.1-SNAPSHOT",
+    "v1_21_R6" to "org.spigotmc:spigot:1.21.9-R0.1-SNAPSHOT",
+    "v1_21_R7_spigot" to "org.spigotmc:spigot:1.21.11-R0.1-SNAPSHOT",
+    // reobfJar gives the Paper module Spigot's names too.
+    "v1_21_R7_paper" to "org.spigotmc:spigot:1.21.11-R0.1-SNAPSHOT",
+    "v26" to "org.spigotmc:spigot:26.3-R0.1-SNAPSHOT",
+)
+val adapterServerJars = adapterServers.mapValues { (_, notation) ->
+    configurations.detachedConfiguration(dependencies.create(notation)).apply { isTransitive = false }
+}
+
+// Its own source set: compiled for the build, never part of the shaded jar.
+val linkage by sourceSets.creating
+
+val verifyAdapterLinkage by tasks.registering(JavaExec::class) {
+    group = "verification"
+    description = "Fails when a shaded NMS adapter uses a server class, field or method its server jar does not have."
+    val shadedJar = tasks.shadowJar.flatMap { it.archiveFile }
+    val report = layout.buildDirectory.file("reports/adapter-linkage.txt")
+    inputs.file(shadedJar)
+    inputs.files(adapterServerJars.values)
+    outputs.file(report)
+    classpath = linkage.runtimeClasspath
+    mainClass.set("com.magmaguy.magmacore.linkage.AdapterLinkageCheck")
+    argumentProviders.add(CommandLineArgumentProvider {
+        listOf(shadedJar.get().asFile.path, report.get().asFile.path) +
+            adapterServerJars.map { (module, serverJar) -> "$module=${serverJar.singleFile.path}" }
+    })
+}
+
+tasks.shadowJar {
+    finalizedBy(verifyAdapterLinkage)
+}
+tasks.withType<AbstractPublishToMaven>().configureEach {
+    dependsOn(verifyAdapterLinkage)
+}
+tasks.named("check") {
+    dependsOn(verifyAdapterLinkage)
+}
