@@ -71,6 +71,8 @@ final class NativeMindBodyControl {
     private double climbY = Double.NaN;
     private double climbX, climbZ;
     private int climbTicks;
+    // The waypoint a swimmer was blocked sideways on its way to, while that is still its next one; null otherwise.
+    private BlockPos heldTo;
 
     NativeMindBodyControl(Mob mob, MindBodyProfile profile) {
         this.mob = mob;
@@ -189,15 +191,17 @@ final class NativeMindBodyControl {
         Vec3 desired = Vec3.ZERO;
         double fullSpeed = 0D;
         double nextY = Double.NaN;
+        Path path = mob.getNavigation().getPath();
+        BlockPos waypoint = path != null && !path.isDone() ? path.getNextNodePos() : null;
+        if (waypoint == null || !waypoint.equals(heldTo)) heldTo = null;
         if (move.hasWanted()) {
             nextY = move.getWantedY();
             // It climbs or dives toward the height its path ends at, as a swimmer heads for the surface, while it
             // steers by the next waypoint. A path through open water keeps its depth from node to node, so aiming at
-            // the next one alone left it creeping up, well below where it was going. A waypoint it cannot reach
-            // from above or below, under a ceiling or over a ledge, it swims at instead (see cutOffFrom).
-            Path path = mob.getNavigation().getPath();
-            double wantedY = path != null && !path.isDone() && path.getEndNode() != null
-                    && !cutOffFrom(path.getNextNodePos()) ? path.getEndNode().y : move.getWantedY();
+            // the next one alone left it creeping up, well below where it was going. A waypoint it has to swim
+            // through, not over or under, it swims at instead (see throughOnly).
+            double wantedY = waypoint != null && path.getEndNode() != null && !throughOnly(waypoint)
+                    ? path.getEndNode().y : move.getWantedY();
             double dx = move.getWantedX() - mob.getX(), dy = wantedY - mob.getY(), dz = move.getWantedZ() - mob.getZ();
             double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
             double speed = move.getSpeedModifier() * mob.getAttributeValue(Attributes.MOVEMENT_SPEED);
@@ -232,7 +236,11 @@ final class NativeMindBodyControl {
             mob.setYRot(mob.getYRot() + Mth.clamp(Mth.wrapDegrees(heading - mob.getYRot()), -SWIM_TURN, SWIM_TURN));
             mob.setXRot((float) -Math.toDegrees(Math.atan2(next.y, travel)));
         }
-        if (mob.horizontalCollision && horizontal > 1.0E-3D) findShore(desired.x / horizontal, desired.z / horizontal, nextY);
+        if (mob.horizontalCollision && horizontal > 1.0E-3D) {
+            findShore(desired.x / horizontal, desired.z / horizontal, nextY);
+            // Blocked on its way to this waypoint and not climbing out: from here it swims at the waypoint itself.
+            if (Double.isNaN(climbY) && waypoint != null) heldTo = waypoint;
+        }
         passReachedWaypoint();
         mob.getLookControl().tick();
     }
@@ -245,7 +253,7 @@ final class NativeMindBodyControl {
      * waypoint three blocks down, and a pet diving to a deep spot sank under one at the top: either way it held still
      * there until its behavior gave up as stuck. The test is vanilla's own across the water. The path's last waypoint
      * is left to vanilla, so a swimmer over the end of its path still rises or dives to it. So is a waypoint the
-     * swimmer is cut off from (see {@link #cutOffFrom}): being over or under that one is not having reached it.
+     * swimmer has to swim through (see {@link #throughOnly}): being over or under that one is not having reached it.
      */
     private void passReachedWaypoint() {
         Path path = mob.getNavigation().getPath();
@@ -254,7 +262,20 @@ final class NativeMindBodyControl {
         float width = mob.getBbWidth();
         double reach = width > 0.75F ? width / 2F : 0.75F - width / 2F;
         if (Math.abs(mob.getX() - (next.getX() + 0.5D)) < reach && Math.abs(mob.getZ() - (next.getZ() + 0.5D)) < reach
-                && !cutOffFrom(next)) path.advance();
+                && !throughOnly(next)) path.advance();
+    }
+
+    /**
+     * Whether the swimmer has to swim through a waypoint, at the waypoint's own height, and cannot pass it from over
+     * or under: something solid lies between them in the waypoint's column (see {@link #cutOffFrom}), or the swimmer
+     * was blocked sideways on its way to it and has not passed it since. The second covers what the first cannot
+     * see. Vanilla's path following cuts a corner to the waypoint after a doorway as soon as a line from the body's
+     * feet to the doorway's waypoint is clear, and that next waypoint lies in open water beyond the wall; the body,
+     * still over the doorway, then rose again and held against the wall. Being blocked on the way there says the way
+     * is at another height, which is the waypoint's.
+     */
+    private boolean throughOnly(BlockPos waypoint) {
+        return waypoint.equals(heldTo) || cutOffFrom(waypoint);
     }
 
     /**
@@ -342,6 +363,7 @@ final class NativeMindBodyControl {
     void stopMovement() {
         flightVelocity = null;
         climbY = Double.NaN;
+        heldTo = null;
         mob.getNavigation().stop();
         NativeMindVersion.stopControl(mob.getMoveControl());
         mob.stopInPlace();
