@@ -7,7 +7,13 @@ import java.util.List;
 import java.util.Map;
 
 public final class PackedBooleanPropertySet {
-    public static final int BITS_PER_PROPERTY = 24;
+    /**
+     * How many flags one int property carries. A property with every flag set is 2^19 - 1 = 524,287, which stays
+     * inside the range of -1,000,000 to 1,000,000 that ResourcePackManager's Geyser bridge registers every int
+     * property with; a 20th flag would reach 1,048,575, past it. Whatever unpacks the flags on the client must use
+     * this constant too.
+     */
+    public static final int BITS_PER_PROPERTY = 19;
 
     private PackedBooleanPropertySet() {
     }
