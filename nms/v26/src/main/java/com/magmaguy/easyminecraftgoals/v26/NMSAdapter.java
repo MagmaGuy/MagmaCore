@@ -246,6 +246,17 @@ public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter {
     }
 
     @Override
+    public boolean snapRotation(Entity entity, float yaw, float pitch) {
+        net.minecraft.world.entity.Entity nmsEntity = CraftBukkitBridge.getNMSEntity(entity);
+        nmsEntity.absSnapRotationTo(yaw, pitch);
+        if (nmsEntity instanceof net.minecraft.world.entity.LivingEntity living) {
+            living.yBodyRot = living.yBodyRotO = yaw;
+            living.yHeadRot = living.yHeadRotO = yaw;
+        }
+        return true;
+    }
+
+    @Override
     public double getTrackingDistance(Entity entity, org.bukkit.entity.Player viewer) {
         return com.magmaguy.easyminecraftgoals.v26.tracking.TrackingDistance.get(entity, viewer);
     }

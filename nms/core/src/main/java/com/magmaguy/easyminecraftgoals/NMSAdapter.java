@@ -259,6 +259,18 @@ public abstract class NMSAdapter {
     }
 
     /**
+     * Turns an entity to a view at once, with nothing left to turn through: its yaw and pitch, a living entity's
+     * body and head, and the copies of each that Minecraft keeps from the tick before. Bukkit's setRotation leaves
+     * the head's copy from the tick before as it was, 0 on an entity that has not ticked yet. A horse turns whoever
+     * it seats to its view at the start of the tick, which is that copy, so a rider seated on a horse spawned in the
+     * same tick was turned to face south whichever way the horse had been set to face. False when this version
+     * cannot, and then nothing has changed.
+     */
+    public boolean snapRotation(Entity entity, float yaw, float pitch) {
+        return false;
+    }
+
+    /**
      * The horizontal distance within which the server's entity tracker sends {@code entity} to {@code viewer}: its
      * tracking range, raised by its passengers' ranges and capped by the viewer's view distance, exactly as the
      * tracker computes it. The tracker also needs the entity's chunk loaded for the viewer and the viewer allowed
