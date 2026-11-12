@@ -12,12 +12,15 @@ import java.util.*;
 /**
  * Explicit-viewer nameplate built from FakeText rows, ordered top to bottom.
  * The bottom row stays anchored; extra rows grow upward. No scheduler or world entities are owned here.
+ * Every viewer gets the same lines, except one given lines of their own with {@link #setLinesFor}.
  * Settings may be changed from the packet clock; syncViewers must run on the primary thread.
  */
 public final class StackedText {
     private static final double TEXT_HEIGHT = 0.225;
     private final Map<UUID, Viewer> viewers = new HashMap<>();
     private List<String> lines = List.of();
+    // The viewers who get lines of their own in place of the shared ones (see setLinesFor).
+    private final Map<UUID, List<String>> ownLines = new HashMap<>();
     private float scale = 1;
     private double gap = 0.1;
     private int backgroundArgb = 0;
@@ -31,6 +34,33 @@ public final class StackedText {
     private double seatOffsetY;
 
     public synchronized void setLines(List<String> text) {
+        lines = rowsOf(text);
+    }
+
+    /**
+     * Gives one viewer lines of their own, top to bottom, in place of the lines everyone else gets: fewer of them,
+     * or none at all, which shows that viewer nothing. Null gives them everyone's lines again. Their lines stay
+     * theirs through later {@link #setLines} calls. Rows they already have with other text are taken down here, and
+     * the next reconciliation puts up the ones they get now.
+     */
+    public synchronized void setLinesFor(UUID viewer, List<String> text) {
+        List<String> before = linesFor(viewer);
+        if (text == null) ownLines.remove(viewer);
+        else ownLines.put(viewer, rowsOf(text));
+        if (!before.equals(linesFor(viewer))) hideFrom(viewer);
+    }
+
+    /** The lines this viewer gets: their own if they were given any, else everyone's. */
+    synchronized List<String> linesFor(UUID viewer) {
+        return ownLines.getOrDefault(viewer, lines);
+    }
+
+    private static boolean blank(List<String> rows) {
+        return rows.stream().allMatch(line -> Objects.requireNonNullElse(ChatColor.stripColor(line), "").isBlank());
+    }
+
+    /** One row per line of each block, a block's colours carried from each of its lines to the next. */
+    private static List<String> rowsOf(List<String> text) {
         List<String> normalized = new ArrayList<>();
         for (String block : text) {
             String carry = "";
@@ -40,7 +70,7 @@ public final class StackedText {
                 carry = ChatColor.getLastColors(formatted);
             }
         }
-        lines = List.copyOf(normalized);
+        return List.copyOf(normalized);
     }
 
     public synchronized void setScale(float scale) {
@@ -100,7 +130,7 @@ public final class StackedText {
         if (!changed) return;
         for (Map.Entry<UUID, Viewer> entry : viewers.entrySet()) {
             Viewer viewer = entry.getValue();
-            if (viewer.bedrock || viewer.rows.size() != lines.size()) continue;
+            if (viewer.bedrock || viewer.rows.size() != linesFor(entry.getKey()).size()) continue;
             for (int i = 0; i < viewer.rows.size(); i++) {
                 FakeText row = viewer.rows.get(i);
                 if (vehicle != null) row.mountTo(vehicle);
@@ -108,7 +138,7 @@ public final class StackedText {
                     // A freed row is wherever its seat left it; put it back under its own position at once.
                     row.dismount();
                     row.setTranslation(0, 0, 0);
-                    row.teleport(rowLocation(viewer, i));
+                    row.teleport(rowLocation(viewer, i, viewer.rows.size()));
                 }
             }
             if (vehicle != null) moveRows(entry.getKey(), viewer);
@@ -118,8 +148,7 @@ public final class StackedText {
     /** Reconciles membership and current text/style without recreating unchanged rows. */
     public synchronized void syncViewers(Collection<? extends Player> candidates) {
         if (!Bukkit.isPrimaryThread()) throw new IllegalStateException("Text viewers must be reconciled on the primary thread");
-        if (removed || !visible || anchor == null || lines.isEmpty()
-                || lines.stream().allMatch(line -> Objects.requireNonNullElse(ChatColor.stripColor(line), "").isBlank())) {
+        if (removed || !visible || anchor == null || blank(lines) && ownLines.isEmpty()) {
             clearViewers();
             return;
         }
@@ -127,6 +156,9 @@ public final class StackedText {
         for (Player player : candidates) {
             if (player == null || !player.isOnline() || !anchor.getWorld().equals(player.getWorld())) continue;
             UUID id = player.getUniqueId();
+            List<String> lines = linesFor(id);
+            // A viewer with nothing to read has no rows; any they had are taken down with the leavers' below.
+            if (blank(lines)) continue;
             wanted.add(id);
             boolean bedrock = BedrockChecker.isBedrock(player);
             // Native Bedrock name tags cannot be scaled. Keep their row spacing at native size too.
@@ -142,7 +174,7 @@ public final class StackedText {
                 viewer = new Viewer(bedrock, effectiveScale);
                 try {
                     for (int i = 0; i < lines.size(); i++) {
-                        FakeText row = NMSManager.getAdapter().createFakeText(rowLocation(viewer, i),
+                        FakeText row = NMSManager.getAdapter().createFakeText(rowLocation(viewer, i, lines.size()),
                                 new FakeTextSettings().setText(lines.get(i)).setScale(effectiveScale)
                                         .setBackgroundArgb(backgroundArgb).setShadow(shadow).setLineWidth(Integer.MAX_VALUE));
                         viewer.rows.add(row);
@@ -181,15 +213,17 @@ public final class StackedText {
         anchor = null;
     }
 
-    private Location rowLocation(Viewer viewer, int index) {
-        double up = (lines.size() - 1 - index) * (TEXT_HEIGHT + gap) * viewer.scale;
+    /** Where a viewer's row goes: {@code index} from the top of the {@code count} rows they have. */
+    private Location rowLocation(Viewer viewer, int index, int count) {
+        double up = (count - 1 - index) * (TEXT_HEIGHT + gap) * viewer.scale;
         // Marker armor-stand labels sit 0.5 blocks above their entity position.
         return anchor.clone().add(0, up - (viewer.bedrock ? 0.5 : 0), 0);
     }
 
     private void moveRows(UUID id, Viewer viewer) {
         // A text change can precede the next primary-thread reconciliation.
-        if (viewer.rows.size() != lines.size()) return;
+        int count = viewer.rows.size();
+        if (count != linesFor(id).size()) return;
         org.bukkit.entity.Entity vehicle = this.vehicle;
         if (vehicle != null && !viewer.bedrock) {
             // Riders get no position of their own, so the row's height above the seat travels in its translation.
@@ -199,13 +233,13 @@ public final class StackedText {
             double pitch = Math.toRadians(player == null ? 0 : Math.round(player.getLocation().getPitch() / 2f) * 2f);
             double seatY = vehicle.getLocation().getY() + seatOffsetY;
             for (int i = 0; i < viewer.rows.size(); i++) {
-                double height = rowLocation(viewer, i).getY() - seatY;
+                double height = rowLocation(viewer, i, count).getY() - seatY;
                 viewer.rows.get(i).setTranslation(0, (float) (height * Math.cos(pitch)), (float) (height * Math.sin(pitch)));
             }
             return;
         }
         for (int i = 0; i < viewer.rows.size(); i++) {
-            Location target = rowLocation(viewer, i);
+            Location target = rowLocation(viewer, i, count);
             Location previous = viewer.rows.get(i).getLocation();
             if (!previous.getWorld().equals(target.getWorld()) || previous.distanceSquared(target) > 1.0E-8)
                 viewer.rows.get(i).teleport(target);
