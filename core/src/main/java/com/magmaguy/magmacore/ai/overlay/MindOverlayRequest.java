@@ -52,6 +52,20 @@ public record MindOverlayRequest(
         return new MindOverlayRequest(behaviors, null, 0L, Map.of());
     }
 
+    /**
+     * The request a Lua script makes with {@code mob:override_ai(behaviors, options)}, for a plugin that offers the
+     * call to its own scripts and hands the request on, such as one that reaches another plugin's mob behaviors.
+     * {@code args} are the call's arguments without the entity itself: one behavior name or a list of them, then an
+     * optional table with {@code duration} in ticks, {@code owner} as an entity table or a uuid, and
+     * {@code settings} as a table of setting tables per behavior name.
+     *
+     * @throws RuntimeException when the arguments are not of that shape, with the reason; inside a Lua call it
+     *                          reaches the script as an error
+     */
+    public static MindOverlayRequest fromLua(org.luaj.vm2.Varargs args) {
+        return MindOverlayLua.request(args);
+    }
+
     public MindOverlayRequest ownedBy(UUID owner) {
         return new MindOverlayRequest(behaviors, owner, durationTicks, settings);
     }
