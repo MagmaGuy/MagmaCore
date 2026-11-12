@@ -11,4 +11,9 @@ public interface MobBody {
     MindBodyCapabilities capabilities();
 
     boolean isValid();
+
+    /** Whether this is a mob the host borrowed with {@link MindHost#borrowBody} rather than a carrier it made. */
+    default boolean borrowed() {
+        return false;
+    }
 }

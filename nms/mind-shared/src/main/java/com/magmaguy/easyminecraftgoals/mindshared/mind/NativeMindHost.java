@@ -45,6 +45,8 @@ public final class NativeMindHost implements MindHost {
     private final MindActionSink actionSink;
     private final MindBodyCapabilities bodyCapabilities;
     private final Map<UUID, NativeMindSession> sessions = new LinkedHashMap<>();
+    // The mobs this host drives without having made them, by entity id, while a session holds each.
+    private final Map<UUID, NativeMindBody> borrowed = new java.util.HashMap<>();
     private final NativeMindServerBudget serverBudget = new NativeMindServerBudget();
     private final NativeMindEnvironment environment;
     private boolean closed;
@@ -76,7 +78,7 @@ public final class NativeMindHost implements MindHost {
                 false,
                 true,
                 false);
-        environment = new NativeMindEnvironment(this.hostIdentity);
+        environment = new NativeMindEnvironment(this);
     }
 
     @Override
@@ -162,6 +164,82 @@ public final class NativeMindHost implements MindHost {
                     mob.discard();
                 }
             }
+        }
+    }
+
+    @Override
+    public MobBody borrowBody(LivingEntity mob) {
+        requirePrimaryThread();
+        requireOpen();
+        String refusal = borrowRefusal(mob);
+        if (refusal != null) throw new IllegalArgumentException(refusal);
+        return NativeMindBody.borrow(
+                this,
+                (Mob) NativeMindVersion.getNMSLivingEntity(mob),
+                environment.plugin());
+    }
+
+    @Override
+    public boolean canBorrow(LivingEntity mob) {
+        requirePrimaryThread();
+        return !closed && borrowRefusal(mob) == null;
+    }
+
+    /** Why this host will not borrow the entity, or null when it will. */
+    private String borrowRefusal(LivingEntity mob) {
+        Objects.requireNonNull(mob, "mob");
+        if (!mob.isValid() || mob.isDead()) return "Only a living, loaded mob can lend its AI to a Mind";
+        if (!(NativeMindVersion.getNMSLivingEntity(mob) instanceof Mob)) {
+            return "Only a mob can lend its AI to a Mind: " + mob.getType().name().toLowerCase(java.util.Locale.ROOT);
+        }
+        if (MindCarrierState.isMarked(mob)) return "A Mind carrier cannot be borrowed";
+        if (borrowed.containsKey(mob.getUniqueId()) || NativeMindBorrowedMarker.held(mob)) {
+            return "Another Mind already drives this mob";
+        }
+        return null;
+    }
+
+    void borrowedAttached(NativeMindBody body) {
+        borrowed.put(body.mob().getUUID(), body);
+    }
+
+    /**
+     * The mob has its AI back. One that is gone from its world may have left a copy behind that still has it
+     * switched off: Minecraft copies a mob that changes dimension, the flag included, and that copy keeps the id.
+     */
+    void borrowedDetached(NativeMindBody body) {
+        UUID id = body.mob().getUUID();
+        borrowed.remove(id, body);
+        if (!body.mob().isRemoved()) return;
+        Entity successor = Bukkit.getEntity(id);
+        if (successor instanceof LivingEntity living && successor != body.entity() && successor.isValid()) {
+            NativeMindBorrowedMarker.redeem(living);
+        }
+    }
+
+    /**
+     * Hands a borrowed mob back at once, before Minecraft saves or copies it: a mob leaving with its chunk or
+     * through a portal is written out as it stands, and a borrowed one stands with its AI off.
+     */
+    void handBack(Entity entity) {
+        if (borrowed.isEmpty() || !Bukkit.isPrimaryThread()) return;
+        NativeMindBody body = borrowed.get(entity.getUniqueId());
+        if (body == null) return;
+        NativeMindSession session = body.session();
+        if (session != null) session.detachBody();
+    }
+
+    /**
+     * A borrowed mob turned into other mobs: a slime split, a villager struck by lightning. Minecraft copies the
+     * AI switch onto what it turns into, so those get the AI the mob had before it was borrowed.
+     */
+    void borrowedTransformed(Entity from, java.util.List<Entity> into) {
+        if (borrowed.isEmpty() || !Bukkit.isPrimaryThread()) return;
+        NativeMindBody body = borrowed.get(from.getUniqueId());
+        if (body == null) return;
+        for (Entity entity : into) {
+            if (entity == from || !(entity instanceof LivingEntity living)) continue;
+            if (!NativeMindBorrowedMarker.redeem(living) && !body.borrowedWithoutAi()) living.setAI(true);
         }
     }
 

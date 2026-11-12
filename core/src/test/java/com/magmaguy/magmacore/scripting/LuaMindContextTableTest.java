@@ -87,6 +87,22 @@ class LuaMindContextTableTest {
         verifyNoInteractions(actuator);
     }
 
+    @Test
+    void fleeReachesTheActuatorWithTheThreatAndSpeed() {
+        MindActuator actuator = mock(MindActuator.class);
+        when(actuator.moveAwayFrom(any(), org.mockito.ArgumentMatchers.anyDouble())).thenReturn(true);
+        MindContext context = new MindContext(mock(LivingEntity.class), 1L, 1L, mock(MindMemoryView.class),
+                mock(MindPerception.class), actuator, mock(MindActionRequester.class));
+        LuaTable threat = new LuaTable();
+        threat.set("x", 4.5);
+        threat.set("y", 64);
+        threat.set("z", -3);
+        LuaValue fled = LuaMindContextTable.build(context, Map.of()).get("actuator")
+                .invokemethod("flee", LuaValue.varargsOf(threat, LuaValue.valueOf(1.4))).arg1();
+        assertTrue(fled.toboolean());
+        verify(actuator).moveAwayFrom(new org.bukkit.Location(null, 4.5, 64, -3), 1.4);
+    }
+
     private static LuaValue steerFlight(MindActuator actuator, LuaValue... velocity) {
         MindContext context = new MindContext(mock(LivingEntity.class), 1L, 1L, mock(MindMemoryView.class),
                 mock(MindPerception.class), actuator, mock(MindActionRequester.class));

@@ -287,11 +287,24 @@ final class LuaMindContextTable {
             context.actuator().clearTarget();
             return LuaValue.NIL;
         }));
+        // attack(target) hits as the body's own kind does; attack(target, damage) deals that much instead.
         table.set("attack", LuaTableSupport.tableMethod(table, args -> {
             LivingEntity target = resolveLivingEntity(args.arg1());
             if (target == null) return LuaValue.FALSE;
-            context.actuator().attack(target);
+            if (args.narg() >= 2 && !args.arg(2).isnil()) context.actuator().attack(target, args.checkdouble(2));
+            else context.actuator().attack(target);
             return LuaValue.TRUE;
+        }));
+        // The body's own ranged attack; false for a kind without one. Needs the ATTACK lease.
+        table.set("shoot", LuaTableSupport.tableMethod(table, args -> {
+            LivingEntity target = resolveLivingEntity(args.arg1());
+            return LuaValue.valueOf(target != null && context.actuator().rangedAttack(target));
+        }));
+        // Runs from a location along a planned path; call it every few ticks, not every tick. Needs the MOVE lease.
+        table.set("flee", LuaTableSupport.tableMethod(table, args -> {
+            Location threat = LuaTableSupport.tableToLocation(
+                    args.checktable(1), context.entity().getWorld());
+            return LuaValue.valueOf(context.actuator().moveAwayFrom(threat, args.optdouble(2, 1.0)));
         }));
         table.set("stop_all", LuaTableSupport.tableMethod(table, args -> {
             context.actuator().stopAll();

@@ -34,6 +34,15 @@ public interface MindHandle extends AutoCloseable {
     MindSnapshot inspect();
 
     /**
+     * Whether a body is attached now, as {@code inspect().bodyEntityId().isPresent()} would say, without building a
+     * snapshot. A session loses its body when the body dies, unloads or leaves its world, and a borrowed mob is
+     * handed back at that moment. Primary thread only.
+     */
+    default boolean hasBody() {
+        return inspect().bodyEntityId().isPresent();
+    }
+
+    /**
      * Whether the Mind runs the behavior with this identifier now, as {@code inspect().activeBehaviors()} would say,
      * without building a snapshot: a caller asking about many Minds each tick pays a loop, not a copy of each one's
      * memory. Primary thread only.

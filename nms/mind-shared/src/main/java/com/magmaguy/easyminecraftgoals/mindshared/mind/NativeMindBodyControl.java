@@ -32,13 +32,13 @@ import net.minecraft.world.phys.Vec3;
 import java.lang.reflect.Field;
 
 /** Owns the clean-slate controls installed on one factory-created vanilla carrier. */
-final class NativeMindBodyControl {
+final class NativeMindBodyControl implements NativeMindBodyDriver {
     private static final Field NAVIGATION = field(PathNavigation.class);
     private static final Field MOVE_CONTROL = field(MoveControl.class);
     private static final Field LOOK_CONTROL = field(LookControl.class);
-    private static final Field BODY_ROTATION_CONTROL = field(BodyRotationControl.class);
+    static final Field BODY_ROTATION_CONTROL = field(BodyRotationControl.class);
     // Vanilla's BodyRotationControl counts a mob as moving past this squared horizontal step.
-    private static final double MOVING_SQUARED = 2.5000003E-7D;
+    static final double MOVING_SQUARED = 2.5000003E-7D;
     // A mob walking on grass reaches 0.98 x speed squared x WALK_TERMINAL blocks per tick: vanilla's ground travel
     // adds 0.98 x speed x speed each tick and keeps 0.546 of its velocity, so it settles at 0.546 / (1 - 0.546) of it.
     private static final double WALK_TERMINAL = 0.546D / (1D - 0.546D);
@@ -89,7 +89,8 @@ final class NativeMindBodyControl {
         applyProfile();
     }
 
-    void beforeMindTick() {
+    @Override
+    public void beforeMindTick() {
         flightVelocity = null;
         // NoAI suppresses native decision loops and zombie underwater conversion.
         // Sunlight ignition is handled separately by the host's combustion listener.
@@ -105,7 +106,8 @@ final class NativeMindBodyControl {
         if (profile.locomotion() == MindBodyLocomotion.STATIONARY) stopMovement();
     }
 
-    void afterMindTick() {
+    @Override
+    public void afterMindTick() {
         if (flightVelocity != null) {
             mob.getNavigation().stop();
             NativeMindVersion.stopControl(mob.getMoveControl());
@@ -373,7 +375,8 @@ final class NativeMindBodyControl {
         climbY = Double.NaN;
     }
 
-    void stopMovement() {
+    @Override
+    public void stopMovement() {
         flightVelocity = null;
         climbY = Double.NaN;
         heldTo = null;
@@ -384,18 +387,21 @@ final class NativeMindBodyControl {
         if (squidMovementVector != null) setSquidMovement(Vec3.ZERO);
     }
 
-    void steerFlight(Vec3 velocity) { flightVelocity = velocity; }
+    @Override
+    public void steerFlight(Vec3 velocity) { flightVelocity = velocity; }
 
     /**
      * Hands the body to vanilla, for a rider whose client steers it. Clearing NoAI lets native
      * ridden travel run; the goal selectors stay empty and the next Mind tick sets NoAI again.
      */
-    void release() {
+    @Override
+    public void release() {
         stopMovement();
         mob.setNoAi(false);
     }
 
-    void tickPausedPhysics() {
+    @Override
+    public void tickPausedPhysics() {
         climbY = Double.NaN;
         beforeMindTick();
         mob.getNavigation().stop();

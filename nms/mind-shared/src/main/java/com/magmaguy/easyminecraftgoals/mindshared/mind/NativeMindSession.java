@@ -259,6 +259,12 @@ final class NativeMindSession implements MindHandle {
     }
 
     @Override
+    public boolean hasBody() {
+        NativeMindHost.requirePrimaryThread();
+        return body != null;
+    }
+
+    @Override
     public boolean isRunning(String behaviorIdentifier) {
         NativeMindHost.requirePrimaryThread();
         return runtime != null && runtime.isRunning(behaviorIdentifier);
@@ -298,6 +304,12 @@ final class NativeMindSession implements MindHandle {
         if (mob.isRemoved()) {
             Entity.RemovalReason reason = tickingBody.removalReason();
             bodyRemoved(mob, reason == null ? Entity.RemovalReason.DISCARDED : reason);
+            return;
+        }
+        // A carrier's owner decides what its death means. A borrowed mob is simply handed back.
+        if (tickingBody.borrowed() && !mob.isAlive()) {
+            detachNow(MindStopReason.ENTITY_REMOVED, false);
+            finishDeferredAfterDetach();
             return;
         }
         ServerLevel level = tickingBody.level();
@@ -570,6 +582,11 @@ final class NativeMindSession implements MindHandle {
     }
 
     private void writeMarker(NativeMindBody target, MindPersistentState state) {
+        // A borrowed mob is never rehydrated, so it carries no carrier marker.
+        if (target.borrowed()) {
+            lastWrittenState = state;
+            return;
+        }
         MindCarrierState.write(
                 target.entity(),
                 host.hostIdentity(),
@@ -582,6 +599,7 @@ final class NativeMindSession implements MindHandle {
     }
 
     private void writeMarkerIfChanged(NativeMindBody target) {
+        if (target.borrowed()) return;
         MindPersistentState current = memory.persistentState();
         if (current.equals(lastWrittenState)) return;
         writeMarker(target, current);

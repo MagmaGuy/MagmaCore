@@ -13,6 +13,9 @@ import java.util.Objects;
 import java.util.function.BooleanSupplier;
 
 final class NativeMindActuator {
+    // What a melee hit deals from a kind with no attack damage of its own: the baseline a carrier is given.
+    private static final double UNARMED_DAMAGE = 2.0D;
+
     private final NativeMindBody body;
     private final Mob mob;
     private final NativeMindNavigationTracker navigation;
@@ -127,6 +130,26 @@ final class NativeMindActuator {
         }
 
         @Override
+        public boolean moveAwayFrom(Location threat, double speedModifier) {
+            require(MindControl.MOVE);
+            if (movementOverridden.getAsBoolean()) return false;
+            Objects.requireNonNull(threat, "threat");
+            if (!Double.isFinite(speedModifier) || speedModifier <= 0.0D) {
+                throw new IllegalArgumentException("speedModifier must be finite and positive");
+            }
+            requireSameWorld(threat);
+            if (body.profile().locomotion() == MindBodyLocomotion.STATIONARY
+                    || !(mob instanceof net.minecraft.world.entity.PathfinderMob pathfinder)) return false;
+            Path path = com.magmaguy.easyminecraftgoals.mindshared.flee.FleePathfinder.findPath(pathfinder, threat);
+            if (path == null || !mob.getNavigation().moveTo(path, speedModifier)) return false;
+            net.minecraft.world.level.pathfinder.Node end = path.getEndNode();
+            if (end != null) {
+                navigation.destinationRequested(new Location(threat.getWorld(), end.x + 0.5D, end.y, end.z + 0.5D));
+            }
+            return true;
+        }
+
+        @Override
         public void stopMoving() {
             require(MindControl.MOVE);
             if (movementOverridden.getAsBoolean()) return;
@@ -195,11 +218,68 @@ final class NativeMindActuator {
             if (nativeTarget.level() != mob.level()) {
                 throw new IllegalArgumentException("Mind target must be in the body's world");
             }
+            // A body with an attack of its own that is not a hit, a borrowed creeper's swelling, makes that one.
+            if (body.attack(nativeTarget)) return;
+            swing();
+            // Only a kind Minecraft gave an attack has the attribute its melee hit reads: a carrier is given one
+            // when it is made, a borrowed chicken has none.
+            if (mob.getAttributes().hasAttribute(net.minecraft.world.entity.ai.attributes.Attributes.ATTACK_DAMAGE)) {
+                mob.doHurtTarget((ServerLevel) mob.level(), nativeTarget);
+            } else {
+                target.damage(UNARMED_DAMAGE, body.entity());
+            }
+        }
+
+        @Override
+        public void attack(LivingEntity target, double damage) {
+            require(MindControl.ATTACK);
+            Objects.requireNonNull(target, "target");
+            if (!Double.isFinite(damage) || damage < 0.0D) {
+                throw new IllegalArgumentException("Attack damage must be finite and not negative");
+            }
+            if (target.getWorld() != body.entity().getWorld()) {
+                throw new IllegalArgumentException("Mind target must be in the body's world");
+            }
+            swing();
+            target.damage(damage, body.entity());
+        }
+
+        @Override
+        public boolean rangedAttack(LivingEntity target) {
+            require(MindControl.ATTACK);
+            Objects.requireNonNull(target, "target");
+            net.minecraft.world.entity.LivingEntity nativeTarget =
+                    NativeMindVersion.getNMSLivingEntity(target);
+            if (nativeTarget.level() != mob.level()) {
+                throw new IllegalArgumentException("Mind target must be in the body's world");
+            }
+            if (!(mob instanceof net.minecraft.world.entity.monster.RangedAttackMob ranged)) return false;
+            loadCrossbow();
+            ranged.performRangedAttack(nativeTarget, 1.0F);
+            return true;
+        }
+
+        private void swing() {
             // Bukkit owns the native swing signature, which changed in 26.3.
             LivingEntity bodyEntity = (LivingEntity) mob.getBukkitEntity();
             if (mob.getUsedItemHand() == net.minecraft.world.InteractionHand.OFF_HAND) bodyEntity.swingOffHand();
             else bodyEntity.swingMainHand();
-            mob.doHurtTarget((ServerLevel) mob.level(), nativeTarget);
+        }
+
+        /**
+         * A crossbow shoots only what is loaded in it, and the goal that loads a pillager's does not run under a
+         * Mind, so an empty one in the body's hand is loaded with an arrow first.
+         */
+        private void loadCrossbow() {
+            org.bukkit.inventory.EntityEquipment equipment = body.entity().getEquipment();
+            if (equipment == null) return;
+            org.bukkit.inventory.ItemStack held = equipment.getItemInMainHand();
+            if (held.getType() != org.bukkit.Material.CROSSBOW
+                    || !(held.getItemMeta() instanceof org.bukkit.inventory.meta.CrossbowMeta crossbow)
+                    || crossbow.hasChargedProjectiles()) return;
+            crossbow.addChargedProjectile(new org.bukkit.inventory.ItemStack(org.bukkit.Material.ARROW));
+            held.setItemMeta(crossbow);
+            equipment.setItemInMainHand(held);
         }
 
         @Override

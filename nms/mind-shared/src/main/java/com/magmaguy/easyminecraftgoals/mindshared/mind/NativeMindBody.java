@@ -14,15 +14,31 @@ final class NativeMindBody implements MobBody {
     private final NativeMindHost host;
     private final Mob mob;
     private final MindBodyProfile profile;
-    private final NativeMindBodyControl control;
+    private final NativeMindBodyDriver control;
+    private final boolean borrowed;
     private NativeMindSession session;
     private boolean preparing;
 
+    /** A carrier this host made, with a clean slate of native controls. */
     NativeMindBody(NativeMindHost host, Mob mob, MindBodyProfile profile) {
         this.host = Objects.requireNonNull(host, "host");
         this.mob = Objects.requireNonNull(mob, "mob");
         this.profile = Objects.requireNonNull(profile, "profile");
         control = new NativeMindBodyControl(mob, profile);
+        borrowed = false;
+    }
+
+    private NativeMindBody(NativeMindHost host, Mob mob, NativeMindBorrowedControl control) {
+        this.host = Objects.requireNonNull(host, "host");
+        this.mob = Objects.requireNonNull(mob, "mob");
+        this.profile = control.profile();
+        this.control = control;
+        borrowed = true;
+    }
+
+    /** A mob this host did not make, untouched until a session attaches it and handed back when it lets go. */
+    static NativeMindBody borrow(NativeMindHost host, Mob mob, org.bukkit.plugin.Plugin plugin) {
+        return new NativeMindBody(host, mob, new NativeMindBorrowedControl(mob, plugin, host.hostIdentity()));
     }
 
     NativeMindHost host() {
@@ -41,11 +57,32 @@ final class NativeMindBody implements MobBody {
         if (session != null) {
             throw new IllegalStateException("Native mind body is already attached");
         }
-        session = Objects.requireNonNull(next, "next");
+        Objects.requireNonNull(next, "next");
+        // A borrowed mob is taken over here, and refuses when another Mind holds it.
+        control.attached();
+        session = next;
+        if (borrowed) host.borrowedAttached(this);
     }
 
     void detach(NativeMindSession expected) {
-        if (session == expected) session = null;
+        if (session != expected) return;
+        session = null;
+        control.detached();
+        if (borrowed) host.borrowedDetached(this);
+    }
+
+    /** The session driving this body, null while none does. */
+    NativeMindSession session() {
+        return session;
+    }
+
+    /** Whether a borrowed mob had its AI switched off before it was borrowed; false for a carrier. */
+    boolean borrowedWithoutAi() {
+        return control instanceof NativeMindBorrowedControl held && held.hadNoAi();
+    }
+
+    boolean attack(net.minecraft.world.entity.LivingEntity target) {
+        return control.attack(target);
     }
 
     boolean attached() {
@@ -100,6 +137,11 @@ final class NativeMindBody implements MobBody {
     @Override
     public MindBodyCapabilities capabilities() {
         return host.bodyCapabilities();
+    }
+
+    @Override
+    public boolean borrowed() {
+        return borrowed;
     }
 
     @Override
