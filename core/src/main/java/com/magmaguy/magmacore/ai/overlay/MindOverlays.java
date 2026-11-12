@@ -257,6 +257,12 @@ public final class MindOverlays implements Listener, AutoCloseable {
             // it stays, so a mob that unloaded has its overlay again when it loads.
             if (!overlay.handle.hasBody()) {
                 end(overlay, false);
+                // A mob that changed dimension is a copy of itself there, with its id and what is written on
+                // it, so it carries on in the new world rather than waiting for its chunk to load again.
+                if (Bukkit.getEntity(overlay.mob.getUniqueId()) instanceof LivingEntity successor
+                        && successor != overlay.mob && successor.isValid()) {
+                    resume(successor);
+                }
             } else if (overlay.finished
                     || (overlay.endsAt > 0L && overlay.mob.getWorld().getGameTime() >= overlay.endsAt)) {
                 end(overlay, true);
