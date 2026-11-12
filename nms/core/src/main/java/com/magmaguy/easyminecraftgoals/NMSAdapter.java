@@ -259,6 +259,22 @@ public abstract class NMSAdapter {
     }
 
     /**
+     * Gives a vehicle its rider's client steers a velocity, by telling that client alone: it takes the velocity as
+     * the vehicle's own and moves on from it. The server's own copy of the vehicle's velocity is left as it is.
+     * <p>
+     * Bukkit's setVelocity changes that copy and lets the server's entity tracker send it. The server holds the
+     * velocity of a vehicle it does not steer at zero, so its copy is zero again a tick later, and the tracker,
+     * which sends a velocity whenever the copy has changed, sends that zero to everyone who sees the vehicle, its
+     * rider included, at its next update 1 to 3 ticks on. In water the rider's steering builds the speed up again;
+     * in the air nothing does, and a vehicle sent off on a hop stopped dead in the middle of it.
+     * <p>
+     * False when this version cannot, or when no player steers the vehicle; nothing has been sent then.
+     */
+    public boolean pushSteeredVehicle(Entity vehicle, org.bukkit.util.Vector velocity) {
+        return false;
+    }
+
+    /**
      * Turns an entity to a view at once, with nothing left to turn through: its yaw and pitch, a living entity's
      * body and head, and the copies of each that Minecraft keeps from the tick before. Bukkit's setRotation leaves
      * the head's copy from the tick before as it was, 0 on an entity that has not ticked yet. A horse turns whoever

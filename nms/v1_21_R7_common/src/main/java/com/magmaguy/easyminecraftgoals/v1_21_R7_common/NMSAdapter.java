@@ -234,6 +234,15 @@ public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter {
     }
 
     @Override
+    public boolean pushSteeredVehicle(Entity vehicle, org.bukkit.util.Vector velocity) {
+        net.minecraft.world.entity.Entity nmsEntity = CraftBukkitBridge.getNMSEntity(vehicle);
+        if (!(nmsEntity.getControllingPassenger() instanceof net.minecraft.server.level.ServerPlayer rider)) return false;
+        rider.connection.send(new net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket(nmsEntity.getId(),
+                new net.minecraft.world.phys.Vec3(velocity.getX(), velocity.getY(), velocity.getZ())));
+        return true;
+    }
+
+    @Override
     public boolean snapRotation(Entity entity, float yaw, float pitch) {
         net.minecraft.world.entity.Entity nmsEntity = CraftBukkitBridge.getNMSEntity(entity);
         nmsEntity.absSnapRotationTo(yaw, pitch);
