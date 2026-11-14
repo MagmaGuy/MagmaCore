@@ -85,6 +85,22 @@ public class NMSManager {
         }
     }
 
+    /**
+     * Fully qualified package of the adapter module for this server, such as
+     * {@code com.magmaguy.easyminecraftgoals.v1_21_R7_paper}, without creating the adapter or
+     * starting any of its listeners. {@code null} on an unsupported server, which
+     * {@link #getServerVersion()} has already logged.
+     *
+     * @param plugin logs through this plugin when no adapter has been initialized yet
+     */
+    public static String adapterPackage(Plugin plugin) {
+        if (pluginProvider == null) pluginProvider = plugin;
+        String version = getServerVersion();
+        if (version == null) return null;
+        if ("v1_21_R7".equals(version)) return PACKAGE + (isPaper() ? "v1_21_R7_paper" : "v1_21_R7_spigot");
+        return PACKAGE + version;
+    }
+
     private static boolean isPaper() {
         try {
             Class.forName("io.papermc.paper.configuration.GlobalConfiguration");
