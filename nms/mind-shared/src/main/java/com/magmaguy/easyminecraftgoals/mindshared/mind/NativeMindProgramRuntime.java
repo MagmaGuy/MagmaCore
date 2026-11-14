@@ -3,6 +3,8 @@ package com.magmaguy.easyminecraftgoals.mindshared.mind;
 import com.google.common.collect.ImmutableList;
 import com.magmaguy.magmacore.ai.MindBehavior;
 import com.magmaguy.magmacore.ai.MindActionRequest;
+import com.magmaguy.magmacore.ai.MindActionRequester;
+import com.magmaguy.magmacore.ai.MindActuator;
 import com.magmaguy.magmacore.ai.MindActionResult;
 import com.magmaguy.magmacore.ai.MindControl;
 import com.magmaguy.magmacore.ai.MindContext;
@@ -19,8 +21,10 @@ import net.minecraft.world.entity.ai.behavior.BehaviorControl;
 import net.minecraft.world.entity.schedule.Activity;
 
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
 
@@ -36,6 +40,8 @@ final class NativeMindProgramRuntime {
     private final NativeMindPerception perception;
     private final NativeMindCallbackScheduler callbacks;
     private final List<NativeMindBehaviorControl> behaviors = new ArrayList<>();
+    /** Each owner's guarded actuator and action requester; both depend only on the owner and this runtime. */
+    private final Map<NativeMindBehaviorControl, OwnerHandles> ownerHandles = new IdentityHashMap<>();
     private Brain<Mob> brain;
     private long gameTick;
     private int actionRequestCount;
@@ -103,14 +109,24 @@ final class NativeMindProgramRuntime {
     }
 
     MindContext context(NativeMindBehaviorControl owner) {
+        OwnerHandles handles = ownerHandles.computeIfAbsent(owner, this::ownerHandles);
         return new MindContext(
                 body.entity(),
                 gameTick,
                 generation,
                 memory.view(gameTick),
                 perception,
+                handles.actuator(),
+                handles.actions());
+    }
+
+    private OwnerHandles ownerHandles(NativeMindBehaviorControl owner) {
+        return new OwnerHandles(
                 actuator.guarded(owner, leases),
                 request -> requestAction(owner, request));
+    }
+
+    private record OwnerHandles(MindActuator actuator, MindActionRequester actions) {
     }
 
     private MindActionResult requestAction(
