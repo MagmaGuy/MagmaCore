@@ -87,11 +87,6 @@ public final class NightbreakPluginHotSwap {
         return !RESTART_ONLY.containsKey(plugin.getName());
     }
 
-    public static boolean hasStagedUpdate(JavaPlugin plugin) {
-        File pluginJar = findPluginJar(plugin);
-        return pluginJar != null && new File(NightbreakPluginUpdater.updateFolder(plugin), pluginJar.getName()).isFile();
-    }
-
     /**
      * Schedules a swap to the staged update on the next tick. Must be called on
      * the server thread.

@@ -403,36 +403,6 @@ public final class NightbreakPluginUpdater {
                 CACHED_UPDATE_CHECK_TIMES.getOrDefault(key, 0L));
     }
 
-    public static void checkForUpdateAsync(JavaPlugin plugin,
-                                           NightbreakPluginSpec spec,
-                                           String spigotResourceId,
-                                           Consumer<PluginUpdateCheck> callback) {
-        long generation = currentGeneration(plugin);
-        NightbreakPluginAsyncWorkTracker.Work work = registerAsyncWork(plugin, generation);
-        if (work == null) return;
-        try {
-            var task = Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
-                if (!work.start()) return;
-                try {
-                    if (!isCurrentGeneration(plugin, generation)) return;
-                    PluginUpdateCheck check = checkForUpdate(plugin, spec, spigotResourceId);
-                    if (!isCurrentGeneration(plugin, generation)) return;
-                    Bukkit.getScheduler().runTask(plugin, () -> {
-                        if (isCurrentGeneration(plugin, generation)) {
-                            callback.accept(check);
-                        }
-                    });
-                } finally {
-                    work.close();
-                }
-            });
-            work.attach(task);
-        } catch (RuntimeException exception) {
-            work.dispatchFailed();
-            throw exception;
-        }
-    }
-
     public static PluginUpdateCheck checkForUpdate(JavaPlugin plugin,
                                                    NightbreakPluginSpec spec,
                                                    String spigotResourceId) {

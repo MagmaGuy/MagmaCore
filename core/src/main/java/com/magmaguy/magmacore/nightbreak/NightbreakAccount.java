@@ -187,15 +187,6 @@ public class NightbreakAccount {
     }
 
     /**
-     * Legacy non-removable listener registration. New lifecycle-aware callers
-     * should use {@link #registerTokenChangeListener(Runnable)} and close the
-     * returned handle when their plugin disables.
-     */
-    public static void addTokenChangeListener(Runnable listener) {
-        registerTokenChangeListener(listener);
-    }
-
-    /**
      * Registers a removable listener for every actual credential change:
      * login, token replacement, or logout.
      */
@@ -405,29 +396,6 @@ public class NightbreakAccount {
     // ==================== API METHODS ====================
 
     /**
-     * Gets the latest version info for a DLC.
-     * This endpoint does NOT require authentication.
-     *
-     * @param slug The DLC slug (e.g., "bone-monastery", "the-dark-cathedral")
-     * @return VersionInfo containing version details, or null on error
-     */
-    public VersionInfo getVersion(String slug) {
-        try {
-            String url = baseUrl() + "/server/dlc/" + slug + "/version";
-            String response = httpGet(url, false);
-
-            if (response == null) return null;
-
-            // Parse JSON response
-            // Expected: {"slug":"...","version":"11","versionInt":11,"fileSize":17574333,"fileName":"..."}
-            return parseVersionInfo(response);
-        } catch (Exception e) {
-            Logger.warn("Error getting version for DLC '" + slug + "': " + e.getMessage());
-            return null;
-        }
-    }
-
-    /**
      * Gets version info for all available DLC from the Nightbreak API.
      * This endpoint does NOT require authentication.
      *
@@ -472,46 +440,6 @@ public class NightbreakAccount {
     }
 
     /**
-     * Downloads a DLC file.
-     * This endpoint REQUIRES authentication.
-     *
-     * @param slug            The DLC slug
-     * @param destinationFile The file to save the download to
-     * @return true if download was successful
-     */
-    public boolean download(String slug, File destinationFile) {
-        return download(slug, destinationFile, null);
-    }
-
-    /**
-     * Downloads a specific version of a DLC file.
-     * This endpoint REQUIRES authentication.
-     *
-     * @param slug            The DLC slug
-     * @param destinationFile The file to save the download to
-     * @param version         The specific version to download, or null for latest
-     * @return true if download was successful
-     */
-    public boolean download(String slug, File destinationFile, String version) {
-        if (!hasToken()) {
-            Logger.warn("Cannot download: No account token registered. Run /nightbreaklogin first.");
-            return false;
-        }
-
-        try {
-            String url = baseUrl() + "/server/dlc/" + slug + "/download";
-            if (version != null) {
-                url += "?version=" + version;
-            }
-
-            return httpDownload(url, destinationFile);
-        } catch (Exception e) {
-            Logger.warn("Error downloading DLC '" + slug + "': " + e.getMessage());
-            return false;
-        }
-    }
-
-    /**
      * Downloads a DLC file with progress updates.
      * This endpoint REQUIRES authentication.
      *
@@ -536,10 +464,6 @@ public class NightbreakAccount {
             Logger.warn("Error downloading DLC '" + slug + "': " + e.getMessage());
             return false;
         }
-    }
-
-    public VersionInfo getPluginVersion(String slug) {
-        return getPublicPluginVersion(slug);
     }
 
     public static VersionInfo getPublicPluginVersion(String slug) {
@@ -570,23 +494,6 @@ public class NightbreakAccount {
                 Logger.warn("Error getting DLC version for '" + slug + "': " + exception.getMessage());
             return null;
         }
-    }
-
-    /**
-     * Fetches the public release history uploaded by the Nightbreak release pipeline.
-     * Results are returned oldest first so callers can render a chronological digest.
-     */
-    public static List<PluginChangelog> getPublicPluginChangelogs(String slug, boolean logFailures) {
-        return getPublicChangelogs("/server/plugins/", slug, logFailures);
-    }
-
-    /** Public DLC release history; this endpoint intentionally requires no account token. */
-    public static List<PluginChangelog> getPublicDlcChangelogs(String slug, boolean logFailures) {
-        return getPublicChangelogs("/server/dlc/", slug, logFailures);
-    }
-
-    private static List<PluginChangelog> getPublicChangelogs(String prefix, String slug, boolean logFailures) {
-        return fetchPublicChangelogs(prefix, slug, logFailures).releases();
     }
 
     record ChangelogFetch(List<PluginChangelog> releases, boolean serviceUnavailable) { }
@@ -642,27 +549,6 @@ public class NightbreakAccount {
     private static String jsonString(JsonObject object, String key) {
         JsonElement value = object.get(key);
         return value == null || value.isJsonNull() || !value.isJsonPrimitive() ? null : value.getAsString();
-    }
-
-    public AccessInfo checkPluginAccess(String slug) {
-        if (!hasToken()) {
-            Logger.warn("Cannot check plugin update access: No account token registered. Run /nightbreaklogin first.");
-            return null;
-        }
-
-        try {
-            String url = baseUrl() + "/server/plugins/" + encodePathSegment(slug) + "/access";
-            String response = httpGet(url, true);
-            if (response == null) return null;
-            return parseAccessInfo(response);
-        } catch (Exception e) {
-            Logger.warn("Error checking plugin update access for '" + slug + "': " + e.getMessage());
-            return null;
-        }
-    }
-
-    public boolean downloadPlugin(String slug, File destinationFile, DownloadProgressCallback progressCallback) {
-        return downloadPluginUpdate(slug, destinationFile, progressCallback).success;
     }
 
     public PluginDownloadResult downloadPluginUpdate(String slug, File destinationFile, DownloadProgressCallback progressCallback) {
@@ -812,10 +698,6 @@ public class NightbreakAccount {
         return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
     }
 
-    private static String httpGetPublic(String urlString) {
-        return httpGetPublic(urlString, true);
-    }
-
     private static String httpGetPublic(String urlString, boolean logFailures) {
         return httpGetPublicResponse(urlString, logFailures).body();
     }
@@ -874,7 +756,6 @@ public class NightbreakAccount {
     private static final java.util.Set<String> unpublishedDlcReported = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private static volatile boolean suppressAuthFailureLogs = false;
     private static volatile int lastAuthFailureStatus = 0;
-    private static volatile String lastAuthFailureBody = null;
     private static volatile long networkFailureWindowStart = 0L;
     private static volatile int networkFailuresInWindow = 0;
     private static volatile String lastNetworkFailureMessage = null;
@@ -932,7 +813,6 @@ public class NightbreakAccount {
         // token is replaced via registerToken() (which clears the flag).
         if (responseCode == 401 || responseCode == 403) {
             lastAuthFailureStatus = responseCode;
-            lastAuthFailureBody = errorResponse;
             if (suppressAuthFailureLogs) return;
             suppressAuthFailureLogs = true;
             String body = errorResponse != null ? errorResponse : "(no body)";
@@ -983,7 +863,6 @@ public class NightbreakAccount {
     public static void resetAuthFailureSuppression() {
         suppressAuthFailureLogs = false;
         lastAuthFailureStatus = 0;
-        lastAuthFailureBody = null;
     }
 
     /**
@@ -996,68 +875,6 @@ public class NightbreakAccount {
 
     public static int getLastAuthFailureStatus() {
         return lastAuthFailureStatus;
-    }
-
-    public static String getLastAuthFailureBody() {
-        return lastAuthFailureBody;
-    }
-
-    private boolean httpDownload(String urlString, File destinationFile) {
-        try {
-            URL url = new URL(urlString);
-            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-            configureScopedTestRedirectPolicy(connection);
-            connection.setRequestMethod("GET");
-            connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
-            connection.setReadTimeout(READ_TIMEOUT_MS);
-
-            if (token != null) {
-                connection.setRequestProperty("Authorization", "Bearer " + token);
-            }
-
-            int responseCode = connection.getResponseCode();
-
-            if (responseCode == 200) {
-                // Ensure parent directory exists
-                if (!destinationFile.getParentFile().exists()) {
-                    destinationFile.getParentFile().mkdirs();
-                }
-
-                try (InputStream in = connection.getInputStream();
-                     FileOutputStream out = new FileOutputStream(destinationFile)) {
-                    byte[] buffer = new byte[8192];
-                    int bytesRead;
-                    while ((bytesRead = in.read(buffer)) != -1) {
-                        out.write(buffer, 0, bytesRead);
-                    }
-                } catch (IOException e) {
-                    // Clean up partial file on failure
-                    if (destinationFile.exists()) destinationFile.delete();
-                    throw e;
-                }
-                return true;
-            } else {
-                // Read error response
-                InputStream errorStream = connection.getErrorStream();
-                if (errorStream != null) {
-                    Scanner scanner = new Scanner(errorStream, StandardCharsets.UTF_8);
-                    StringBuilder errorResponse = new StringBuilder();
-                    while (scanner.hasNext()) {
-                        errorResponse.append(scanner.nextLine());
-                    }
-                    scanner.close();
-                    Logger.warn("Download failed (" + responseCode + ") for " + urlString + ": " + errorResponse);
-                } else {
-                    Logger.warn("Download failed (" + responseCode + ") for " + urlString + " (no error body)");
-                }
-                return false;
-            }
-        } catch (IOException e) {
-            // Clean up partial file on failure
-            if (destinationFile.exists()) destinationFile.delete();
-            Logger.warn("Download failed for " + urlString + ": " + e.getMessage());
-            return false;
-        }
     }
 
     private boolean httpDownloadWithProgress(String urlString, File destinationFile, DownloadProgressCallback callback) {

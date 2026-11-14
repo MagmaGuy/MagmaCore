@@ -115,26 +115,6 @@ public final class NightbreakCatalogMenu {
         Logger.sendSimpleMessage(sender, NightbreakSetupMenuHelper.getSeparator());
     }
 
-    public static void sendInitializeFollowup(Player player, NightbreakFirstTimeSetupSpec spec) {
-        if (player == null || spec == null) return;
-        Logger.sendSimpleMessage(player, NightbreakSetupMenuHelper.getSeparator());
-        Logger.sendSimpleMessage(player, "<g:#8B0000:#CC4400:#DAA520>" + spec.pluginDisplayName() + " setup</g>");
-        Logger.sendSimpleMessage(player, "&7Use the setup menu for content, updates, and update settings.");
-        sendCommand(player, "&7Setup menu: ", "&a" + spec.setupCommand(),
-                "&7Click to open the " + spec.pluginDisplayName() + " setup menu.", spec.setupCommand());
-        String recommendedCommand = recommendedCommandFromSetup(spec.setupCommand());
-        if (!recommendedCommand.isBlank()) {
-            sendCommand(player, "&7Recommended plugins: ", "&a" + recommendedCommand,
-                    "&7Click to see plugins that work well with " + spec.pluginDisplayName() + ".",
-                    recommendedCommand);
-        }
-        if (!NightbreakAccount.hasToken()) {
-            Logger.sendSimpleMessage(player, "&7Connect this server so " + spec.pluginDisplayName() + " can install content and download plugin updates from in-game.");
-            NightbreakSetupMenuHelper.sendLinkCommand(player, "&7Link this server: ");
-        }
-        Logger.sendSimpleMessage(player, NightbreakSetupMenuHelper.getSeparator());
-    }
-
     private static void sendCatalogLine(CommandSender sender,
                                         NightbreakPluginCatalog.Entry entry,
                                         NightbreakPluginCatalog.RelationType relationType) {
@@ -170,15 +150,6 @@ public final class NightbreakCatalogMenu {
                 Logger.sendSimpleMessage(player, NightbreakSetupMenuHelper.getSeparator());
             }
         };
-    }
-
-    private static String recommendedCommandFromSetup(String setupCommand) {
-        if (setupCommand == null || setupCommand.isBlank()) return "";
-        String trimmed = setupCommand.trim();
-        if (trimmed.endsWith(" setup")) {
-            return trimmed.substring(0, trimmed.length() - " setup".length()) + " recommendedplugins";
-        }
-        return "";
     }
 
     private static void sendCommand(CommandSender sender, String prefix, String label, String hover, String command) {

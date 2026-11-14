@@ -183,11 +183,6 @@ public final class NightbreakPluginCatalog {
         return "/" + entry.rootCommand() + " setup";
     }
 
-    public static String recommendedPluginsCommand(Entry entry) {
-        if (entry == null || entry.rootCommand().isBlank()) return "";
-        return "/" + entry.rootCommand() + " recommendedplugins";
-    }
-
     private static void add(Entry entry) {
         ENTRIES.put(normalize(entry.slug()), entry);
     }

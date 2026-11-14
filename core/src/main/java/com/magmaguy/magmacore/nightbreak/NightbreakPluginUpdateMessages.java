@@ -184,20 +184,6 @@ final class NightbreakPluginUpdateMessages {
         }
     }
 
-    private static void sendCommand(CommandSender sender,
-                                    String prefix,
-                                    String label,
-                                    String hover,
-                                    String command) {
-        if (sender instanceof Player player) {
-            player.spigot().sendMessage(
-                    SpigotMessage.simpleMessage(prefix),
-                    SpigotMessage.commandHoverMessage(label, hover, command));
-        } else {
-            Logger.sendSimpleMessage(sender, prefix + label);
-        }
-    }
-
     private static void sendSeparator(CommandSender sender) {
         Logger.sendSimpleMessage(sender, NightbreakSetupMenuHelper.getSeparator());
     }

@@ -1,6 +1,5 @@
 package com.magmaguy.magmacore.nightbreak;
 
-import com.magmaguy.magmacore.MagmaCore;
 import com.magmaguy.magmacore.util.Logger;
 import lombok.Getter;
 import org.bukkit.Bukkit;
@@ -28,7 +27,6 @@ public class NightbreakContentManager {
     @Getter
     private static final Map<String, NightbreakAccount.VersionInfo> versionCache = new ConcurrentHashMap<>();
 
-    private static volatile long lastCacheRefresh = 0;
     private static final long CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
     private record CachedAccess(NightbreakAccount account, NightbreakAccount.AccessInfo info, long fetchedAt) {
@@ -54,13 +52,6 @@ public class NightbreakContentManager {
     }
 
     /**
-     * Checks if the cache is stale and needs refreshing.
-     */
-    public static boolean isCacheStale() {
-        return System.currentTimeMillis() - lastCacheRefresh > CACHE_TTL_MS;
-    }
-
-    /**
      * True when the published Nightbreak catalog is loaded and does not list this slug: a plugin already
      * offers the package, but it has not been released yet. False whenever the catalog is unavailable.
      */
@@ -79,45 +70,6 @@ public class NightbreakContentManager {
      */
     public static boolean isComingSoon(NightbreakManagedContent content) {
         return isUnreleased(content) && !content.isDownloaded();
-    }
-
-    /**
-     * Clears all caches.
-     */
-    public static void clearCache() {
-        accessCache.clear();
-        versionCache.clear();
-        lastCacheRefresh = 0;
-    }
-
-    /**
-     * Refreshes the version cache by fetching all versions from Nightbreak.
-     * Should be called async.
-     */
-    public static void refreshVersionCache() {
-        refreshVersionCache(MagmaCore.getInstance().getRequestingPlugin());
-    }
-
-    public static void refreshVersionCache(JavaPlugin ownerPlugin) {
-        if (!NightbreakAccount.hasToken()) return;
-
-        Map<String, NightbreakAccount.VersionInfo> versions = NightbreakAccount.getInstance().getAllVersions();
-        if (!versions.isEmpty()) {
-            versionCache.clear();
-            versionCache.putAll(versions);
-            lastCacheRefresh = System.currentTimeMillis();
-            Logger.info("Refreshed Nightbreak version cache with " + versions.size() + " entries");
-        }
-    }
-
-    /**
-     * Checks access for a content slug asynchronously.
-     *
-     * @param slug The content slug
-     * @param callback Called with the AccessInfo result (may be null on error)
-     */
-    public static void checkAccessAsync(String slug, Consumer<NightbreakAccount.AccessInfo> callback) {
-        checkAccessAsync(MagmaCore.getInstance().getRequestingPlugin(), slug, callback);
     }
 
     public static void checkAccessAsync(JavaPlugin ownerPlugin, String slug, Consumer<NightbreakAccount.AccessInfo> callback) {
@@ -173,18 +125,6 @@ public class NightbreakContentManager {
                 if (operationCurrent.getAsBoolean()) callback.accept(info);
             });
         });
-    }
-
-    /**
-     * Downloads content asynchronously with progress updates.
-     *
-     * @param slug The content slug to download
-     * @param destinationFolder The folder to save the downloaded file
-     * @param player The player to send progress messages to (can be null)
-     * @param onComplete Called when download completes (true = success)
-     */
-    public static void downloadAsync(String slug, File destinationFolder, Player player, Consumer<Boolean> onComplete) {
-        downloadAsync(MagmaCore.getInstance().getRequestingPlugin(), slug, destinationFolder, player, onComplete);
     }
 
     public static void downloadAsync(JavaPlugin ownerPlugin,
@@ -371,12 +311,5 @@ public class NightbreakContentManager {
         if (bytes < 1024) return bytes + " B";
         if (bytes < 1024 * 1024) return String.format("%.1f KB", bytes / 1024.0);
         return String.format("%.1f MB", bytes / (1024.0 * 1024.0));
-    }
-
-    /**
-     * Shuts down the manager and clears caches.
-     */
-    public static void shutdown() {
-        clearCache();
     }
 }
