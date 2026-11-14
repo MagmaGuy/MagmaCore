@@ -65,6 +65,9 @@ public class PacketArmorStandEntity extends AbstractPacketEntity<ArmorStand> imp
         leatherHorseArmor.setItemMeta(leatherArmorMeta);
         nmsLeatherHorseArmor = CraftItemStack.asNMSCopy(leatherHorseArmor);
         armorStand.setItemSlot(EquipmentSlot.HEAD, nmsLeatherHorseArmor);
+        // Viewers only learn the helmet from the equipment packet, so resend it to everyone already
+        // watching; new viewers get the current colour from displayTo.
+        sendPacketToAll(new ClientboundSetEquipmentPacket(entity.getId(), List.of(Pair.of(EquipmentSlot.HEAD, nmsLeatherHorseArmor))));
     }
 
     @Override
