@@ -23,7 +23,6 @@ import com.magmaguy.easyminecraftgoals.internal.PacketEntityInterface;
 import com.magmaguy.easyminecraftgoals.internal.PacketEntityInteractionManager;
 import com.magmaguy.easyminecraftgoals.internal.PacketInteractionEntity;
 import com.magmaguy.easyminecraftgoals.internal.PacketModelEntity;
-import com.magmaguy.easyminecraftgoals.internal.PacketTextEntity;
 import com.magmaguy.easyminecraftgoals.internal.pathfinding.LongRangePathfindingHandle;
 import org.bukkit.Location;
 import org.bukkit.NamespacedKey;
@@ -181,19 +180,6 @@ public abstract class NMSAdapter {
         return false;
     }
 
-    public abstract boolean forcedMove(LivingEntity livingEntity, double speedModifier, Location location);
-
-    /**
-     * Pathfinding method which will move an entity to a point with a complete disregard for any pathfinding. This means
-     * that no pathfinding will be done by Minecraft - the entity can get stuck on blocks, won't be able to jump or really
-     * hardly any obstacle. Highly efficient, highly predictable.
-     *
-     * @param livingEntity  Entity to move
-     * @param speedModifier Speed modifier
-     * @param location      Location to move to
-     */
-    public abstract void universalMove(LivingEntity livingEntity, double speedModifier, Location location) ;
-
     public abstract AbstractWanderBackToPoint wanderBackToPoint(LivingEntity livingEntity,
                                                        Location blockLocation,
                                                        double maximumDistanceFromPoint,
@@ -219,20 +205,6 @@ public abstract class NMSAdapter {
      */
     public boolean resetHitbox(Entity entity) {
         return false;
-    }
-
-    /**
-     * Sets a custom passenger riding offset for an entity, overriding where
-     * passengers sit. The offset is relative to the entity's position.
-     *
-     * @param entity  The entity whose passenger position should be changed
-     * @param offsetX X offset from entity center
-     * @param offsetY Y offset from entity position (seat height)
-     * @param offsetZ Z offset from entity center
-     * @return true if the offset was successfully applied
-     */
-    public boolean setPassengerOffset(Entity entity, double offsetX, double offsetY, double offsetZ) {
-        return false; // Not supported on older versions
     }
 
     public abstract float getBodyRotation(Entity entity);
@@ -327,8 +299,6 @@ public abstract class NMSAdapter {
     public abstract PacketModelEntity createPacketArmorStandEntity(Location location);
 
     public abstract PacketModelEntity createPacketDisplayEntity(Location location);
-
-    public abstract PacketTextEntity createPacketTextArmorStandEntity(Location location);
 
     public abstract void doNotMove(LivingEntity livingEntity);
 

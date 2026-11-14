@@ -11,10 +11,8 @@ import com.magmaguy.easyminecraftgoals.internal.FakeTextSettings;
 import com.magmaguy.easyminecraftgoals.internal.PacketEntityInterface;
 import com.magmaguy.easyminecraftgoals.internal.PacketInteractionEntity;
 import com.magmaguy.easyminecraftgoals.internal.PacketModelEntity;
-import com.magmaguy.easyminecraftgoals.internal.PacketTextEntity;
 import com.magmaguy.easyminecraftgoals.v1_21_R7_common.entitydata.BodyRotation;
 import com.magmaguy.easyminecraftgoals.v1_21_R7_common.hitbox.Hitbox;
-import com.magmaguy.easyminecraftgoals.v1_21_R7_common.passenger.PassengerOffset;
 import com.magmaguy.easyminecraftgoals.v1_21_R7_common.massblockedit.MassEditBlocks;
 import com.magmaguy.easyminecraftgoals.v1_21_R7_common.move.Move;
 import com.magmaguy.easyminecraftgoals.v1_21_R7_common.packets.FakeItemImpl;
@@ -161,11 +159,6 @@ public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter {
     }
 
     @Override
-    public PacketTextEntity createPacketTextArmorStandEntity(Location location) {
-        return new PacketArmorStandEntity(location);
-    }
-
-    @Override
     public boolean canReach(LivingEntity livingEntity, Location destination) {
         PathfinderMob pathfinderMob = getPathfinderMob(livingEntity);
         if (pathfinderMob == null) return false;
@@ -183,12 +176,6 @@ public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter {
     public boolean resetHitbox(Entity entity) {
         if (entity == null) return false;
         return Hitbox.resetHitbox(CraftBukkitBridge.getNMSEntity(entity));
-    }
-
-    @Override
-    public boolean setPassengerOffset(Entity entity, double offsetX, double offsetY, double offsetZ) {
-        if (entity == null) return false;
-        return PassengerOffset.setPassengerOffset(CraftBukkitBridge.getNMSEntity(entity), offsetX, offsetY, offsetZ);
     }
 
     @Override
@@ -288,26 +275,6 @@ public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter {
         PathfinderMob pathfinderMob = getPathfinderMob(livingEntity);
         if (pathfinderMob == null) return;
         Move.doNotMove(pathfinderMob);
-    }
-
-    @Override
-    public boolean forcedMove(LivingEntity livingEntity, double speedModifier, Location location) {
-        net.minecraft.world.entity.LivingEntity nmsLivingEntity = CraftBukkitBridge.getNMSLivingEntity(livingEntity);
-        if (!(nmsLivingEntity instanceof Mob mob)) {
-            Bukkit.getLogger().info("[EasyMinecraftPathfinding] Entity type " + livingEntity.getType() + " does not extend Mob and is therefore unable to have goals! It will not be able to pathfind.");
-            return false;
-        }
-        return Move.forcedMove(mob, speedModifier, location);
-    }
-
-    @Override
-    public void universalMove(LivingEntity livingEntity, double speedModifier, Location location) {
-        net.minecraft.world.entity.LivingEntity nmsLivingEntity = CraftBukkitBridge.getNMSLivingEntity(livingEntity);
-        if (!(nmsLivingEntity instanceof Mob mob)) {
-            Bukkit.getLogger().info("[EasyMinecraftPathfinding] Entity type " + livingEntity.getType() + " does not extend Mob and is therefore unable to have goals! It will not be able to pathfind.");
-            return;
-        }
-        Move.universalMove(mob, speedModifier, location);
     }
 
     @Override

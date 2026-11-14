@@ -2,7 +2,6 @@ package com.magmaguy.easyminecraftgoals.v26.packets;
 
 import com.magmaguy.easyminecraftgoals.internal.AbstractPacketBundle;
 import com.magmaguy.easyminecraftgoals.internal.PacketModelEntity;
-import com.magmaguy.easyminecraftgoals.internal.PacketTextEntity;
 import com.magmaguy.easyminecraftgoals.v26.CraftBukkitBridge;
 import com.mojang.datafixers.util.Pair;
 import net.minecraft.core.Rotations;
@@ -21,7 +20,7 @@ import org.bukkit.util.EulerAngle;
 import java.util.List;
 import java.util.UUID;
 
-public class PacketArmorStandEntity extends AbstractPacketEntity<ArmorStand> implements PacketModelEntity, PacketTextEntity {
+public class PacketArmorStandEntity extends AbstractPacketEntity<ArmorStand> implements PacketModelEntity {
 
     private ItemStack nmsLeatherHorseArmor;
     private org.bukkit.inventory.ItemStack leatherHorseArmor;
@@ -50,13 +49,6 @@ public class PacketArmorStandEntity extends AbstractPacketEntity<ArmorStand> imp
         nmsLeatherHorseArmor = CraftBukkitBridge.asNMSCopy(leatherHorseArmor);
         //Actually useless, managed by the packet that sends equipment info
         armorStand.setItemSlot(EquipmentSlot.HEAD, nmsLeatherHorseArmor);
-    }
-
-    @Override
-    public void initializeText(Location location) {
-        armorStand = entity;
-        armorStand.setInvisible(true);
-        armorStand.setMarker(true);
     }
 
     @Override
@@ -150,18 +142,5 @@ public class PacketArmorStandEntity extends AbstractPacketEntity<ArmorStand> imp
         SynchedEntityData.DataValue<Rotations> dv =
                 SynchedEntityData.DataValue.create(ArmorStand.DATA_HEAD_POSE, rotations);
         sendPacket(new ClientboundSetEntityDataPacket(entity.getId(), java.util.List.of(dv)));
-    }
-
-    @Override
-    public void setText(String text) {
-        armorStand.setCustomNameVisible(true);
-        armorStand.setCustomName(CraftBukkitBridge.fromLegacyText(text));
-        sendPacket(createEntityDataPacket());
-    }
-
-    @Override
-    public void setTextVisible(boolean visible) {
-        armorStand.setCustomNameVisible(visible);
-        sendPacket(createEntityDataPacket());
     }
 }
