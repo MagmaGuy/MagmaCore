@@ -357,18 +357,4 @@ public class PacketEntityTracker {
             trackingRangeSquared = 64 * 64;
         }
     }
-
-    /**
-     * Gets the current tracking range in blocks.
-     */
-    public double getTrackingRange() {
-        return Math.sqrt(trackingRangeSquared);
-    }
-
-    /**
-     * Sets the tracking range in blocks.
-     */
-    public void setTrackingRange(double range) {
-        this.trackingRangeSquared = range * range;
-    }
 }

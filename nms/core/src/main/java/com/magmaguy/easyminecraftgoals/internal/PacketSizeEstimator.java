@@ -25,10 +25,6 @@ public final class PacketSizeEstimator {
         impl = function;
     }
 
-    public static boolean hasImpl() {
-        return impl != null;
-    }
-
     /**
      * @return the packet's real serialized size in bytes, or -1 if no implementation is
      * registered or the packet could not be measured.

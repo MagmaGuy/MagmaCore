@@ -25,10 +25,6 @@ public final class PacketSendObserver {
         impl = observer;
     }
 
-    public static boolean isActive() {
-        return impl != null;
-    }
-
     public static void observe(Object packet, int viewerCount) {
         Observer observer = impl;
         if (observer == null || packet == null || viewerCount <= 0) return;

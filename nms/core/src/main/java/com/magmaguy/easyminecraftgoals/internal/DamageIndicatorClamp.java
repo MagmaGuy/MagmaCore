@@ -30,8 +30,4 @@ public final class DamageIndicatorClamp {
     public static void setMaxParticles(int max) {
         maxParticles = max;
     }
-
-    public static boolean isEnabled() {
-        return maxParticles > 0;
-    }
 }
