@@ -69,11 +69,28 @@ public class ConfigurationEngine {
         fileConfiguration.options().copyDefaults(true);
         UnusedNodeHandler.clearNodes(fileConfiguration);
 
-        saveConfiguration(fileConfiguration, file);
+        // Every config loads through here on each boot and reload. When the serialized result already
+        // equals the bytes on disk the write would replace the file with identical contents, so skip the
+        // temporary file, fsync and move. Any added default, pruned key or changed value still writes.
+        String contents = fileConfiguration.saveToString();
+        if (fileHasContents(file, contents)) return;
+        fileSaverSerialized(contents, file);
     }
 
     private static void saveConfiguration(FileConfiguration configuration, File file) {
         fileSaverSerialized(configuration.saveToString(), file);
+    }
+
+    /** True only when the file is readable as UTF-8 and its text is exactly {@code contents}. */
+    private static boolean fileHasContents(File file, String contents) {
+        try {
+            Path path = file.toPath().toAbsolutePath().normalize();
+            if (!Files.isRegularFile(path)) return false;
+            if (Files.size(path) != contents.getBytes(StandardCharsets.UTF_8).length) return false;
+            return contents.equals(Files.readString(path, StandardCharsets.UTF_8));
+        } catch (IOException | RuntimeException unreadable) {
+            return false;
+        }
     }
 
     /** Atomically publishes an already serialized snapshot without accessing a live YAML model. */
