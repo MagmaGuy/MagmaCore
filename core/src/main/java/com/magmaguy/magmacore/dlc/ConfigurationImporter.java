@@ -1268,10 +1268,6 @@ public class ConfigurationImporter {
         return worldCannonPath;
     }
 
-    void markModelsInstalled() {
-        modelsInstalled = true;
-    }
-
     /**
      * Public because consumers need to know whether FreeMinecraftModels' model registry was
      * invalidated during this startup. When this importer installs models it fires

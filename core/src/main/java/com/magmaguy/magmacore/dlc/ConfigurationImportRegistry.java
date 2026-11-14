@@ -29,8 +29,6 @@ final class ConfigurationImportRegistry {
     private static final Map<ConfigurationImporter.PluginPlatform, Map<String, Function<ConfigurationImporter, Path>>> platformResolvers =
             new EnumMap<>(ConfigurationImporter.PluginPlatform.class);
     private static final Map<String, Function<ConfigurationImporter, Path>> globalResolvers = new HashMap<>();
-    private static final Map<ConfigurationImporter.PluginPlatform, Function<ConfigurationImporter, Path>> platformFallbackResolvers =
-            new EnumMap<>(ConfigurationImporter.PluginPlatform.class);
     private static final Set<String> skippedFolders = new HashSet<>();
 
     static {
@@ -56,11 +54,6 @@ final class ConfigurationImportRegistry {
             return platformResolver.apply(importer);
         }
 
-        Function<ConfigurationImporter, Path> fallbackResolver = platformFallbackResolvers.get(platform);
-        if (fallbackResolver != null) {
-            return fallbackResolver.apply(importer);
-        }
-
         return null;
     }
 
@@ -70,7 +63,7 @@ final class ConfigurationImportRegistry {
     }
 
     /**
-     * Returns true if a resolver (global, platform-specific, or platform fallback) is registered
+     * Returns true if a resolver (global or platform-specific) is registered
      * for this folder/platform combination. Used to suppress the "not recognized" warning when a
      * resolver intentionally returns null (e.g. FMM customitems skipped because EliteMobs is missing).
      */
@@ -79,8 +72,7 @@ final class ConfigurationImportRegistry {
         String normalizedFolder = normalize(folder);
         if (globalResolvers.containsKey(normalizedFolder)) return true;
         Map<String, Function<ConfigurationImporter, Path>> platformMap = platformResolvers.get(platform);
-        if (platformMap != null && platformMap.containsKey(normalizedFolder)) return true;
-        return platformFallbackResolvers.containsKey(platform);
+        return platformMap != null && platformMap.containsKey(normalizedFolder);
     }
 
     private static void registerDefaults() {
@@ -242,11 +234,6 @@ final class ConfigurationImportRegistry {
 
     private static void registerSkipped(String folder) {
         skippedFolders.add(normalize(folder));
-    }
-
-    private static void registerPlatformFallback(ConfigurationImporter.PluginPlatform platform,
-                                                 Function<ConfigurationImporter, Path> resolver) {
-        platformFallbackResolvers.put(platform, resolver);
     }
 
     private static String normalize(String folder) {
