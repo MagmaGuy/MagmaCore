@@ -307,10 +307,13 @@ public final class FakeCustomEntityImpl implements FakeCustomEntity, TrackedPack
     }
 
     private void sendPropertiesToBedrockViewers() {
+        // One immutable snapshot serves every viewer of this change.
+        Map<String, Object> snapshot = properties.snapshot();
+        if (snapshot.isEmpty()) return;
         for (UUID uuid : viewers) {
             Player player = Bukkit.getPlayer(uuid);
             if (player != null && BedrockChecker.isBedrock(player)) {
-                sendProperties(player);
+                sendProperties(player, snapshot);
             }
         }
     }
@@ -327,7 +330,10 @@ public final class FakeCustomEntityImpl implements FakeCustomEntity, TrackedPack
     }
 
     private void sendProperties(Player player) {
-        Map<String, Object> snapshot = properties.snapshot();
+        sendProperties(player, properties.snapshot());
+    }
+
+    private void sendProperties(Player player, Map<String, Object> snapshot) {
         if (snapshot.isEmpty()) return;
         runBridgeSafely(() -> BedrockCustomEntityBridgeRegistry.bridge().sendProperties(
                 player,
