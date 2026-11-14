@@ -9,6 +9,10 @@ import org.bukkit.boss.BarColor;
 import org.bukkit.boss.BarStyle;
 import org.bukkit.boss.BossBar;
 import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
+import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.scheduler.BukkitTask;
 import org.luaj.vm2.LuaTable;
 import org.luaj.vm2.LuaValue;
@@ -40,6 +44,8 @@ public class LuaPlayerUITable {
 
             BarColor finalBarColor = barColor;
             Bukkit.getScheduler().runTask(MagmaCore.getInstance().getRequestingPlugin(), () -> {
+                // The player may have quit since the call; their bar would outlive the quit cleanup.
+                if (!player.isOnline()) return;
                 BossBar existing = activeBossBars.remove(uuid);
                 if (existing != null) existing.removeAll();
 
@@ -113,5 +119,19 @@ public class LuaPlayerUITable {
 
         BukkitTask task = activeActionBars.remove(uuid);
         if (task != null) task.cancel();
+    }
+
+    /** Removes every script boss bar from its players and stops every repeating action bar. */
+    public static void shutdown() {
+        activeBossBars.keySet().forEach(LuaPlayerUITable::cleanup);
+        activeActionBars.keySet().forEach(LuaPlayerUITable::cleanup);
+    }
+
+    /** Ends a player's script boss bar and action bar when they log out. */
+    public static class QuitListener implements Listener {
+        @EventHandler(priority = EventPriority.MONITOR)
+        public void onPlayerQuit(PlayerQuitEvent event) {
+            cleanup(event.getPlayer().getUniqueId());
+        }
     }
 }

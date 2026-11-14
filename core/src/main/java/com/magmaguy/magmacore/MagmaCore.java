@@ -23,6 +23,7 @@ import com.magmaguy.magmacore.nightbreak.NightbreakLogoutMessages;
 import com.magmaguy.magmacore.nightbreak.NightbreakPluginSpec;
 import com.magmaguy.magmacore.nightbreak.NightbreakPluginStateRegistry;
 import com.magmaguy.magmacore.nightbreak.NightbreakPluginUpdater;
+import com.magmaguy.magmacore.scripting.tables.LuaPlayerUITable;
 import com.magmaguy.magmacore.thirdparty.CustomBiomeCompatibility;
 import com.magmaguy.magmacore.util.Logger;
 import com.magmaguy.magmacore.util.NamedDeathLogFilter;
@@ -93,6 +94,7 @@ public final class MagmaCore {
         if (!listenerRegistrations.add(plugin.getName())) return;
         Bukkit.getPluginManager().registerEvents(new SetupMenu.SetupMenuListeners(), plugin);
         Bukkit.getPluginManager().registerEvents(new AdvancedMenuHandler.AdvancedMenuListeners(), plugin);
+        Bukkit.getPluginManager().registerEvents(new LuaPlayerUITable.QuitListener(), plugin);
         TemporaryBlockManager.initialize(plugin);
     }
 
@@ -135,6 +137,7 @@ public final class MagmaCore {
         instanceProtectorRegistered = false;
         TemporaryBlockManager.shutdown();
         NamedDeathLogFilter.shutdown();
+        LuaPlayerUITable.shutdown();
     }
 
     public static void shutdown(JavaPlugin plugin) {
