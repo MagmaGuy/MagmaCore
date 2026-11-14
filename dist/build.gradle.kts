@@ -31,9 +31,14 @@ gradle.projectsEvaluated {
     }
 }
 
-val packagePath = "com.magmaguy.shaded"
+// Bundled libraries live under com.magmaguy.magmacore, so a consumer's single
+// com.magmaguy.magmacore relocation also gives it its own copy of luaj, reflections and javassist.
+val packagePath = "com.magmaguy.magmacore.shaded"
 
 tasks.shadowJar {
+    // Shadow's up-to-date check does not see relocation targets; without this a changed
+    // packagePath reuses the previous jar.
+    inputs.property("packagePath", packagePath)
     relocate("org.luaj", "$packagePath.luaj")
     relocate("org.reflections", "$packagePath.reflections")
     // Reflections' own dependencies. Left at their original names, every plugin ships the
