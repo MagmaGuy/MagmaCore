@@ -13,7 +13,6 @@ import org.bukkit.inventory.meta.SkullMeta;
 import org.bukkit.util.Vector;
 
 import java.io.File;
-import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 
@@ -61,13 +60,16 @@ public abstract class CustomConfigFields {
         this.isEnabled = enabled;
         FileConfiguration writable = getWritableFileConfiguration();
         writable.set("isEnabled", enabled);
-        return CompletableFuture.runAsync(() -> {
-            try {
-                writable.save(this.file);
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-        });
+        // Serialize here: the live model may change on this thread while the write runs. The atomic
+        // saver replaces the file in one step, so a crash or lock mid-write cannot leave it truncated.
+        File target = this.file;
+        String contents;
+        try {
+            contents = writable.saveToString();
+        } catch (RuntimeException failure) {
+            return CompletableFuture.failedFuture(failure);
+        }
+        return CompletableFuture.runAsync(() -> ConfigurationEngine.fileSaverSerialized(contents, target));
     }
 
     public abstract void processConfigFields();
