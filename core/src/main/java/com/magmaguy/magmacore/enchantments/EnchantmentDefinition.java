@@ -16,6 +16,9 @@ public record EnchantmentDefinition(String id, String name, String description, 
                                     String script, Map<String, Object> parameters, ItemSetDefinition set) {
     private static final Pattern ID = Pattern.compile("[a-z0-9._-]{1,64}:[a-z0-9._-]{1,128}");
     private static final Pattern CAPABILITY = Pattern.compile("[a-z0-9._:-]{1,128}");
+    private static final Pattern SCRIPT = Pattern.compile("[a-z0-9._-]{1,128}\\.lua");
+    /** Parameter and query-input names; shared with {@link EnchantmentQueries}. */
+    static final Pattern PARAMETER_NAME = Pattern.compile("[a-zA-Z_][a-zA-Z0-9_]{0,127}");
     public enum Slot { HEAD, CHEST, LEGS, FEET, MAINHAND, OFFHAND }
     public enum ItemType {
         SWORD, AXE, PICKAXE, SHOVEL, HOE, BOW, CROSSBOW, TRIDENT, MACE, SPEAR,
@@ -43,11 +46,11 @@ public record EnchantmentDefinition(String id, String name, String description, 
         conflicts.forEach(EnchantmentDefinition::requireId);
         if (conflicts.contains(id)) throw new IllegalArgumentException("An enchantment cannot conflict with itself");
         java.util.Objects.requireNonNull(stacking, "stacking");
-        if (script == null || !script.matches("[a-z0-9._-]{1,128}\\.lua"))
+        if (script == null || !SCRIPT.matcher(script).matches())
             throw new IllegalArgumentException("script must be a lowercase Lua filename without a directory");
         parameters = EnchantmentValues.copy(parameters);
         for (var entry : parameters.entrySet()) {
-            if (!entry.getKey().matches("[a-zA-Z_][a-zA-Z0-9_]{0,127}"))
+            if (!PARAMETER_NAME.matcher(entry.getKey()).matches())
                 throw new IllegalArgumentException("Invalid parameter name");
             if (entry.getValue() instanceof List<?> levels) {
                 if (levels.size() != maxLevel) throw new IllegalArgumentException("Per-level parameter must match maxLevel");

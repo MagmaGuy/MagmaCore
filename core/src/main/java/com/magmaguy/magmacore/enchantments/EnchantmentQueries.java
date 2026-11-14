@@ -7,10 +7,12 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 /** Captured, synchronous contributions. Gameplay owners validate and apply the returned numbers. */
 public final class EnchantmentQueries {
     public static final String CAPABILITY = "enchantment.numeric_queries.v1";
+    private static final Pattern HOOK = Pattern.compile("on_[a-z0-9_]{1,100}");
     private EnchantmentQueries() { }
 
     /** No gameplay default is imposed here. Hosts select measured limits within the engine ceiling. */
@@ -106,7 +108,7 @@ public final class EnchantmentQueries {
     }
 
     static void requireHook(ScriptHook hook) {
-        if (hook == null || !hook.getKey().matches("on_[a-z0-9_]{1,100}") || hook.equals(ScriptHook.ON_TICK)
+        if (hook == null || !HOOK.matcher(hook.getKey()).matches() || hook.equals(ScriptHook.ON_TICK)
                 || hook.equals(ScriptHook.ON_ZONE_ENTER) || hook.equals(ScriptHook.ON_ZONE_LEAVE))
             throw new IllegalArgumentException("Expected a synchronous query hook");
     }
@@ -114,7 +116,7 @@ public final class EnchantmentQueries {
     static Map<String, Object> copyInput(Map<?, ?> input) {
         Map<String, Object> result = EnchantmentValues.copy(input);
         for (var entry : result.entrySet()) {
-            if (!entry.getKey().matches("[a-zA-Z_][a-zA-Z0-9_]{0,127}")
+            if (!EnchantmentDefinition.PARAMETER_NAME.matcher(entry.getKey()).matches()
                     || !(entry.getValue() instanceof String || entry.getValue() instanceof Number || entry.getValue() instanceof Boolean))
                 throw new IllegalArgumentException("Query inputs must be named scalar snapshots");
         }
