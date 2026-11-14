@@ -3,11 +3,9 @@ package com.magmaguy.easyminecraftgoals.internal.pathfinding;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
-import java.util.Set;
 import java.util.function.BooleanSupplier;
 
 /** Pure A* search over immutable chunk snapshots. No Bukkit world state is read here. */
@@ -40,10 +38,10 @@ final class SnapshotPathSolver {
         if (start.equals(goal)) return new Result(List.of(start), false);
 
         PriorityQueue<SearchNode> open = new PriorityQueue<>(Comparator.comparingDouble(SearchNode::score));
-        Map<Point, Double> distances = new HashMap<>();
-        Map<Point, Point> previous = new HashMap<>();
-        Set<Point> closed = new HashSet<>();
-        distances.put(start, 0D);
+        // One record per reached point holds its best distance, predecessor and closed flag, so a
+        // neighbour costs one lookup and no boxed distance.
+        Map<Point, NodeState> nodes = new HashMap<>();
+        nodes.put(start, new NodeState(0D, null));
         open.add(new SearchNode(start, heuristic(start, goal)));
 
         int visited = 0;
@@ -51,18 +49,26 @@ final class SnapshotPathSolver {
             if (cancelled.getAsBoolean()) return Result.noPath(false);
             SearchNode next = open.poll();
             Point current = next.point();
-            if (!closed.add(current)) continue;
+            NodeState currentState = nodes.get(current);
+            if (currentState.closed) continue;
+            currentState.closed = true;
             if (++visited > maximumVisitedNodes) return Result.noPath(true);
-            if (current.equals(goal)) return new Result(reconstruct(previous, current), false);
+            if (current.equals(goal)) return new Result(reconstruct(nodes, current), false);
 
             for (Point neighbour : neighbours(terrain, current, body)) {
-                if (closed.contains(neighbour)) continue;
-                double candidateDistance = distances.get(current) + movementCost(terrain, current, neighbour, body);
-                if (candidateDistance + 1.0E-9D >= distances.getOrDefault(neighbour, Double.POSITIVE_INFINITY)) {
+                NodeState neighbourState = nodes.get(neighbour);
+                if (neighbourState != null && neighbourState.closed) continue;
+                double candidateDistance = currentState.distance + movementCost(terrain, current, neighbour, body);
+                double knownDistance = neighbourState == null ? Double.POSITIVE_INFINITY : neighbourState.distance;
+                if (candidateDistance + 1.0E-9D >= knownDistance) {
                     continue;
                 }
-                previous.put(neighbour, current);
-                distances.put(neighbour, candidateDistance);
+                if (neighbourState == null) {
+                    nodes.put(neighbour, new NodeState(candidateDistance, current));
+                } else {
+                    neighbourState.previous = current;
+                    neighbourState.distance = candidateDistance;
+                }
                 open.add(new SearchNode(neighbour, candidateDistance + heuristic(neighbour, goal)));
             }
         }
@@ -78,14 +84,24 @@ final class SnapshotPathSolver {
 
     private static List<Point> groundNeighbours(Terrain terrain, Point current, BodyProfile body) {
         List<Point> neighbours = new ArrayList<>(10);
+        // The four cardinal directions come first; a diagonal re-checks two of them, and the
+        // terrain is an immutable snapshot, so their results are kept for the diagonals.
+        Point east = null, west = null, south = null, north = null;
         for (int[] direction : HORIZONTAL_DIRECTIONS) {
             int dx = direction[0];
             int dz = direction[1];
+            boolean diagonal = dx != 0 && dz != 0;
             Point candidate = groundTransition(terrain, current, dx, dz, body);
+            if (!diagonal) {
+                if (dx == 1) east = candidate;
+                else if (dx == -1) west = candidate;
+                else if (dz == 1) south = candidate;
+                else north = candidate;
+            }
             if (candidate == null) continue;
-            if (dx != 0 && dz != 0
-                    && (groundTransition(terrain, current, dx, 0, body) == null
-                    || groundTransition(terrain, current, 0, dz, body) == null)) {
+            if (diagonal
+                    && ((dx == 1 ? east : west) == null
+                    || (dz == 1 ? south : north) == null)) {
                 continue;
             }
             neighbours.add(candidate);
@@ -220,12 +236,12 @@ final class SnapshotPathSolver {
         return Math.sqrt(dx * dx + dy * dy + dz * dz);
     }
 
-    private static List<Point> reconstruct(Map<Point, Point> previous, Point end) {
+    private static List<Point> reconstruct(Map<Point, NodeState> nodes, Point end) {
         List<Point> reversed = new ArrayList<>();
         Point current = end;
         while (current != null) {
             reversed.add(current);
-            current = previous.get(current);
+            current = nodes.get(current).previous;
         }
         java.util.Collections.reverse(reversed);
         return List.copyOf(reversed);
@@ -303,5 +319,16 @@ final class SnapshotPathSolver {
     }
 
     private record SearchNode(Point point, double score) {
+    }
+
+    private static final class NodeState {
+        private double distance;
+        private Point previous;
+        private boolean closed;
+
+        private NodeState(double distance, Point previous) {
+            this.distance = distance;
+            this.previous = previous;
+        }
     }
 }
