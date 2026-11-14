@@ -288,16 +288,6 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
         return getTransformation().getTranslation();
     }
 
-    public void setTranslation(Vector3f translation) {
-        Transformation transformation = getTransformation();
-        Transformation newTransformation = new Transformation(
-                translation,
-                transformation.getLeftRotation(),
-                transformation.getScale(),
-                transformation.getRightRotation());
-        setTransformation(newTransformation);
-    }
-
     public Quaternionf getLeftRotation() {
         return getTransformation().getLeftRotation();
     }
@@ -314,16 +304,6 @@ public class PacketDisplayEntity extends AbstractPacketEntity<Display.ItemDispla
 
     public Quaternionf getRightRotation() {
         return getTransformation().getRightRotation();
-    }
-
-    public void setRightRotation(Quaternionf rotation) {
-        Transformation transformation = getTransformation();
-        Transformation newTransformation = new Transformation(
-                transformation.getTranslation(),
-                transformation.getLeftRotation(),
-                transformation.getScale(),
-                rotation);
-        setTransformation(newTransformation);
     }
 
     /** The right rotation the entity data holds, read through one transformation instead of two. */
