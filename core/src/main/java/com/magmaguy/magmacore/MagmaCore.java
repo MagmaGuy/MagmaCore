@@ -145,6 +145,7 @@ public final class MagmaCore {
             NightbreakContentRefresher.shutdown(plugin);
             PluginInitializationManager.shutdown(plugin);
             NightbreakPluginUpdater.shutdown(plugin);
+            VersionChecker.shutdown(plugin);
             NightbreakPluginStateRegistry.clear(plugin);
         }
         shutdown();

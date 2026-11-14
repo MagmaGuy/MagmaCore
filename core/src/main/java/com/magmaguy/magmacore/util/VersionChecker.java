@@ -10,14 +10,16 @@ import org.bukkit.Server;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.scheduler.BukkitTask;
 
 import java.io.IOException;
 import java.net.URI;
 import java.net.URL;
 import java.net.URLConnection;
 import java.nio.charset.StandardCharsets;
-import java.util.Set;
+import java.util.Map;
 import java.util.Scanner;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -26,7 +28,9 @@ public class VersionChecker {
     private static final long INITIAL_UPDATE_REFRESH_DELAY_TICKS = 20L * 60L * 5L;
     private static final long BOOT_STAGGER_MAX_TICKS = 20L * 60L * 2L;
     private static final int SPIGOT_FALLBACK_TIMEOUT_MS = 3000;
-    private static final Set<String> SCHEDULED_VERSION_CHECKS = ConcurrentHashMap.newKeySet();
+    // One hourly timer per plugin and resource. A plugin reload cancels its tasks, so a cancelled
+    // entry is replaced on the next enable instead of blocking the check until a restart.
+    private static final Map<String, BukkitTask> SCHEDULED_VERSION_CHECKS = new ConcurrentHashMap<>();
     // Remembers the last outcome logged per version-check task so the hourly re-check
     // doesn't re-print the same "you are running the latest version" lines every hour.
     private static final ConcurrentHashMap<String, String> LAST_LOGGED_STATE = new ConcurrentHashMap<>();
@@ -87,8 +91,28 @@ public class VersionChecker {
 
     public static void checkPluginVersion(String resourceID, String downloadURL) {
         String taskKey = MagmaCore.getInstance().getRequestingPlugin().getName() + ":" + resourceID + ":" + downloadURL;
-        if (!SCHEDULED_VERSION_CHECKS.add(taskKey)) return;
-        Bukkit.getScheduler().runTaskTimerAsynchronously(MagmaCore.getInstance().getRequestingPlugin(), () -> {
+        synchronized (SCHEDULED_VERSION_CHECKS) {
+            BukkitTask scheduled = SCHEDULED_VERSION_CHECKS.get(taskKey);
+            if (scheduled != null && !scheduled.isCancelled()) return;
+            SCHEDULED_VERSION_CHECKS.put(taskKey, scheduleVersionCheck(taskKey, resourceID, downloadURL));
+        }
+    }
+
+    /** Cancels the plugin's version checks and forgets them, so its next enable schedules them again. */
+    public static void shutdown(JavaPlugin plugin) {
+        if (plugin == null) return;
+        String keyPrefix = plugin.getName() + ":";
+        synchronized (SCHEDULED_VERSION_CHECKS) {
+            SCHEDULED_VERSION_CHECKS.entrySet().removeIf(entry -> {
+                if (!entry.getKey().startsWith(keyPrefix)) return false;
+                entry.getValue().cancel();
+                return true;
+            });
+        }
+    }
+
+    private static BukkitTask scheduleVersionCheck(String taskKey, String resourceID, String downloadURL) {
+        return Bukkit.getScheduler().runTaskTimerAsynchronously(MagmaCore.getInstance().getRequestingPlugin(), () -> {
             String rawCurrentVersion = MagmaCore.getInstance().getRequestingPlugin().getDescription().getVersion();
             boolean snapshot = rawCurrentVersion.contains("SNAPSHOT");
             String currentVersion = NightbreakPluginUpdater.cleanVersion(rawCurrentVersion);
