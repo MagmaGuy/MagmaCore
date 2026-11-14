@@ -83,7 +83,10 @@ public class PacketArmorStandEntity extends AbstractPacketEntity<ArmorStand> imp
 
     @Override
     public AbstractPacketBundle generateLocationAndRotationAndScalePackets(AbstractPacketBundle packetBundle, Location location, EulerAngle eulerAngle, float scale) {
-        packetBundle.addPacket(generateMovePacket(location), getViewersAsPlayers());
+        net.minecraft.network.protocol.Packet<?> move = generateMovePacket(location);
+        // One viewer list for both packets of this pose.
+        java.util.List<Player> players = getViewersAsPlayers();
+        packetBundle.addPacket(move, players);
         if (eulerAngle != null) {
             Rotations rotations = new Rotations(
                     (float) Math.toDegrees(eulerAngle.getX()),
@@ -97,7 +100,7 @@ public class PacketArmorStandEntity extends AbstractPacketEntity<ArmorStand> imp
             // bypasses both filters so Geyser's ArmorStandEntity.setHeadRotation always fires.
             SynchedEntityData.DataValue<Rotations> dv =
                     SynchedEntityData.DataValue.create(ArmorStand.DATA_HEAD_POSE, rotations);
-            packetBundle.addPacket(new ClientboundSetEntityDataPacket(entity.getId(), java.util.List.of(dv)), getViewersAsPlayers());
+            packetBundle.addPacket(new ClientboundSetEntityDataPacket(entity.getId(), java.util.List.of(dv)), players);
         }
         return packetBundle;
     }

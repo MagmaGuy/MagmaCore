@@ -319,8 +319,7 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
     }
 
     protected void sendTeleportPacket() {
-        sendPacketToAll(generateTeleportPacket());
-        sendPacketToAll(generateHeadRotationPacket());
+        sendPacketsToAll(generateTeleportPacket(), generateHeadRotationPacket());
     }
 
     protected Packet<?> generateTeleportPacket() {
@@ -355,9 +354,10 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
         // entity's position/rotation and returns the position-sync packet; head rotation is null
         // for non-living entities (see generateHeadRotationPacket).
         Packet<?> move = generateMovePacket(location);
-        if (move != null) bundle.addPacket(move, getViewersAsPlayers());
+        List<Player> players = move == null ? null : getViewersAsPlayers();
+        if (move != null) bundle.addPacket(move, players);
         Packet<?> head = generateHeadRotationPacket();
-        if (head != null) bundle.addPacket(head, getViewersAsPlayers());
+        if (head != null) bundle.addPacket(head, players != null ? players : getViewersAsPlayers());
     }
 
     public Packet<?> generateMovePacket(Location location) {
@@ -380,8 +380,7 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
     }
 
     public void move(Location location) {
-        sendPacketToAll(generateMovePacket(location));
-        sendPacketToAll(generateHeadRotationPacket());
+        sendPacketsToAll(generateMovePacket(location), generateHeadRotationPacket());
     }
 
     @Override
@@ -516,6 +515,34 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
         // (no-op unless a sampler is actively observing).
         if (delivered > 0)
             com.magmaguy.easyminecraftgoals.internal.PacketSendObserver.observe(nmsPacket, delivered);
+    }
+
+    /**
+     * Broadcasts two packets of one update in a single pass over the viewers: each viewer still gets
+     * {@code first} and then {@code second}, as two {@link #sendPacketToAll} calls would send them, but
+     * every viewer is resolved once. A null packet is skipped.
+     */
+    protected void sendPacketsToAll(Packet<?> first, Packet<?> second) {
+        if (first == null || second == null) {
+            sendPacketToAll(first);
+            sendPacketToAll(second);
+            return;
+        }
+
+        int delivered = 0;
+        for (UUID viewer : viewers) {
+            Player player = Bukkit.getPlayer(viewer);
+            if (player == null) {
+                viewers.remove(viewer);
+                continue;
+            }
+            sendPacketToPlayer(player, first, second);
+            delivered++;
+        }
+        if (delivered > 0) {
+            com.magmaguy.easyminecraftgoals.internal.PacketSendObserver.observe(first, delivered);
+            com.magmaguy.easyminecraftgoals.internal.PacketSendObserver.observe(second, delivered);
+        }
     }
 
     /**

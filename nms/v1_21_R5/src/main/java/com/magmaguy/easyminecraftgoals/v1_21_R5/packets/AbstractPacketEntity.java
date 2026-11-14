@@ -306,8 +306,7 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
     }
 
     protected void sendTeleportPacket() {
-        sendPacketToAll(generateTeleportPacket());
-        sendPacketToAll(generateHeadRotationPacket());
+        sendPacketsToAll(generateTeleportPacket(), generateHeadRotationPacket());
     }
 
     protected Packet<?> generateTeleportPacket() {
@@ -343,8 +342,7 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
     }
 
     public void move(Location location) {
-        sendPacketToAll(generateMovePacket(location));
-        sendPacketToAll(generateHeadRotationPacket());
+        sendPacketsToAll(generateMovePacket(location), generateHeadRotationPacket());
     }
 
     @Override
@@ -467,6 +465,28 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
                 continue;
             }
             sendPacketToPlayer(player, nmsPacket);
+        }
+    }
+
+    /**
+     * Broadcasts two packets of one update in a single pass over the viewers: each viewer still gets
+     * {@code first} and then {@code second}, as two {@link #sendPacketToAll} calls would send them, but
+     * every viewer is resolved once. A null packet is skipped.
+     */
+    protected void sendPacketsToAll(Packet<?> first, Packet<?> second) {
+        if (first == null || second == null) {
+            sendPacketToAll(first);
+            sendPacketToAll(second);
+            return;
+        }
+
+        for (UUID viewer : viewers) {
+            Player player = Bukkit.getPlayer(viewer);
+            if (player == null) {
+                viewers.remove(viewer);
+                continue;
+            }
+            sendPacketToPlayer(player, first, second);
         }
     }
 
