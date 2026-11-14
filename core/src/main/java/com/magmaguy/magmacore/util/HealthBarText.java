@@ -16,6 +16,12 @@ public final class HealthBarText {
     private static final String COLOR_HIGH = "&a", COLOR_MEDIUM = "&e", COLOR_LOW = "&c", COLOR_CRITICAL = "&4",
             COLOR_EMPTY = "&8";
     private static final int BARS_PER_ROW = 10;
+    /**
+     * Converted bar rows by their source text. A row is one of four fill colours plus the empty colour, at most
+     * 20 bars long, so this holds a few hundred entries at most; conversion depends only on the text.
+     */
+    private static final java.util.concurrent.ConcurrentHashMap<String, String> CONVERTED_ROWS =
+            new java.util.concurrent.ConcurrentHashMap<>();
     private static final double THOUSAND = 1_000D, MILLION = 1_000_000D, BILLION = 1_000_000_000D,
             TRILLION = 1_000_000_000_000D;
 
@@ -41,7 +47,7 @@ public final class HealthBarText {
             StringBuilder text = new StringBuilder();
             for (int index = 0; index < filledInRow; index++) text.append(filledColor).append(BAR);
             for (int index = filledInRow; index < rowSize; index++) text.append(COLOR_EMPTY).append(BAR);
-            lines.add(ChatColorConverter.convert(text.toString()));
+            lines.add(CONVERTED_ROWS.computeIfAbsent(text.toString(), ChatColorConverter::convert));
             barsRemaining -= filledInRow;
             totalBarsRemaining -= rowSize;
         }
