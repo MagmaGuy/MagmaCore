@@ -1,6 +1,5 @@
 package com.magmaguy.magmacore.projectiles;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -27,6 +26,6 @@ final class MagicImpactLedger<T> {
     }
 
     List<T> snapshot() {
-        return List.copyOf(new ArrayList<>(active.values()));
+        return List.copyOf(active.values());
     }
 }
