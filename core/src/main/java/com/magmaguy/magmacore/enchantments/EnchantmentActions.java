@@ -68,6 +68,16 @@ public final class EnchantmentActions {
     /** Six equipped slots at acceptance/launch. Values are detached from the live inventory. */
     public static Map<String, org.bukkit.inventory.ItemStack> captureEquipment(org.bukkit.entity.LivingEntity actor) {
         EnchantmentProviders.requireServerThread();
+        return equipment(actor, true);
+    }
+
+    /** The same six slots as {@link #captureEquipment}, still attached to the live inventory; read them, never keep or change them. */
+    static Map<String, org.bukkit.inventory.ItemStack> wornEquipment(org.bukkit.entity.LivingEntity actor) {
+        EnchantmentProviders.requireServerThread();
+        return equipment(actor, false);
+    }
+
+    private static Map<String, org.bukkit.inventory.ItemStack> equipment(org.bukkit.entity.LivingEntity actor, boolean detach) {
         var equipment = Objects.requireNonNull(actor.getEquipment(), "actor equipment");
         Map<String, org.bukkit.inventory.ItemStack> captured = new java.util.LinkedHashMap<>();
         for (var slot : EnchantmentDefinition.Slot.values()) {
@@ -80,7 +90,7 @@ public final class EnchantmentActions {
                 case FEET -> equipment.getBoots();
             };
             if (item != null && !item.getType().isAir() && item.getAmount() > 0)
-                captured.put(slot.name(), item.clone());
+                captured.put(slot.name(), detach ? item.clone() : item);
         }
         return Map.copyOf(captured);
     }

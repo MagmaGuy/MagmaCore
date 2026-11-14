@@ -36,8 +36,13 @@ public final class EnchantmentInputs implements Listener {
     private final String namespace;
     // One line per player and reason: a new kind of rejection still reaches the log after an earlier one was reported.
     private final Set<String> warned = new HashSet<>();
+    private final ProviderElection election;
 
-    EnchantmentInputs(Plugin plugin, String namespace) { this.plugin = plugin; this.namespace = namespace; }
+    EnchantmentInputs(Plugin plugin, String namespace) {
+        this.plugin = plugin;
+        this.namespace = namespace;
+        this.election = new ProviderElection(plugin, namespace);
+    }
     void clearWarnings() { warned.clear(); }
 
     static boolean isInteraction(ScriptHook hook) {
@@ -100,7 +105,7 @@ public final class EnchantmentInputs implements Listener {
         }
     }
 
-    private boolean elected() { return elected(plugin, namespace); }
+    private boolean elected() { return election.elected(); }
 
     /** One shaded copy routes Bukkit inputs: the first compatible action provider in namespace order. */
     static boolean elected(Plugin plugin, String namespace) {
@@ -120,8 +125,7 @@ public final class EnchantmentInputs implements Listener {
             int inventorySlot, ItemStack ammunition, String attackKind, UUID attackId, InputFacts inputFacts) {
         EnchantmentProviders.requireServerThread();
         if (inputFacts.equipment != null) item = inputFacts.equipment.get(slot.name());
-        if (item == null || item.getType().isAir() || item.getType() == org.bukkit.Material.ENCHANTED_BOOK
-                || !item.hasItemMeta()) return Map.of();
+        if (!mayCarryEnchantments(item)) return Map.of();
         var levels = EnchantmentItemData.read(item.getItemMeta());
         if (levels.isEmpty()) return Map.of();
         EnchantmentItemProfile profile = EnchantmentItems.classify(item);
@@ -150,6 +154,12 @@ public final class EnchantmentInputs implements Listener {
         if (ammunition != null && !ammunition.getType().isAir()) facts.put("ammunition", ammunition.clone());
         return EnchantmentValues.copy(Map.of("attack", attackId, "actor", actor.getUniqueId(),
                 "world", actor.getWorld().getUID(), "facts", facts, "effects", effects));
+    }
+
+    /** The checks capture makes before reading meta; an item failing them never yields a source. */
+    private static boolean mayCarryEnchantments(ItemStack item) {
+        return item != null && !item.getType().isAir() && item.getType() != org.bukkit.Material.ENCHANTED_BOOK
+                && item.hasItemMeta();
     }
 
     private static final class InputFacts {
@@ -217,15 +227,25 @@ public final class EnchantmentInputs implements Listener {
 
     private static boolean dispatchSets(Plugin owner, Player actor, ScriptHook hook, LivingEntity target,
                                         String stage, Map<String, Object> inputFacts) {
+        return dispatchSets(owner, actor, hook, target, () -> stage, inputFacts);
+    }
+
+    /** The stage is only built once a complete set is worn, so inputs without sets skip the random id. */
+    private static boolean dispatchSets(Plugin owner, Player actor, ScriptHook hook, LivingEntity target,
+                                        java.util.function.Supplier<String> stageSupplier, Map<String, Object> inputFacts) {
         EnchantmentProviders.requireServerThread();
-        Map<String, ItemStack> equipment = EnchantmentActions.captureEquipment(actor);
+        // Read the sets from the worn stacks first and detach copies only when a set is complete: reading
+        // never changes a stack, and nothing runs between the two reads, so the copies hold the same items.
+        Map<String, ItemStack> worn = EnchantmentActions.wornEquipment(actor);
         List<ItemSets.Active> sets;
-        try { sets = ItemSets.active(equipment, EnchantmentDefinitions::resolve); }
+        try { sets = ItemSets.active(worn, EnchantmentDefinitions::resolve); }
         catch (RuntimeException failure) {
             owner.getLogger().warning("Item sets could not be read for " + actor.getName() + ": " + failure.getMessage());
             return false;
         }
         if (sets.isEmpty()) return false;
+        Map<String, ItemStack> equipment = EnchantmentActions.captureEquipment(actor);
+        String stage = stageSupplier.get();
         UUID attack = UUID.randomUUID();
         Map<String, Object> providers = null;
         boolean cancelled = false;
@@ -383,7 +403,7 @@ public final class EnchantmentInputs implements Listener {
         if (event.getDamager() instanceof Player player) {
             fire(player, player.getInventory().getItemInMainHand(), EnchantmentDefinition.Slot.MAINHAND,
                     player.getInventory().getHeldItemSlot(), ATTACK, target);
-            dispatchSets(plugin, player, ATTACK, target, UUID.randomUUID().toString());
+            dispatchSets(plugin, player, ATTACK, target, () -> UUID.randomUUID().toString(), Map.of());
         } else if (event.getDamager() instanceof Projectile projectile && projectile.getShooter() instanceof Player player) {
             // Any projectile counts for sets, once per target it hits.
             String setClaim = SET_SHOT + "_" + target.getUniqueId();
@@ -433,7 +453,7 @@ public final class EnchantmentInputs implements Listener {
                     && projectile.getShooter() instanceof LivingEntity shooter) attacker = shooter;
         }
         if (attacker == player) attacker = null;
-        dispatchSets(plugin, player, TAKE_DAMAGE, attacker, UUID.randomUUID().toString());
+        dispatchSets(plugin, player, TAKE_DAMAGE, attacker, () -> UUID.randomUUID().toString(), Map.of());
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
@@ -451,7 +471,7 @@ public final class EnchantmentInputs implements Listener {
         boolean cancelled = fire(player, event.getItem(), slot(event.getHand()), inventorySlot(player, event.getHand()), hook, null);
         // Worn sets are not tied to a hand; answer the main-hand event only, so one click runs them once.
         if (event.getHand() == EquipmentSlot.HAND)
-            cancelled |= dispatchSets(plugin, player, hook, null, UUID.randomUUID().toString());
+            cancelled |= dispatchSets(plugin, player, hook, null, () -> UUID.randomUUID().toString(), Map.of());
         if (cancelled) {
             event.setUseItemInHand(Event.Result.DENY);
             event.setUseInteractedBlock(Event.Result.DENY);
@@ -489,7 +509,7 @@ public final class EnchantmentInputs implements Listener {
                     dispatch(plugin, source, CHAT, null, id.toString());
                 } catch (RuntimeException invalid) { warn(actor, invalid); }
             }
-            dispatchSets(plugin, actor, CHAT, null, UUID.randomUUID().toString(), Map.of("message", message));
+            dispatchSets(plugin, actor, CHAT, null, () -> UUID.randomUUID().toString(), Map.of("message", message));
         });
     }
 
@@ -514,10 +534,12 @@ public final class EnchantmentInputs implements Listener {
                 dispatch(plugin, source, BREAK_BLOCK, null, id.toString());
             }
         } catch (RuntimeException invalid) { warn(actor, invalid); }
-        dispatchSets(plugin, actor, BREAK_BLOCK, null, UUID.randomUUID().toString(), blockFacts);
+        dispatchSets(plugin, actor, BREAK_BLOCK, null, () -> UUID.randomUUID().toString(), blockFacts);
     }
 
     private boolean fire(Player actor, ItemStack item, EnchantmentDefinition.Slot slot, int index, ScriptHook hook, LivingEntity target) {
+        // Empty and plain slots capture nothing; skip the random attack id that capture would discard.
+        if (!mayCarryEnchantments(item)) return false;
         try {
             UUID id = UUID.randomUUID();
             return dispatch(plugin, capture(actor, item, slot, index, null, "", id), hook, target, id.toString());

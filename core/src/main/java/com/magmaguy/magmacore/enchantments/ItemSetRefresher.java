@@ -27,10 +27,12 @@ final class ItemSetRefresher implements Listener {
     private final Plugin plugin;
     private final String namespace;
     private final Set<UUID> pending = new HashSet<>();
+    private final ProviderElection election;
 
     ItemSetRefresher(Plugin plugin, String namespace) {
         this.plugin = plugin;
         this.namespace = namespace;
+        this.election = new ProviderElection(plugin, namespace);
     }
 
     private void schedule(HumanEntity entity) {
@@ -39,7 +41,7 @@ final class ItemSetRefresher implements Listener {
         Bukkit.getScheduler().runTask(plugin, () -> {
             pending.remove(id);
             Player current = Bukkit.getPlayer(id);
-            if (current == null || !current.isOnline() || !EnchantmentInputs.elected(plugin, namespace)) return;
+            if (current == null || !current.isOnline() || !election.elected()) return;
             ItemSets.refresh(current);
         });
     }
