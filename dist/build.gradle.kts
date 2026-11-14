@@ -47,6 +47,18 @@ tasks.shadowJar {
     // class loader after a restart-free update. JSR-305 is compile-time only.
     relocate("javassist", "$packagePath.javassist")
     exclude("javax/annotation/**")
+    exclude("META-INF/maven/com.google.code.findbugs/**")
+    // luaj-jse's command-line programs (lua, luac, luajc) sit in the default package and
+    // nothing in the jar calls them.
+    exclude("lua.class", "luac.class", "luajc.class", "luajc$*.class")
+    // luaj's JSR-223 registration names the unrelocated org.luaj factory, which is not in the
+    // jar, so a ScriptEngineManager could only fail on it or reach another plugin's luaj.
+    exclude("META-INF/services/javax.script.ScriptEngineFactory")
+    // slf4j-api, which only reflections uses. Every supported server (Spigot and Paper 1.21.4+)
+    // ships slf4j-api, and plugin class loaders ask the server first, so this copy never loads.
+    exclude("org/slf4j/**", "META-INF/maven/org.slf4j/**")
+    // Javadoc fragments from javassist.
+    exclude("**/package.html")
     archiveBaseName.set("MagmaCore")
     archiveClassifier.set(null as String?)
     archiveVersion.set(project.version.toString())
