@@ -63,15 +63,6 @@ public class CraftBukkitBridge {
         }
     }
 
-    public static boolean isPaper() {
-        try {
-            Class.forName("io.papermc.paper.configuration.GlobalConfiguration");
-            return true;
-        } catch (ClassNotFoundException e) {
-            return false;
-        }
-    }
-
     public static ServerLevel getServerLevel(World world) {
         try {
             return (ServerLevel) craftWorldGetHandle.invoke(world);
@@ -195,10 +186,6 @@ public class CraftBukkitBridge {
         } catch (Exception e) {
             e.printStackTrace();
         }
-    }
-
-    public static String getEntityDimensionsFieldName() {
-        return "dimensions";
     }
 
     private static Class<?> craftChatMessageClass;

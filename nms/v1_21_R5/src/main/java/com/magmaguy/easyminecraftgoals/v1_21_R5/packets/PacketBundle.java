@@ -40,8 +40,8 @@ public class PacketBundle implements AbstractPacketBundle {
             // Skip if no viewers
             if (entry.viewers().isEmpty()) continue;
 
-            // Type check and cast once per packet
-            if (!isClientGamePacket(entry.packet())) continue;
+            // Skip null packets; cast once per packet
+            if (entry.packet() == null) continue;
 
             @SuppressWarnings("unchecked")
             Packet<ClientGamePacketListener> clientPacket = (Packet<ClientGamePacketListener>) entry.packet();
@@ -85,17 +85,6 @@ public class PacketBundle implements AbstractPacketBundle {
                 sendPacketBundle(player, bundle, end == packets.size() && posed.contains(player));
             }
         });
-
-        int bundleCount = playerPackets.values().stream()
-                .mapToInt(packets -> (packets.size() + MAX_PACKETS_PER_BUNDLE - 1) / MAX_PACKETS_PER_BUNDLE)
-                .sum();
-
-    }
-
-    private boolean isClientGamePacket(Packet<?> packet) {
-        // This is a bit hacky but works for most NMS versions
-        // Alternatively, you could check specific packet types you know are valid
-        return packet != null;
     }
 
     /**

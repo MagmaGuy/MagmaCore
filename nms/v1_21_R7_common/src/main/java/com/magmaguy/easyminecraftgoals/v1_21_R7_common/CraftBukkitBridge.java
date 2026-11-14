@@ -220,16 +220,6 @@ public class CraftBukkitBridge {
         return method;
     }
 
-    /**
-     * Gets the field name for entity dimensions.
-     * Paper uses Mojang mappings ("dimensions"), Spigot uses obfuscated ("bz").
-     * Note: After specialsource remapping, Spigot code will use the correct obfuscated name.
-     */
-    public static String getEntityDimensionsFieldName() {
-        // This will be "dimensions" in source, but specialsource will remap it for Spigot
-        return "dimensions";
-    }
-
     // Cached method/class for CraftChatMessage
     private static Class<?> craftChatMessageClass;
     private static Method fromStringOrNullMethod;

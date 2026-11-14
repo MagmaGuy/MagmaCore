@@ -490,8 +490,4 @@ public abstract class AbstractPacketEntity<T extends Entity> implements PacketEn
     public PacketBundle createPacketBundle() {
         return new PacketBundle();
     }
-
-    protected ServerPlayer getNMSPlayer(Player bukkitPlayer) {
-        return CraftBukkitBridge.getServerPlayer(bukkitPlayer);
-    }
 }
