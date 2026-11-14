@@ -43,16 +43,6 @@ public final class LuaEngine {
         return result;
     }
 
-    public static synchronized ScriptDefinition loadScript(String namespace, File file) throws IOException {
-        ScriptProvider provider = providers.get(namespace);
-        if (provider == null)
-            throw new IllegalStateException("No script provider registered for namespace: " + namespace);
-
-        ScriptDefinition definition = validateScript(file, provider);
-        definitions.put(namespace + ":" + file.getName(), definition);
-        return definition;
-    }
-
     public static synchronized void shutdown() {
         definitions.clear();
         providers.clear();

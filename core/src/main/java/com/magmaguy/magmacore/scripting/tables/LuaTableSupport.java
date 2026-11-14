@@ -130,14 +130,6 @@ public final class LuaTableSupport {
         return new Location(world, x, y, z, yaw, pitch);
     }
 
-    public static Vector tableToVector(LuaTable table) {
-        return new Vector(
-            table.get(X).checkdouble(),
-            table.get(Y).checkdouble(),
-            table.get(Z).checkdouble()
-        );
-    }
-
     public static LuaValue tableMethod(LuaTable owner, LuaCallback callback) {
         return new VarArgFunction() {
             @Override

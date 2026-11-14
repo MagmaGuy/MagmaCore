@@ -20,20 +20,6 @@ public final class EnchantmentDefinitions {
 
     private EnchantmentDefinitions() { }
 
-    public static HostedCatalog publish(Plugin owner, EnchantmentCatalog catalog, Set<String> capabilities,
-                                       EnchantmentProviders.Handler domainHandler) {
-        EnchantmentProviders.requireServerThread();
-        return new HostedCatalog(owner, catalog, capabilities, domainHandler, null, null, null);
-    }
-
-    /** Publishes query execution through the same provider endpoint and revision as definitions. */
-    public static HostedCatalog publishQueries(Plugin owner, EnchantmentCatalog catalog, Set<String> capabilities,
-                                               Set<com.magmaguy.magmacore.scripting.ScriptHook> queryHooks,
-                                               EnchantmentProviders.Handler domainHandler) {
-        EnchantmentProviders.requireServerThread();
-        return new HostedCatalog(owner, catalog, capabilities, domainHandler, Set.copyOf(queryHooks), null, null);
-    }
-
     /** Numeric and timed hooks share one catalog, revision, and provider lifetime. */
     public static HostedCatalog publishActions(Plugin owner, EnchantmentCatalog catalog, Set<String> capabilities,
             Set<com.magmaguy.magmacore.scripting.ScriptHook> queryHooks,

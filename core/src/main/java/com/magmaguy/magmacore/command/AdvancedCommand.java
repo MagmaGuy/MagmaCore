@@ -256,15 +256,6 @@ public abstract class AdvancedCommand {
         }
     }
 
-    private boolean validateArgument(int index, CommandSender sender) {
-        if (argumentsList.size() <= index) {
-            Logger.sendMessage(sender, "Incorrect usage of this command!");
-            Logger.sendMessage(sender, description);
-            return false;
-        }
-        return true;
-    }
-
     public abstract void execute(CommandData commandData);
 
     public List<String> onTabComplete(String[] args) {

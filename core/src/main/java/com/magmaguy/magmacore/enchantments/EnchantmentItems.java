@@ -60,11 +60,6 @@ public final class EnchantmentItems {
         return Map.copyOf(result);
     }
 
-    /** Produces a reviewable clone. proposed is the complete resulting native/custom enchantment set. */
-    public Preview preview(ItemStack source, Map<String, Integer> proposed) {
-        return preview(source, proposed, false, false);
-    }
-
     /** Reads caller-owned metadata without consulting providers or accessing an inventory. */
     public static Map<String, Integer> inspectCustom(ItemMeta meta) {
         return EnchantmentItemData.read(Objects.requireNonNull(meta, "item metadata"));

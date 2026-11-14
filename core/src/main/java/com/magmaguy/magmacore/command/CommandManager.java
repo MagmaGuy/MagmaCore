@@ -43,10 +43,6 @@ public class CommandManager implements CommandExecutor, TabCompleter {
         commands.add(command);
     }
 
-    public void unregisterCommand(Command command) {
-        commands.remove(command);
-    }
-
     @Override
     public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
         // If no args, either run a no-args command if it exists, or list valid commands

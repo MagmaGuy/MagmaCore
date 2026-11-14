@@ -146,12 +146,10 @@ public final class EnchantmentActions {
         }
     }
 
-    /** Called once by the host after accepting the action, using its launch-time definition/revision. */
-    public static Action begin(EnchantmentItems.Resolved resolved, int level, Source source) {
-        return begin(resolved, level, source, null);
-    }
-
-    /** The input owner can avoid creating a timed instance when this definition has no matching hook. */
+    /**
+     * Called once by the host after accepting the action, using its launch-time definition/revision. The input
+     * owner can avoid creating a timed instance when this definition has no matching hook.
+     */
     public static Action begin(EnchantmentItems.Resolved resolved, int level, Source source, ScriptHook initialHook) {
         EnchantmentProviders.requireServerThread();
         Objects.requireNonNull(resolved, "resolved");

@@ -27,10 +27,6 @@ final class EnchantmentQueryExecutor {
     private final Set<String> warned = new HashSet<>();
     private boolean closed;
 
-    EnchantmentQueryExecutor(EnchantmentCatalog catalog, Set<ScriptHook> hooks, Set<String> capabilities, Consumer<String> warning) {
-        this(catalog, hooks, hooks, capabilities, warning);
-    }
-
     EnchantmentQueryExecutor(EnchantmentCatalog catalog, Set<ScriptHook> hooks, Set<ScriptHook> catalogHooks,
                             Set<String> capabilities, Consumer<String> warning) {
         this.hooks = Set.copyOf(hooks);
