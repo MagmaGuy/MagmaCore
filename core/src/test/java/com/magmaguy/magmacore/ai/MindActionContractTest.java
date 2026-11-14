@@ -35,19 +35,6 @@ class MindActionContractTest {
     }
 
     @Test
-    void legacyExecutionPolicyConstructorRetainsTheDefaultActionCap() {
-        MindExecutionPolicy policy = new MindExecutionPolicy(1L, 2L, 3L, 4, 5L);
-
-        assertEquals(
-                MindExecutionPolicy.DEFAULT.maxActionRequestsPerEntityTick(),
-                policy.maxActionRequestsPerEntityTick());
-        assertEquals(5L, policy.maxLuaInstructionsPerCallback());
-        assertEquals(
-                MindRunawayPolicy.DEFAULT.maxCpuNanosPerCallback(),
-                policy.runawayPolicy().maxCpuNanosPerCallback());
-    }
-
-    @Test
     void actionRequestCapCannotDisableTheNativeHardLimit() {
         assertThrows(IllegalArgumentException.class, () -> new MindExecutionPolicy(
                 1L,

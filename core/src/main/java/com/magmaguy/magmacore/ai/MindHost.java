@@ -20,11 +20,6 @@ public interface MindHost {
 
     MindBodyCapabilities bodyCapabilities();
 
-    /** Creates the default grounded carrier. */
-    default MobBody spawnBody(Location location) {
-        return spawnBody(location, MindBodyProfile.GROUNDED);
-    }
-
     /** Creates a carrier using the requested native movement and physical profile. */
     default MobBody spawnBody(Location location, MindBodyProfile profile) {
         return spawnBody(location, profile, body -> { });

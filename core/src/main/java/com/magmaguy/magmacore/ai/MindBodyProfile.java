@@ -103,14 +103,4 @@ public record MindBodyProfile(
     public MindBodyProfile withSwimSpeed(double speed) {
         return new MindBodyProfile(locomotion, uniformScale, entityCollidable, carrierType, swimWave, breathesUnderwater, speed);
     }
-
-    public static MindBodyProfile standard(MindBodyLocomotion locomotion) {
-        return new MindBodyProfile(locomotion, 1.0D, true, DEFAULT_CARRIER_TYPE);
-    }
-
-    public static MindBodyProfile forCarrier(
-            String carrierType,
-            MindBodyLocomotion locomotion) {
-        return new MindBodyProfile(locomotion, 1.0D, true, carrierType);
-    }
 }

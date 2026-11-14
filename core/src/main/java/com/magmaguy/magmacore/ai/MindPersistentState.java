@@ -24,10 +24,6 @@ public record MindPersistentState(
         }
     }
 
-    public MindPersistentState(int formatVersion, Map<String, Object> memories) {
-        this(formatVersion, memories, Map.of());
-    }
-
     public static MindPersistentState empty() {
         return new MindPersistentState(CURRENT_FORMAT, Map.of(), Map.of());
     }

@@ -44,24 +44,6 @@ public record MindExecutionPolicy(
                         maxLuaInstructionsPerCallback));
     }
 
-    /** Source-compatible constructor using the default semantic action-request cap. */
-    public MindExecutionPolicy(
-            long maxCallbackNanos,
-            long maxEntityNanosPerTick,
-            long maxServerNanosPerTick,
-            int maxCallbacksPerEntityTick,
-            long maxLuaInstructionsPerCallback) {
-        this(
-                maxCallbackNanos,
-                maxEntityNanosPerTick,
-                maxServerNanosPerTick,
-                maxCallbacksPerEntityTick,
-                DEFAULT.maxActionRequestsPerEntityTick,
-                new MindRunawayPolicy(
-                        MindRunawayPolicy.DEFAULT.maxCpuNanosPerCallback(),
-                        maxLuaInstructionsPerCallback));
-    }
-
     public MindExecutionPolicy {
         if (maxCallbackNanos <= 0
                 || maxEntityNanosPerTick <= 0
@@ -82,10 +64,5 @@ public record MindExecutionPolicy(
                     "Mind action-request cap cannot exceed the native hard limit of "
                             + ACTION_REQUESTS_PER_ENTITY_TICK_HARD_LIMIT);
         }
-    }
-
-    /** Legacy accessor retained for source compatibility. */
-    public long maxLuaInstructionsPerCallback() {
-        return runawayPolicy.maxInstructionsPerCallback();
     }
 }
