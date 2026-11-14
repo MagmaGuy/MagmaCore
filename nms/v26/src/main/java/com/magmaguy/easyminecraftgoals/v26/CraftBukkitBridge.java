@@ -11,6 +11,9 @@ import org.bukkit.block.data.BlockData;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 
@@ -38,8 +41,32 @@ public class CraftBukkitBridge {
     private static Method craftItemStackAsNMSCopy;
     private static Method craftBlockDataGetState;
 
+    // Hot accessors resolved once from the methods above, each typed (Object)Object.
+    private static final MethodHandle WORLD_GET_HANDLE;
+    private static final MethodHandle PLAYER_GET_HANDLE;
+    private static final MethodHandle ENTITY_GET_HANDLE;
+    private static final MethodHandle LIVING_ENTITY_GET_HANDLE;
+    private static final MethodHandle ITEM_STACK_AS_NMS_COPY;
+    private static final MethodHandle BLOCK_DATA_GET_STATE;
+    // getWorld() and getBukkitEntity() are declared by the base classes and overridden covariantly,
+    // so a handle on the base method dispatches to the same override the runtime-class lookup found.
+    private static final MethodHandle LEVEL_GET_WORLD =
+            optionalObjectHandle(net.minecraft.world.level.Level.class, "getWorld");
+    private static final MethodHandle ENTITY_GET_BUKKIT_ENTITY =
+            optionalObjectHandle(Entity.class, "getBukkitEntity");
+
     static {
         initializeClasses();
+        try {
+            WORLD_GET_HANDLE = objectHandle(craftWorldGetHandle);
+            PLAYER_GET_HANDLE = objectHandle(craftPlayerGetHandle);
+            ENTITY_GET_HANDLE = objectHandle(craftEntityGetHandle);
+            LIVING_ENTITY_GET_HANDLE = objectHandle(craftLivingEntityGetHandle);
+            ITEM_STACK_AS_NMS_COPY = objectHandle(craftItemStackAsNMSCopy);
+            BLOCK_DATA_GET_STATE = objectHandle(craftBlockDataGetState);
+        } catch (IllegalAccessException e) {
+            throw new RuntimeException("Failed to initialize CraftBukkit bridge", e);
+        }
     }
 
     private static void initializeClasses() {
@@ -65,8 +92,9 @@ public class CraftBukkitBridge {
 
     public static ServerLevel getServerLevel(World world) {
         try {
-            return (ServerLevel) craftWorldGetHandle.invoke(world);
-        } catch (Exception e) {
+            Object handle = WORLD_GET_HANDLE.invokeExact((Object) world);
+            return (ServerLevel) handle;
+        } catch (Throwable e) {
             throw new RuntimeException("Failed to get ServerLevel from World", e);
         }
     }
@@ -77,24 +105,27 @@ public class CraftBukkitBridge {
 
     public static ServerPlayer getServerPlayer(Player player) {
         try {
-            return (ServerPlayer) craftPlayerGetHandle.invoke(player);
-        } catch (Exception e) {
+            Object handle = PLAYER_GET_HANDLE.invokeExact((Object) player);
+            return (ServerPlayer) handle;
+        } catch (Throwable e) {
             throw new RuntimeException("Failed to get ServerPlayer from Player", e);
         }
     }
 
     public static Entity getNMSEntity(org.bukkit.entity.Entity entity) {
         try {
-            return (Entity) craftEntityGetHandle.invoke(entity);
-        } catch (Exception e) {
+            Object handle = ENTITY_GET_HANDLE.invokeExact((Object) entity);
+            return (Entity) handle;
+        } catch (Throwable e) {
             throw new RuntimeException("Failed to get NMS Entity from Bukkit Entity", e);
         }
     }
 
     public static net.minecraft.world.entity.LivingEntity getNMSLivingEntity(LivingEntity entity) {
         try {
-            return (net.minecraft.world.entity.LivingEntity) craftLivingEntityGetHandle.invoke(entity);
-        } catch (Exception e) {
+            Object handle = LIVING_ENTITY_GET_HANDLE.invokeExact((Object) entity);
+            return (net.minecraft.world.entity.LivingEntity) handle;
+        } catch (Throwable e) {
             throw new RuntimeException("Failed to get NMS LivingEntity from Bukkit LivingEntity", e);
         }
     }
@@ -141,21 +172,34 @@ public class CraftBukkitBridge {
 
     public static ItemStack asNMSCopy(org.bukkit.inventory.ItemStack itemStack) {
         try {
-            return (ItemStack) craftItemStackAsNMSCopy.invoke(null, itemStack);
-        } catch (Exception e) {
+            Object copy = ITEM_STACK_AS_NMS_COPY.invokeExact((Object) itemStack);
+            return (ItemStack) copy;
+        } catch (Throwable e) {
             throw new RuntimeException("Failed to convert ItemStack to NMS", e);
         }
     }
 
     public static BlockState getBlockState(BlockData blockData) {
         try {
-            return (BlockState) craftBlockDataGetState.invoke(blockData);
-        } catch (Exception e) {
+            Object state = BLOCK_DATA_GET_STATE.invokeExact((Object) blockData);
+            return (BlockState) state;
+        } catch (Throwable e) {
             throw new RuntimeException("Failed to get BlockState from BlockData", e);
         }
     }
 
     public static World getBukkitWorld(net.minecraft.world.level.Level level) {
+        MethodHandle getWorld = LEVEL_GET_WORLD;
+        if (getWorld == null) return getBukkitWorldReflectively(level);
+        try {
+            Object world = getWorld.invokeExact((Object) level);
+            return (World) world;
+        } catch (Throwable e) {
+            throw new RuntimeException("Failed to get Bukkit World from Level", e);
+        }
+    }
+
+    private static World getBukkitWorldReflectively(net.minecraft.world.level.Level level) {
         try {
             Method getWorld = level.getClass().getMethod("getWorld");
             return (World) getWorld.invoke(level);
@@ -165,11 +209,43 @@ public class CraftBukkitBridge {
     }
 
     public static org.bukkit.entity.Entity getBukkitEntity(Entity nmsEntity) {
+        MethodHandle getBukkitEntity = ENTITY_GET_BUKKIT_ENTITY;
+        if (getBukkitEntity == null) return getBukkitEntityReflectively(nmsEntity);
+        try {
+            Object bukkitEntity = getBukkitEntity.invokeExact((Object) nmsEntity);
+            return (org.bukkit.entity.Entity) bukkitEntity;
+        } catch (Throwable e) {
+            throw new RuntimeException("Failed to get Bukkit Entity from NMS Entity", e);
+        }
+    }
+
+    private static org.bukkit.entity.Entity getBukkitEntityReflectively(Entity nmsEntity) {
         try {
             Method getBukkitEntity = nmsEntity.getClass().getMethod("getBukkitEntity");
             return (org.bukkit.entity.Entity) getBukkitEntity.invoke(nmsEntity);
         } catch (Exception e) {
             throw new RuntimeException("Failed to get Bukkit Entity from NMS Entity", e);
+        }
+    }
+
+    /**
+     * Resolves a hot accessor once as a handle typed {@code (Object)Object}, so each call is a plain
+     * invocation instead of a reflective one. The methods are the ones each call used to invoke.
+     */
+    private static MethodHandle objectHandle(Method method) throws IllegalAccessException {
+        return MethodHandles.publicLookup().unreflect(method)
+                .asType(MethodType.methodType(Object.class, Object.class));
+    }
+
+    /**
+     * {@code null} when the base class has no such public method; the caller then keeps the
+     * per-call lookup on the runtime class, with the same result or failure as before.
+     */
+    private static MethodHandle optionalObjectHandle(Class<?> owner, String name) {
+        try {
+            return objectHandle(owner.getMethod(name));
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return null;
         }
     }
 
