@@ -1,8 +1,11 @@
 package com.magmaguy.magmacore.nightbreak;
 
+import com.magmaguy.magmacore.config.ConfigurationEngine;
+import com.magmaguy.magmacore.config.ConfigurationFile;
 import com.magmaguy.magmacore.util.Logger;
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
+import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
@@ -11,6 +14,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
@@ -684,17 +688,34 @@ public final class NightbreakPluginUpdater {
 
     public static boolean setAutoDownloadPluginUpdatesEnabled(JavaPlugin plugin, boolean enabled) {
         File configFile = new File(plugin.getDataFolder(), "config.yml");
+        // The plugin's own config.yml model saves the whole file whenever it writes a value, so the
+        // toggle must go through that same live model; a separate copy would be overwritten by the
+        // plugin's next save with the value it loaded at boot.
+        FileConfiguration live = ConfigurationFile.findLiveConfiguration(configFile);
+        if (live != null) {
+            List<String> comments = live.getComments(AUTO_DOWNLOAD_CONFIG_PATH);
+            if (comments == null || comments.isEmpty())
+                live.setComments(AUTO_DOWNLOAD_CONFIG_PATH, AUTO_DOWNLOAD_CONFIG_COMMENTS);
+            // writeValue saves atomically, restores the previous value and logs on failure.
+            return ConfigurationEngine.writeValue(enabled, configFile, live, AUTO_DOWNLOAD_CONFIG_PATH);
+        }
         try {
             if (!configFile.exists()) {
                 plugin.getDataFolder().mkdirs();
                 configFile.createNewFile();
             }
-            YamlConfiguration configuration = YamlConfiguration.loadConfiguration(configFile);
+            // loadConfiguration returns an empty model on a YAML error; saving that would erase the file.
+            YamlConfiguration configuration = new YamlConfiguration();
+            configuration.load(configFile);
             configuration.set(AUTO_DOWNLOAD_CONFIG_PATH, enabled);
             configuration.setComments(AUTO_DOWNLOAD_CONFIG_PATH, AUTO_DOWNLOAD_CONFIG_COMMENTS);
-            configuration.save(configFile);
+            ConfigurationEngine.fileSaverSerialized(configuration.saveToString(), configFile);
             return true;
-        } catch (IOException exception) {
+        } catch (InvalidConfigurationException exception) {
+            plugin.getLogger().warning("Did not write " + AUTO_DOWNLOAD_CONFIG_PATH + " because config.yml is not valid YAML; fix the file first: "
+                    + exception.getMessage());
+            return false;
+        } catch (IOException | UncheckedIOException exception) {
             plugin.getLogger().warning("Failed to write " + AUTO_DOWNLOAD_CONFIG_PATH + " to config.yml: " + exception.getMessage());
             return false;
         }
