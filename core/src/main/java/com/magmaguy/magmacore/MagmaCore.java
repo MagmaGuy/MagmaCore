@@ -49,14 +49,10 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -66,7 +62,6 @@ import java.util.jar.JarFile;
 public final class MagmaCore {
     @Getter
     private static MagmaCore instance;
-    private static final Map<String, JavaPlugin> registeredPlugins = new HashMap<>();
     private static final Set<String> listenerRegistrations = new HashSet<>();
     private static boolean instanceProtectorRegistered = false;
     @Getter
@@ -91,10 +86,6 @@ public final class MagmaCore {
         Bukkit.getPluginManager().registerEvents(new VersionChecker.VersionCheckerEvents(), instance.requestingPlugin);
     }
 
-    public static void onEnable() {
-        onEnable(instance.requestingPlugin);
-    }
-
     public static void onEnable(JavaPlugin plugin) {
         //Register listeners
         if (plugin == null) return;
@@ -103,12 +94,6 @@ public final class MagmaCore {
         Bukkit.getPluginManager().registerEvents(new SetupMenu.SetupMenuListeners(), plugin);
         Bukkit.getPluginManager().registerEvents(new AdvancedMenuHandler.AdvancedMenuListeners(), plugin);
         TemporaryBlockManager.initialize(plugin);
-//        CommandManager commandManager = new CommandManager(instance.requestingPlugin, "logify");
-//        commandManager.registerCommand(new LogifyCommand(instance.requestingPlugin));
-    }
-
-    public static void enableWorldProtections() {
-        enableWorldProtections(instance.requestingPlugin);
     }
 
     /**
@@ -134,7 +119,6 @@ public final class MagmaCore {
     public static MagmaCore createInstance(JavaPlugin requestingPlugin,
                                            NightbreakPluginSpec pluginSpec) {
         OutdatedConfigurationArchive.register(requestingPlugin);
-        registeredPlugins.put(requestingPlugin.getName(), requestingPlugin);
         if (instance == null) {
             return new MagmaCore(requestingPlugin, pluginSpec);
         }
@@ -142,7 +126,7 @@ public final class MagmaCore {
         return instance;
     }
 
-    public static void shutdown() {
+    private static void shutdown() {
         shutdownNMSAdapter();
         CommandManager.shutdown();
         CustomBiomeCompatibility.shutdown();
@@ -156,7 +140,6 @@ public final class MagmaCore {
     public static void shutdown(JavaPlugin plugin) {
         if (plugin != null) {
             OutdatedConfigurationArchive.unregister(plugin);
-            registeredPlugins.remove(plugin.getName());
             listenerRegistrations.remove(plugin.getName());
             NightbreakBulkDownloader.shutdown(plugin);
             NightbreakContentRefresher.shutdown(plugin);
@@ -178,24 +161,12 @@ public final class MagmaCore {
         }
     }
 
-    public static ConfigurationImporter initializeImporter() {
-        return initializeImporter(instance.requestingPlugin);
-    }
-
     public static ConfigurationImporter initializeImporter(JavaPlugin plugin) {
         if (instance == null) {
             Bukkit.getLogger().warning("Attempted to initialize importer without first instantiating MagmaCore!");
             return null;
         }
         return new ConfigurationImporter(plugin);
-    }
-
-    public static JavaPlugin getRegisteredPlugin(String pluginName) {
-        return registeredPlugins.get(pluginName);
-    }
-
-    public static Collection<JavaPlugin> getRegisteredPlugins() {
-        return Collections.unmodifiableCollection(registeredPlugins.values());
     }
 
     public static void startInitialization(JavaPlugin plugin,
