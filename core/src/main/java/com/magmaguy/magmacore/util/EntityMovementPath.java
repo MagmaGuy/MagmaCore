@@ -41,18 +41,21 @@ public final class EntityMovementPath {
         // Build protection does not forbid player travel, including grappling inside dungeons.
         // Keep the claim guard for pulls that could remove mobs from protected areas.
         boolean checkProtection = !(entity instanceof Player);
+        // Consecutive swept boxes overlap, so the same cell comes up in several steps. A cell that was
+        // protected ends the inspection, so every cell seen again is one already found unprotected.
+        java.util.Set<Long> unprotected = checkProtection ? new java.util.HashSet<>() : null;
         BoundingBox previous = source;
         for (int i = 1; i <= steps; i++) {
             BoundingBox next = source.clone().shift(step.clone().multiply(i));
             BoundingBox swept = previous.clone().union(next).expand(-1.0E-5D);
-            Status status = inspectVolume(world, swept, checkProtection);
+            Status status = inspectVolume(world, swept, unprotected);
             if (status != Status.CLEAR) return status;
             previous = next;
         }
         return Status.CLEAR;
     }
 
-    private static Status inspectVolume(World world, BoundingBox volume, boolean checkProtection) {
+    private static Status inspectVolume(World world, BoundingBox volume, java.util.Set<Long> unprotected) {
         int minX = (int) Math.floor(volume.getMinX()), maxX = (int) Math.floor(volume.getMaxX());
         int minY = (int) Math.floor(volume.getMinY()), maxY = (int) Math.floor(volume.getMaxY());
         int minZ = (int) Math.floor(volume.getMinZ()), maxZ = (int) Math.floor(volume.getMaxZ());
@@ -61,13 +64,19 @@ public final class EntityMovementPath {
             // Fences/walls can extend above the block cell immediately below the entity.
             for (int y = Math.max(world.getMinHeight(), minY - 1); y <= maxY; y++) {
                 var block = world.getBlockAt(x, y, z);
-                if (checkProtection && y >= minY
-                        && LocationQueryRegistry.isInAnyProtectedRegion(block.getLocation())) return Status.PROTECTED;
+                if (unprotected != null && y >= minY && !unprotected.contains(cell(x, y, z))) {
+                    if (LocationQueryRegistry.isInAnyProtectedRegion(block.getLocation())) return Status.PROTECTED;
+                    unprotected.add(cell(x, y, z));
+                }
                 // Bukkit's enclosing collision box is conservative around stairs and fences.
                 // Refusing a narrow route is preferable to pulling through an obstruction.
                 if (!block.isPassable() && block.getBoundingBox().overlaps(volume)) return Status.BLOCKED;
             }
         }
         return Status.CLEAR;
+    }
+
+    private static long cell(int x, int y, int z) {
+        return ((long) x & 0x3FFFFFFL) << 38 | ((long) z & 0x3FFFFFFL) << 12 | ((long) y & 0xFFFL);
     }
 }
