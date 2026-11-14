@@ -22,8 +22,6 @@ import java.util.Scanner;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class VersionChecker {
-    @Getter
-    private static final boolean SHA1Updated = false;
     private static final long UPDATE_REFRESH_INTERVAL_TICKS = 20L * 60L * 60L;
     private static final long INITIAL_UPDATE_REFRESH_DELAY_TICKS = 20L * 60L * 5L;
     private static final long BOOT_STAGGER_MAX_TICKS = 20L * 60L * 2L;

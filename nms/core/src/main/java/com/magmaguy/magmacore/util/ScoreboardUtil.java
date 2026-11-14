@@ -7,7 +7,6 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.server.PluginDisableEvent;
 import org.bukkit.plugin.Plugin;
-import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scoreboard.DisplaySlot;
 import org.bukkit.scoreboard.Objective;
 import org.bukkit.scoreboard.Score;
@@ -45,23 +44,6 @@ public final class ScoreboardUtil {
         Scoreboard scoreboard = createSidebarScoreboard(plugin, displayName, scoreboardContents);
         player.setScoreboard(scoreboard);
         return scoreboard;
-    }
-
-    public static Scoreboard temporaryScoreboard(Plugin plugin, Player player, String displayName, List<String> scoreboardContents, int ticksTimeout) {
-        Scoreboard scoreboard = lazyScoreboard(plugin, player, displayName, scoreboardContents);
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                if (player.getScoreboard().equals(scoreboard))
-                    clearScoreboard(player);
-            }
-        }.runTaskLater(plugin, ticksTimeout);
-
-        return scoreboard;
-    }
-
-    public static void clearScoreboard(Player player) {
-        player.setScoreboard(Bukkit.getScoreboardManager().getNewScoreboard());
     }
 
     public static Objective registerSidebarObjective(Plugin plugin, Scoreboard scoreboard, String objectiveName, String displayName) {

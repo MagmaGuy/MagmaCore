@@ -46,14 +46,4 @@ public class Round {
         return decimalPlaces(value, 2);
     }
 
-    /**
-     * Rounds a number to 1 decimal places.
-     *
-     * @param value The number to round.
-     * @return The rounded number.
-     */
-    public static double oneDecimalPlace(final double value) {
-        return decimalPlaces(value, 1);
-    }
-
 }

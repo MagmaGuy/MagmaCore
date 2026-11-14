@@ -3,7 +3,6 @@ package com.magmaguy.magmacore.util;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
-import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
@@ -102,16 +101,6 @@ public class ItemStackGenerator {
         if (material.equals(Material.AIR)) return itemStack;
         ItemMeta itemMeta = itemStack.getItemMeta();
         itemMeta.setDisplayName("");
-        itemStack.setItemMeta(itemMeta);
-        return itemStack;
-    }
-
-    public static ItemStack generateFlaglessItemStack(Material material, String name, List<String> loreList) {
-        ItemStack itemStack = generateItemStack(material, name, loreList);
-        ItemMeta itemMeta = itemStack.getItemMeta();
-        itemMeta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
-        itemMeta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
-        itemMeta.addItemFlags(ItemFlag.HIDE_ADDITIONAL_TOOLTIP);
         itemStack.setItemMeta(itemMeta);
         return itemStack;
     }

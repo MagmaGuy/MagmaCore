@@ -3,7 +3,6 @@ package com.magmaguy.magmacore.util;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.entity.LivingEntity;
-import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.Locale;
 
@@ -52,19 +51,6 @@ public class AttributeManager {
         Attribute attribute = getAttributeFromString(attributeKey);
 
         return livingEntity.getAttribute(attribute).getDefaultValue();
-    }
-
-    public static boolean containsKey(LivingEntity livingEntity, String attributeKey) {
-        Attribute attribute = getAttributeFromString(attributeKey);
-
-        return livingEntity.getAttribute(attribute) != null;
-    }
-
-    public static boolean containsKey(ItemMeta itemMeta, String attributeKey) {
-        Attribute attribute = getAttributeFromString(attributeKey);
-
-        if (!itemMeta.hasAttributeModifiers()) return false;
-        return itemMeta.getAttributeModifiers().containsKey(attribute);
     }
 
     public static Attribute getAttribute(String attributeKey) {
