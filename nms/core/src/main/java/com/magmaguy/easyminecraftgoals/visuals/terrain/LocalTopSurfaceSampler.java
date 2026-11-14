@@ -104,18 +104,17 @@ final class LocalTopSurfaceSampler {
         if (top < bottom) return Optional.empty();
 
         for (int y = top; y >= bottom; y--) {
-            BlockSnapshot candidate = blocks.blockAt(x, y, z);
-            TerrainSurfaceEligibility.MaterialTraits material = candidate.material();
+            TerrainSurfaceEligibility.MaterialTraits material = blocks.traitsAt(x, y, z);
             if (material.air()) continue;
             if (material.liquid()) return Optional.empty();
             if (!TerrainSurfaceEligibility.isEligibleSurface(material)) return Optional.empty();
             if (y + 1 >= blocks.maximumHeight()) return Optional.empty();
 
-            BlockSnapshot clearance = blocks.blockAt(x, y + 1, z);
-            if (!TerrainSurfaceEligibility.hasClearance(clearance.material())) return Optional.empty();
+            if (!TerrainSurfaceEligibility.hasClearance(blocks.traitsAt(x, y + 1, z))) return Optional.empty();
             double falloff = Math.max(0.0, 1.0 - radialDistance / radius);
+            // Only the chosen surface block's appearance is copied; scanned blocks need traits alone.
             return Optional.of(new SurfaceTile(
-                    x, y, z, candidate.blockData(), radialDistance, falloff));
+                    x, y, z, blocks.blockDataAt(x, y, z), radialDistance, falloff));
         }
         return Optional.empty();
     }
@@ -138,6 +137,16 @@ final class LocalTopSurfaceSampler {
         boolean isColumnLoaded(int x, int z);
 
         BlockSnapshot blockAt(int x, int y, int z);
+
+        /** The traits {@link #blockAt} would report, without copying the block's appearance. */
+        default TerrainSurfaceEligibility.MaterialTraits traitsAt(int x, int y, int z) {
+            return blockAt(x, y, z).material();
+        }
+
+        /** The appearance {@link #blockAt} would report. */
+        default BlockData blockDataAt(int x, int y, int z) {
+            return blockAt(x, y, z).blockData();
+        }
     }
 
     static final class BukkitBlockAccess implements BlockAccess {
@@ -165,14 +174,32 @@ final class LocalTopSurfaceSampler {
         @Override
         public BlockSnapshot blockAt(int x, int y, int z) {
             Block block = world.getBlockAt(x, y, z);
+            return new BlockSnapshot(block.getBlockData(), traits(block));
+        }
+
+        @Override
+        public TerrainSurfaceEligibility.MaterialTraits traitsAt(int x, int y, int z) {
+            return traits(world.getBlockAt(x, y, z));
+        }
+
+        @Override
+        public BlockData blockDataAt(int x, int y, int z) {
+            return world.getBlockAt(x, y, z).getBlockData();
+        }
+
+        private static TerrainSurfaceEligibility.MaterialTraits traits(Block block) {
             Material material = block.getType();
             boolean air = material.isAir();
             boolean liquid = block.isLiquid();
             boolean solid = material.isSolid();
             boolean occluding = material.isOccluding();
             boolean interactable = material.isInteractable();
-            boolean tileState = !air && !liquid && block.getState() instanceof TileState;
-            TerrainSurfaceEligibility.MaterialTraits traits = new TerrainSurfaceEligibility.MaterialTraits(
+            // getState() copies the whole block state, so it only runs for a block every cheaper
+            // surface test already accepts. tileState is read only by isEligibleSurface, after
+            // those tests, so a block that fails them reports the same eligibility either way.
+            boolean tileState = !air && !liquid && solid && occluding && !interactable
+                    && block.getState() instanceof TileState;
+            return new TerrainSurfaceEligibility.MaterialTraits(
                     air,
                     liquid,
                     solid,
@@ -180,7 +207,6 @@ final class LocalTopSurfaceSampler {
                     interactable,
                     tileState,
                     block.isPassable());
-            return new BlockSnapshot(block.getBlockData(), traits);
         }
     }
 

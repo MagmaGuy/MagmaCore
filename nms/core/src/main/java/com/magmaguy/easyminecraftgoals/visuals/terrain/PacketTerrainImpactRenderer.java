@@ -118,7 +118,7 @@ public final class PacketTerrainImpactRenderer implements TerrainImpactRenderer,
         PacketEntityInterface packetEntity = adapter.createPacketEntity(EntityType.BLOCK_DISPLAY, location);
         try {
             BlockDisplay display = packetEntity.getBukkitEntity();
-            display.setBlock(tile.blockData().clone());
+            display.setBlock(tile.blockData());
             display.setViewRange((float) request.viewRange());
             display.setShadowRadius(0F);
             display.setShadowStrength(0F);
@@ -130,7 +130,7 @@ public final class PacketTerrainImpactRenderer implements TerrainImpactRenderer,
             display.setTransformation(identityTransformation());
             return new TileVisual(
                     key,
-                    tile.blockData().clone(),
+                    tile.blockData(),
                     packetEntity,
                     display,
                     toBukkitTransformation(tile.transform()));

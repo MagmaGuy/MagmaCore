@@ -1,6 +1,7 @@
 package com.magmaguy.easyminecraftgoals.visuals.terrain;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -8,6 +9,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.UUID;
 
 /**
@@ -17,6 +19,8 @@ import java.util.UUID;
  */
 final class LayeredTerrainIndex<K, V> {
     private final Map<UUID, Layer<K, V>> layers = new LinkedHashMap<>();
+    /** Every layer's value at each key, by layer priority; the highest priority is the visible one. */
+    private final Map<K, TreeMap<Long, V>> valuesByKey = new HashMap<>();
     private long nextPriority;
 
     List<VisibilityChange<K, V>> replace(UUID impactId, Map<K, V> values) {
@@ -35,7 +39,10 @@ final class LayeredTerrainIndex<K, V> {
         Map<K, Optional<V>> before = snapshot(affected);
 
         long priority = previous == null ? ++nextPriority : previous.priority();
-        layers.put(impactId, new Layer<>(priority, Map.copyOf(replacement)));
+        if (previous != null) unindex(previous);
+        Layer<K, V> layer = new Layer<>(priority, Map.copyOf(replacement));
+        layers.put(impactId, layer);
+        index(layer);
         return changes(affected, before);
     }
 
@@ -47,17 +54,28 @@ final class LayeredTerrainIndex<K, V> {
         Set<K> affected = new LinkedHashSet<>(existing.values().keySet());
         Map<K, Optional<V>> before = snapshot(affected);
         layers.remove(impactId);
+        unindex(existing);
         return changes(affected, before);
     }
 
     Optional<V> visible(K key) {
         Objects.requireNonNull(key, "key");
-        Layer<K, V> winner = null;
-        for (Layer<K, V> layer : layers.values()) {
-            if (!layer.values().containsKey(key)) continue;
-            if (winner == null || layer.priority() > winner.priority()) winner = layer;
+        TreeMap<Long, V> values = valuesByKey.get(key);
+        return values == null ? Optional.empty() : Optional.of(values.lastEntry().getValue());
+    }
+
+    private void index(Layer<K, V> layer) {
+        layer.values().forEach((key, value) ->
+                valuesByKey.computeIfAbsent(key, ignored -> new TreeMap<>()).put(layer.priority(), value));
+    }
+
+    private void unindex(Layer<K, V> layer) {
+        for (K key : layer.values().keySet()) {
+            TreeMap<Long, V> values = valuesByKey.get(key);
+            if (values == null) continue;
+            values.remove(layer.priority());
+            if (values.isEmpty()) valuesByKey.remove(key);
         }
-        return winner == null ? Optional.empty() : Optional.of(winner.values().get(key));
     }
 
     boolean isEmpty() {
