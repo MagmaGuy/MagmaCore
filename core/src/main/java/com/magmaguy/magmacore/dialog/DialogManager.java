@@ -22,7 +22,7 @@ import java.util.*;
  * {@link JsonObject} can be serialized and passed to
  * {@code player.performCommand("dialog show @s " + jsonString)} to display
  * the dialog.  See the Minecraft Wiki for a full description of each field
- * and default value:contentReference[oaicite:0]{index=0}.
+ * and default value.
  */
 public class DialogManager {
     private static final Map<Player, Object> dialogOwners = new WeakHashMap<>();
@@ -101,7 +101,7 @@ public class DialogManager {
 
     /**
      * Enum representing the after_action options.  These control what happens
-     * after a click or submit action.  See the wiki for details:contentReference[oaicite:23]{index=23}.
+     * after a click or submit action.  See the wiki for details.
      */
     public enum AfterAction {
         CLOSE("close"),
@@ -118,7 +118,7 @@ public class DialogManager {
     /**
      * Represents a body element within a dialog.  Implementations correspond
      * to the different body element types supported by the format such as
-     * plain messages and items:contentReference[oaicite:24]{index=24}:contentReference[oaicite:25]{index=25}.
+     * plain messages and items.
      */
     public interface BodyElement {
         JsonObject toJson();
@@ -127,7 +127,7 @@ public class DialogManager {
     /**
      * Represents an input control in a dialog.  Input controls allow the
      * client to collect information from the player and send it back as a
-     * template substitution or NBT tag:contentReference[oaicite:34]{index=34}.
+     * template substitution or NBT tag.
      */
     public interface InputControl {
         JsonObject toJson();
@@ -135,7 +135,7 @@ public class DialogManager {
 
     /**
      * Base interface for click actions.  Concrete actions correspond to the
-     * various static and dynamic action types enumerated in the spec:contentReference[oaicite:61]{index=61}.
+     * various static and dynamic action types enumerated in the spec.
      */
     public interface Action {
         JsonObject toJson();
@@ -164,7 +164,7 @@ public class DialogManager {
 
         /**
          * Sets the title of the dialog.  The title is always visible and uses
-         * the text component format:contentReference[oaicite:1]{index=1}.
+         * the text component format.
          *
          * @param title text component for the title
          * @return this builder
@@ -188,8 +188,7 @@ public class DialogManager {
 
         /**
          * Sets an external title used when the dialog appears in the pause
-         * menu or quick actions list.  If omitted, the main title is reused
-         * :contentReference[oaicite:2]{index=2}.
+         * menu or quick actions list.  If omitted, the main title is reused.
          *
          * @param externalTitle text component for the external title
          * @return this builder
@@ -212,7 +211,7 @@ public class DialogManager {
 
         /**
          * Adds a body element to the dialog.  Body elements appear between
-         * the title and the action/input controls:contentReference[oaicite:3]{index=3}.
+         * the title and the action/input controls.
          *
          * @param element the body element
          * @return this builder
@@ -226,7 +225,7 @@ public class DialogManager {
         /**
          * Adds an input control to the dialog.  Inputs allow players to
          * provide data (text, boolean, option, or number range) and are
-         * available on all dialog types:contentReference[oaicite:4]{index=4}.
+         * available on all dialog types.
          *
          * @param control the input control
          * @return this builder
@@ -238,8 +237,7 @@ public class DialogManager {
         }
 
         /**
-         * Controls whether the Escape key closes the dialog.  Defaults to true
-         * :contentReference[oaicite:5]{index=5}.
+         * Controls whether the Escape key closes the dialog.  Defaults to true.
          *
          * @param canCloseWithEscape true to allow closing with Esc
          * @return this builder
@@ -252,7 +250,7 @@ public class DialogManager {
 
         /**
          * Controls whether the dialog pauses the game in singleplayer.  Defaults
-         * to true:contentReference[oaicite:6]{index=6}.
+         * to true.
          *
          * @param pause true to pause the game when the dialog is open
          * @return this builder
@@ -266,7 +264,7 @@ public class DialogManager {
         /**
          * Sets the after_action behaviour.  Determines how the dialog behaves
          * after actions or inputs are submitted, e.g. close the dialog, do
-         * nothing, or show a waiting screen:contentReference[oaicite:7]{index=7}.
+         * nothing, or show a waiting screen.
          *
          * @param afterAction the after action enum
          * @return this builder
@@ -344,7 +342,7 @@ public class DialogManager {
 
     /**
      * Builder for notice dialogs.  Notice dialogs display a single action
-     * button in the footer; by default this is a generic OK button:contentReference[oaicite:8]{index=8}.
+     * button in the footer; by default this is a generic OK button.
      */
     public static class NoticeDialogBuilder extends DialogBuilder<NoticeDialogBuilder> {
         private ActionButton action;
@@ -355,7 +353,7 @@ public class DialogManager {
 
         /**
          * Sets the action button for the notice.  If omitted, the dialog will
-         * show a default OK button with no action.:contentReference[oaicite:9]{index=9}.
+         * show a default OK button with no action.
          *
          * @param action the action button to display
          * @return this builder
@@ -377,8 +375,7 @@ public class DialogManager {
 
     /**
      * Builder for confirmation dialogs.  Confirmation dialogs display two
-     * buttons—yes and no—allowing players to choose between two actions
-     * :contentReference[oaicite:10]{index=10}.
+     * buttons—yes and no—allowing players to choose between two actions.
      */
     public static class ConfirmationDialogBuilder extends DialogBuilder<ConfirmationDialogBuilder> {
         private ActionButton yesButton;
@@ -427,7 +424,7 @@ public class DialogManager {
      * Builder for multi‑action dialogs.  Multi‑action dialogs display a scrollable
      * list of buttons.  Each button has a label, optional tooltip, width and
      * an action.  You can configure the number of columns and optionally add an
-     * exit button which also handles the Escape key:contentReference[oaicite:11]{index=11}.
+     * exit button which also handles the Escape key.
      */
     public static class MultiActionDialogBuilder extends DialogBuilder<MultiActionDialogBuilder> {
         private final List<ActionButton> actions = new ArrayList<>();
@@ -452,7 +449,7 @@ public class DialogManager {
 
         /**
          * Sets the number of columns to arrange the action buttons in.  Defaults
-         * to 2 if unspecified:contentReference[oaicite:12]{index=12}.
+         * to 2 if unspecified.
          *
          * @param columns number of columns (must be positive)
          * @return this builder
@@ -466,7 +463,7 @@ public class DialogManager {
         /**
          * Sets an optional exit action.  When present, a button will appear in
          * the footer which both closes the dialog and performs the supplied
-         * action:contentReference[oaicite:13]{index=13}.
+         * action.
          *
          * @param button the exit action button
          * @return this builder
@@ -500,7 +497,7 @@ public class DialogManager {
     /**
      * Builder for server links dialogs.  These dialogs list all server links
      * defined via the server_links registry.  The only configurable options are
-     * the exit action, number of columns, and button width:contentReference[oaicite:14]{index=14}.
+     * the exit action, number of columns, and button width.
      */
     public static class ServerLinksDialogBuilder extends DialogBuilder<ServerLinksDialogBuilder> {
         private ActionButton exitAction;
@@ -514,7 +511,7 @@ public class DialogManager {
         /**
          * Sets an optional exit action.  When present, a button will appear in
          * the footer which both closes the dialog and performs the supplied
-         * action:contentReference[oaicite:15]{index=15}.
+         * action.
          *
          * @param button the exit action button
          * @return this builder
@@ -526,7 +523,7 @@ public class DialogManager {
 
         /**
          * Sets the number of columns to arrange the server link buttons in.  Defaults
-         * to 2 if unspecified:contentReference[oaicite:16]{index=16}.
+         * to 2 if unspecified.
          *
          * @param columns number of columns (must be positive)
          * @return this builder
@@ -539,7 +536,7 @@ public class DialogManager {
 
         /**
          * Sets the width of each server link button.  Defaults to 150 if
-         * unspecified:contentReference[oaicite:17]{index=17}.
+         * unspecified.
          *
          * @param width button width (1–1024)
          * @return this builder
@@ -569,7 +566,7 @@ public class DialogManager {
     /**
      * Builder for dialog list dialogs.  These dialogs present buttons that
      * navigate to other dialogs.  Each entry can be a namespaced identifier
-     * referencing a dialog in a data pack or an inline definition:contentReference[oaicite:18]{index=18}.
+     * referencing a dialog in a data pack or an inline definition.
      */
     public static class DialogListDialogBuilder extends DialogBuilder<DialogListDialogBuilder> {
         private final List<DialogReference> dialogs = new ArrayList<>();
@@ -598,7 +595,7 @@ public class DialogManager {
         /**
          * Sets an optional exit action.  When present, a button will appear in
          * the footer which both closes the dialog and performs the supplied
-         * action:contentReference[oaicite:19]{index=19}.
+         * action.
          *
          * @param button exit button
          * @return this builder
@@ -610,7 +607,7 @@ public class DialogManager {
 
         /**
          * Sets the number of columns to arrange the dialog entries in.  Defaults
-         * to 2 if unspecified:contentReference[oaicite:20]{index=20}.
+         * to 2 if unspecified.
          *
          * @param columns number of columns (must be positive)
          * @return this builder
@@ -622,8 +619,7 @@ public class DialogManager {
         }
 
         /**
-         * Sets the width of each dialog button.  Defaults to 150 if unspecified
-         * :contentReference[oaicite:21]{index=21}.
+         * Sets the width of each dialog button.  Defaults to 150 if unspecified.
          *
          * @param width button width (1–1024)
          * @return this builder
@@ -661,7 +657,7 @@ public class DialogManager {
      * Represents a reference to another dialog.  A reference can be either a
      * namespaced identifier pointing to a dialog resource in a data pack or an
      * inline definition built with a {@link DialogBuilder}.  Dialog lists may
-     * contain any number of such references:contentReference[oaicite:22]{index=22}.
+     * contain any number of such references.
      */
     public static class DialogReference {
         private final String id;
@@ -726,7 +722,7 @@ public class DialogManager {
         }
 
         /**
-         * Sets the maximum width of the message.  Defaults to 200:contentReference[oaicite:26]{index=26}.
+         * Sets the maximum width of the message.  Defaults to 200.
          *
          * @param width width between 1 and 1024
          * @return this builder
@@ -751,7 +747,7 @@ public class DialogManager {
 
     /**
      * An item body element.  Displays an item stack and an optional description
-     * with configurable width/height and tooltip settings:contentReference[oaicite:27]{index=27}.
+     * with configurable width/height and tooltip settings.
      */
     public static class ItemBody implements BodyElement {
         private final String itemId;
@@ -781,7 +777,7 @@ public class DialogManager {
 
         /**
          * Sets optional item component information (e.g. components on an item
-         * stack).  See the item components wiki page for possible keys:contentReference[oaicite:28]{index=28}.
+         * stack).  See the item components wiki page for possible keys.
          *
          * @param components JsonObject representing additional item data
          * @return this builder
@@ -793,7 +789,7 @@ public class DialogManager {
 
         /**
          * Sets an optional description text to appear next to the item.  Does
-         * not support nbt, score or selector components:contentReference[oaicite:29]{index=29}.
+         * not support nbt, score or selector components.
          *
          * @param description text component for the description
          * @return this builder
@@ -815,7 +811,7 @@ public class DialogManager {
 
         /**
          * Controls whether the count and durability bar are rendered over the
-         * item icon.  Defaults to true:contentReference[oaicite:30]{index=30}.
+         * item icon.  Defaults to true.
          *
          * @param show true to render decoration
          * @return this builder
@@ -827,7 +823,7 @@ public class DialogManager {
 
         /**
          * Controls whether the vanilla item tooltip appears when hovering over
-         * the item.  Defaults to true:contentReference[oaicite:31]{index=31}.
+         * the item.  Defaults to true.
          *
          * @param show true to show tooltip
          * @return this builder
@@ -838,7 +834,7 @@ public class DialogManager {
         }
 
         /**
-         * Sets the horizontal size of the element in pixels.  Defaults to 16:contentReference[oaicite:32]{index=32}.
+         * Sets the horizontal size of the element in pixels.  Defaults to 16.
          *
          * @param width width between 1 and 256
          * @return this builder
@@ -850,7 +846,7 @@ public class DialogManager {
         }
 
         /**
-         * Sets the vertical size of the element in pixels.  Defaults to 16:contentReference[oaicite:33]{index=33}.
+         * Sets the vertical size of the element in pixels.  Defaults to 16.
          *
          * @param height height between 1 and 256
          * @return this builder
@@ -889,7 +885,7 @@ public class DialogManager {
     }
 
     /**
-     * A single‑line or multiline text input control:contentReference[oaicite:35]{index=35}.
+     * A single‑line or multiline text input control.
      */
     public static class TextInput implements InputControl {
         private final String key;
@@ -908,8 +904,7 @@ public class DialogManager {
 
         /**
          * Creates a new text input with the specified key and label.  The key
-         * identifies the input in template substitutions and NBT output
-         * :contentReference[oaicite:36]{index=36}.
+         * identifies the input in template substitutions and NBT output.
          *
          * @param key   unique key for the input
          * @param label text component displayed to the left of the input
@@ -931,7 +926,7 @@ public class DialogManager {
         }
 
         /**
-         * Sets the width of the input box.  Defaults to 200:contentReference[oaicite:37]{index=37}.
+         * Sets the width of the input box.  Defaults to 200.
          *
          * @param width width between 1 and 1024
          * @return this builder
@@ -943,7 +938,7 @@ public class DialogManager {
         }
 
         /**
-         * Controls whether the label is visible.  Defaults to true:contentReference[oaicite:38]{index=38}.
+         * Controls whether the label is visible.  Defaults to true.
          *
          * @param visible true to show the label
          * @return this builder
@@ -955,7 +950,7 @@ public class DialogManager {
 
         /**
          * Sets an initial value for the input.  If omitted, the field is
-         * initially empty:contentReference[oaicite:39]{index=39}.
+         * initially empty.
          *
          * @param initial initial text
          * @return this builder
@@ -966,8 +961,7 @@ public class DialogManager {
         }
 
         /**
-         * Sets the maximum length of the input.  Defaults to 32 characters
-         * :contentReference[oaicite:40]{index=40}.
+         * Sets the maximum length of the input.  Defaults to 32 characters.
          *
          * @param maxLength maximum character count
          * @return this builder
@@ -980,7 +974,7 @@ public class DialogManager {
         /**
          * Configures the input for multiple lines.  If maxLines is specified,
          * users cannot exceed the given number of lines; height controls the
-         * pixel height of the text box:contentReference[oaicite:41]{index=41}.
+         * pixel height of the text box.
          *
          * @param maxLines maximum number of lines (optional)
          * @param height   pixel height of the input box
@@ -1021,7 +1015,7 @@ public class DialogManager {
     }
 
     /**
-     * A boolean checkbox input control:contentReference[oaicite:42]{index=42}.
+     * A boolean checkbox input control.
      */
     public static class BooleanInput implements InputControl {
         private final String key;
@@ -1044,7 +1038,7 @@ public class DialogManager {
         }
 
         /**
-         * Sets the initial checked state.  Defaults to false:contentReference[oaicite:43]{index=43}.
+         * Sets the initial checked state.  Defaults to false.
          *
          * @param initial initial value
          * @return this builder
@@ -1055,7 +1049,7 @@ public class DialogManager {
         }
 
         /**
-         * Sets the string value sent when true.  Defaults to "true":contentReference[oaicite:44]{index=44}.
+         * Sets the string value sent when true.  Defaults to "true".
          *
          * @param value string when checked
          * @return this builder
@@ -1066,7 +1060,7 @@ public class DialogManager {
         }
 
         /**
-         * Sets the string value sent when false.  Defaults to "false":contentReference[oaicite:45]{index=45}.
+         * Sets the string value sent when false.  Defaults to "false".
          *
          * @param value string when unchecked
          * @return this builder
@@ -1096,7 +1090,7 @@ public class DialogManager {
     }
 
     /**
-     * A single option selector input control:contentReference[oaicite:46]{index=46}.
+     * A single option selector input control.
      */
     public static class SingleOptionInput implements InputControl {
         private final String key;
@@ -1119,7 +1113,7 @@ public class DialogManager {
         }
 
         /**
-         * Controls whether the label is visible.  Defaults to true:contentReference[oaicite:47]{index=47}.
+         * Controls whether the label is visible.  Defaults to true.
          *
          * @param visible true to show the label
          * @return this builder
@@ -1130,7 +1124,7 @@ public class DialogManager {
         }
 
         /**
-         * Sets the width of the input box.  Defaults to 200:contentReference[oaicite:48]{index=48}.
+         * Sets the width of the input box.  Defaults to 200.
          *
          * @param width width between 1 and 1024
          * @return this builder
@@ -1217,7 +1211,7 @@ public class DialogManager {
     }
 
     /**
-     * A number range slider input control:contentReference[oaicite:49]{index=49}.
+     * A number range slider input control.
      */
     public static class NumberRangeInput implements InputControl {
         private final String key;
@@ -1244,7 +1238,7 @@ public class DialogManager {
 
         /**
          * Sets a translation key used to build the label when the value changes.
-         * Defaults to "options.generic_value":contentReference[oaicite:50]{index=50}.
+         * Defaults to "options.generic_value".
          *
          * @param format translation key
          * @return this builder
@@ -1255,7 +1249,7 @@ public class DialogManager {
         }
 
         /**
-         * Sets the width of the slider.  Defaults to 200:contentReference[oaicite:51]{index=51}.
+         * Sets the width of the slider.  Defaults to 200.
          *
          * @param width width between 1 and 1024
          * @return this builder
@@ -1267,7 +1261,7 @@ public class DialogManager {
         }
 
         /**
-         * Sets the start of the range (minimum value):contentReference[oaicite:52]{index=52}.
+         * Sets the start of the range (minimum value).
          *
          * @param start minimum value
          * @return this builder
@@ -1278,7 +1272,7 @@ public class DialogManager {
         }
 
         /**
-         * Sets the end of the range (maximum value):contentReference[oaicite:53]{index=53}.
+         * Sets the end of the range (maximum value).
          *
          * @param end maximum value
          * @return this builder
@@ -1290,7 +1284,7 @@ public class DialogManager {
 
         /**
          * Sets the step size.  If omitted, any value between start and end is
-         * allowed:contentReference[oaicite:54]{index=54}.
+         * allowed.
          *
          * @param step step size
          * @return this builder
@@ -1302,7 +1296,7 @@ public class DialogManager {
 
         /**
          * Sets the initial value of the slider.  Defaults to the middle of the
-         * range:contentReference[oaicite:55]{index=55}.
+         * range.
          *
          * @param initial initial value
          * @return this builder
@@ -1343,7 +1337,7 @@ public class DialogManager {
     /**
      * Represents a clickable button within a dialog.  Buttons consist of a
      * label, optional tooltip, width and an action.  See the dialog format
-     * specification for default values:contentReference[oaicite:56]{index=56}:contentReference[oaicite:57]{index=57}.
+     * specification for default values.
      */
     public static class ActionButton {
         private final JsonElement label;
@@ -1379,7 +1373,7 @@ public class DialogManager {
         }
 
         /**
-         * Sets an optional tooltip shown when the button is highlighted:contentReference[oaicite:58]{index=58}.
+         * Sets an optional tooltip shown when the button is highlighted.
          *
          * @param tooltip text component for the tooltip
          * @return this builder
@@ -1400,7 +1394,7 @@ public class DialogManager {
         }
 
         /**
-         * Sets the button width in pixels.  Defaults to 150:contentReference[oaicite:59]{index=59}:contentReference[oaicite:60]{index=60}.
+         * Sets the button width in pixels.  Defaults to 150.
          *
          * @param width width between 1 and 1024
          * @return this builder
@@ -1431,7 +1425,7 @@ public class DialogManager {
     }
 
     /**
-     * Action opening a URL in the player's web browser:contentReference[oaicite:62]{index=62}.
+     * Action opening a URL in the player's web browser.
      */
     public static class OpenUrlAction implements Action {
         private final String url;
@@ -1450,7 +1444,7 @@ public class DialogManager {
     }
 
     /**
-     * Action running a command on behalf of the player:contentReference[oaicite:63]{index=63}.
+     * Action running a command on behalf of the player.
      */
     public static class RunCommandAction implements Action {
         private final String command;
@@ -1469,7 +1463,7 @@ public class DialogManager {
     }
 
     /**
-     * Action suggesting a command into the chat box:contentReference[oaicite:64]{index=64}.
+     * Action suggesting a command into the chat box.
      */
     public static class SuggestCommandAction implements Action {
         private final String command;
@@ -1488,7 +1482,7 @@ public class DialogManager {
     }
 
     /**
-     * Action changing the page in a written book:contentReference[oaicite:65]{index=65}.
+     * Action changing the page in a written book.
      */
     public static class ChangePageAction implements Action {
         private final int page;
@@ -1507,7 +1501,7 @@ public class DialogManager {
     }
 
     /**
-     * Action copying a value to the clipboard:contentReference[oaicite:66]{index=66}.
+     * Action copying a value to the clipboard.
      */
     public static class CopyToClipboardAction implements Action {
         private final String value;
@@ -1527,7 +1521,7 @@ public class DialogManager {
 
     /**
      * Action showing another dialog.  The dialog can be specified either by
-     * identifier or inline definition:contentReference[oaicite:67]{index=67}.
+     * identifier or inline definition.
      */
     public static class ShowDialogAction implements Action {
         private final DialogReference dialog;
@@ -1546,7 +1540,7 @@ public class DialogManager {
     }
 
     /**
-     * Action sending a custom event to the server:contentReference[oaicite:68]{index=68}.
+     * Action sending a custom event to the server.
      */
     public static class CustomAction implements Action {
         private final String id;
@@ -1574,7 +1568,7 @@ public class DialogManager {
     }
 
     /**
-     * Dynamic action that builds a run_command event using a macro template:contentReference[oaicite:69]{index=69}.
+     * Dynamic action that builds a run_command event using a macro template.
      */
     public static class DynamicRunCommandAction implements Action {
         private final String template;
@@ -1594,7 +1588,7 @@ public class DialogManager {
 
     /**
      * Dynamic custom action that sends all input values back to the server with
-     * optional additional fields:contentReference[oaicite:70]{index=70}.
+     * optional additional fields.
      */
     public static class DynamicCustomAction implements Action {
         private final String id;
