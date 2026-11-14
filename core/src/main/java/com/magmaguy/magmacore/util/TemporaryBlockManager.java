@@ -197,16 +197,22 @@ public final class TemporaryBlockManager implements Listener {
 
     @EventHandler(ignoreCancelled = true, priority = org.bukkit.event.EventPriority.MONITOR)
     public void onWorldUnload(WorldUnloadEvent event) {
+        if (ownedBlocks.isEmpty()) return;
+        UUID world = event.getWorld().getUID();
         for (OwnedBlock lease : new java.util.ArrayList<>(ownedBlocks.values()))
-            if (lease.key.world().equals(event.getWorld().getUID())) lease.release(true, false);
+            if (lease.key.world().equals(world)) lease.release(true, false);
     }
 
     @EventHandler(ignoreCancelled = true, priority = org.bukkit.event.EventPriority.MONITOR)
     public void onChunkUnload(org.bukkit.event.world.ChunkUnloadEvent event) {
+        // Most unloads touch no lease: skip the copy and the per-event lookups when nothing is owned.
+        if (ownedBlocks.isEmpty()) return;
+        UUID world = event.getWorld().getUID();
+        int chunkX = event.getChunk().getX();
+        int chunkZ = event.getChunk().getZ();
         // Restore the stored state without neighbor updates that can load chunks during native unload iteration.
         for (OwnedBlock lease : new java.util.ArrayList<>(ownedBlocks.values()))
-            if (lease.key.world().equals(event.getWorld().getUID())
-                    && (lease.key.x() >> 4) == event.getChunk().getX() && (lease.key.z() >> 4) == event.getChunk().getZ())
+            if (lease.key.world().equals(world) && (lease.key.x() >> 4) == chunkX && (lease.key.z() >> 4) == chunkZ)
                 lease.release(true, false);
     }
 }
