@@ -14,6 +14,8 @@ final class EnchantmentItemAccess {
     private final UUID actor;
     private final int slot;
     private final ItemStack expected;
+    /** expected with damage cleared and set lore stripped, built on first comparison; never changes after. */
+    private ItemStack normalizedExpected;
 
     EnchantmentItemAccess(UUID actor, int slot, ItemStack expected) {
         if (slot < 0 || slot > 40) throw new IllegalArgumentException("Invalid player inventory slot");
@@ -39,7 +41,9 @@ final class EnchantmentItemAccess {
     }
 
     boolean isEquipped() {
-        if (!(Bukkit.getEntity(actor) instanceof Player player) || read() == null) return false;
+        // Runs every tick for stop_on_unequip actions: one entity lookup, and no copy of a stack only compared.
+        if (!(Bukkit.getEntity(actor) instanceof Player player) || !player.isOnline()
+                || !sameItem(player.getInventory().getItem(slot))) return false;
         return slot >= 36 || slot == player.getInventory().getHeldItemSlot();
     }
 
@@ -67,11 +71,22 @@ final class EnchantmentItemAccess {
 
     private boolean sameItem(ItemStack current) {
         if (current == null || current.getAmount() <= 0 || current.getType() != expected.getType()) return false;
-        ItemStack first = current.clone(), second = expected.clone();
-        clearDamage(first); clearDamage(second);
+        ItemStack first = current.clone();
+        clearDamage(first);
         // Set lore follows what the player wears; a redraw does not make this a different item.
-        ItemSets.strip(first); ItemSets.strip(second);
-        return first.isSimilar(second);
+        ItemSets.strip(first);
+        return first.isSimilar(normalizedExpected());
+    }
+
+    /** The expected stack never changes, so it is normalized once with the same steps as the current one. */
+    private ItemStack normalizedExpected() {
+        if (normalizedExpected == null) {
+            ItemStack second = expected.clone();
+            clearDamage(second);
+            ItemSets.strip(second);
+            normalizedExpected = second;
+        }
+        return normalizedExpected;
     }
 
     private static void clearDamage(ItemStack item) {
