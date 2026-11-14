@@ -69,7 +69,7 @@ public class ItemStackGenerator {
         ItemStack itemStack = generateItemStack(material, ChatColorConverter.convert(name));
         ItemMeta itemMeta = itemStack.getItemMeta();
         itemMeta.setLore(ChatColorConverter.convert(lore));
-        if (!VersionChecker.serverVersionOlderThan(21, 4) && namespacedKey != null)
+        if (namespacedKey != null)
             try {
                 itemMeta.setItemModel(NamespacedKey.fromString(namespacedKey));
             } catch (Exception e) {

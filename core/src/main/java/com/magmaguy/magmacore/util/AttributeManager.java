@@ -10,7 +10,7 @@ import java.util.Locale;
 public class AttributeManager {
     private static Attribute getAttributeFromString(String string) {
         String attributeKey = string.toUpperCase(Locale.ROOT);
-        if (!VersionChecker.serverVersionOlderThan(21, 4) && attributeKey.startsWith("GENERIC_"))
+        if (attributeKey.startsWith("GENERIC_"))
             attributeKey = attributeKey.replace("GENERIC_", "");
         try {
             return Attribute.valueOf(attributeKey);

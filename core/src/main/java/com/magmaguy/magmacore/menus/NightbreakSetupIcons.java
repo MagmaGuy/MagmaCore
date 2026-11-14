@@ -1,6 +1,5 @@
 package com.magmaguy.magmacore.menus;
 
-import com.magmaguy.magmacore.util.VersionChecker;
 import org.bukkit.Bukkit;
 import org.bukkit.NamespacedKey;
 import org.bukkit.inventory.ItemStack;
@@ -50,7 +49,6 @@ public final class NightbreakSetupIcons {
 
     public static void applyItemModel(ItemStack itemStack, String modelId) {
         if (itemStack == null || modelId == null || modelId.isBlank()) return;
-        if (VersionChecker.serverVersionOlderThan(21, 4)) return;
         if (!hasUsableResourcePack()) return;
 
         try {
