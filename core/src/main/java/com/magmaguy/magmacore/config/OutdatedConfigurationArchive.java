@@ -283,6 +283,8 @@ public final class OutdatedConfigurationArchive {
     private static Object readValue(Object value) throws IOException {
         if (value instanceof String text && !text.isBlank()) return text;
         if (value instanceof Integer || value instanceof Long) return value;
+        // A decimal matches by numeric value, as whole numbers do: 0.2 matches 0.20, 2.0 matches 2.
+        if (value instanceof Double decimal && Double.isFinite(decimal)) return value;
         if (value instanceof List<?> entries && !entries.isEmpty()) {
             List<String> values = new ArrayList<>(entries.size());
             for (Object entry : entries) {
@@ -292,7 +294,7 @@ public final class OutdatedConfigurationArchive {
             }
             return List.copyOf(values);
         }
-        throw new IOException("An outdated configuration value must be a nonblank string, a whole number or a nonempty string list");
+        throw new IOException("An outdated configuration value must be a nonblank string, a finite number or a nonempty string list");
     }
 
     private static Set<String> readNames(Object value, String field, String pattern) throws IOException {
