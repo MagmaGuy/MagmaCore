@@ -36,7 +36,11 @@ import java.util.IdentityHashMap;
 import java.util.HashSet;
 import java.util.function.Consumer;
 
-/** Preserves whole retired configuration files using the owning plugin's explicit format rules. */
+/**
+ * Preserves whole retired configuration files using the owning plugin's explicit format rules, and removes or
+ * replaces single stale keys in place while they still hold a value the plugin shipped ({@code removeKey} and
+ * {@code replaceKey} rules).
+ */
 public final class OutdatedConfigurationArchive {
     public static final String RULES_RESOURCE = "outdated-config-keys.yml";
     public static final String DIRECTORY = "outdated files";
@@ -119,12 +123,14 @@ public final class OutdatedConfigurationArchive {
                     + " with their original contents unchanged. " + plugin.getName()
                     + " writes current copies of its built-in defaults. Files that came with downloaded content"
                     + " come back when you download that content again.");
+            // After whole-file archival, so a file that was moved aside is never edited first.
+            retireKeys(data, rules, plugin.getLogger()::warning).forEach(plugin.getLogger()::info);
         } catch (IOException failure) {
             throw new UncheckedIOException("Cannot safely archive outdated " + plugin.getName() + " configuration", failure);
         }
     }
 
-    sealed interface Rule permits KeyRule, ListEntryRule, ValueRule, LuaScriptRule, LuaSourceRule {
+    sealed interface Rule permits KeyRule, ListEntryRule, ValueRule, LuaScriptRule, LuaSourceRule, StaleKeyRule {
         boolean matches(String filename, Map<?, ?> yaml);
 
         default boolean appliesTo(String filename) { return true; }
@@ -214,6 +220,36 @@ public final class OutdatedConfigurationArchive {
         }
     }
 
+    /**
+     * Edits one key in place instead of archiving the file: removes it, or with {@code newValue} replaces it,
+     * only while it still holds one of the values a release shipped. Everything else in the file is kept, so
+     * admins' other edits survive. Never selects a file for archival.
+     */
+    record StaleKeyRule(Set<String> files, String path, List<Object> shippedValues, Object newValue) implements Rule {
+        StaleKeyRule {
+            files = Set.copyOf(files);
+            shippedValues = List.copyOf(shippedValues);
+        }
+
+        @Override public boolean matches(String filename, Map<?, ?> yaml) { return false; }
+
+        @Override public boolean appliesTo(String filename) { return files.contains(filename); }
+
+        boolean holdsShippedValue(org.bukkit.configuration.Configuration configuration) {
+            if (!configuration.contains(path) || configuration.isConfigurationSection(path)) return false;
+            Object current = configuration.get(path);
+            return shippedValues.stream().anyMatch(expected -> sameValue(expected, current));
+        }
+    }
+
+    /** Exact equality; whole numbers and decimals compare by numeric value, lists by order and every entry. */
+    private static boolean sameValue(Object expected, Object current) {
+        if (expected instanceof Number number)
+            return current instanceof Number actual && !(current instanceof Double d && !Double.isFinite(d))
+                    && new java.math.BigDecimal(number.toString()).compareTo(new java.math.BigDecimal(actual.toString())) == 0;
+        return expected.equals(current);
+    }
+
     record ListEntryRule(Set<String> files, String key, Set<String> names) implements Rule {
         ListEntryRule {
             files = Set.copyOf(files);
@@ -258,6 +294,20 @@ public final class OutdatedConfigurationArchive {
                         && key.matches("[A-Za-z0-9_-]+(?:\\.[A-Za-z0-9_-]+)*")) {
                     Set<String> files = readNames(fields.get("files"), "files", "[A-Za-z0-9_-]+\\.ya?ml");
                     selected.add(new ValueRule(files, List.of(key.split("\\.")), readValue(fields.get("value"))));
+                } else if (rule instanceof Map<?, ?> fields
+                        && (fields.keySet().equals(Set.of("files", "removeKey", "shippedValues"))
+                        || fields.keySet().equals(Set.of("files", "replaceKey", "shippedValues", "newValue")))) {
+                    boolean replace = fields.containsKey("replaceKey");
+                    if (!(fields.get(replace ? "replaceKey" : "removeKey") instanceof String key)
+                            || !key.matches("[A-Za-z0-9_-]+(?:\\.[A-Za-z0-9_-]+)*"))
+                        throw new IOException("A stale key rule requires a dotted key path in " + category);
+                    if (!(fields.get("shippedValues") instanceof List<?> shipped) || shipped.isEmpty())
+                        throw new IOException("A stale key rule requires nonempty shippedValues in " + category);
+                    List<Object> values = new ArrayList<>(shipped.size());
+                    for (Object value : shipped) values.add(readKeyValue(value));
+                    Object replacement = replace ? readKeyValue(fields.get("newValue")) : null;
+                    selected.add(new StaleKeyRule(readNames(fields.get("files"), "files", "[A-Za-z0-9_-]+\\.ya?ml"),
+                            key, values, replacement));
                 } else if (rule instanceof Map<?, ?> fields && fields.keySet().equals(Set.of("lua"))
                         && fields.get("lua") instanceof Map<?, ?> lua
                         && lua.keySet().equals(Set.of("supportedHooks", "retiredHooks"))) {
@@ -295,6 +345,12 @@ public final class OutdatedConfigurationArchive {
             return List.copyOf(values);
         }
         throw new IOException("An outdated configuration value must be a nonblank string, a finite number or a nonempty string list");
+    }
+
+    /** A stale key's value as YAML loads it: a string, a boolean, a finite number or a string list. */
+    private static Object readKeyValue(Object value) throws IOException {
+        if (value instanceof Boolean) return value;
+        return readValue(value);
     }
 
     private static Set<String> readNames(Object value, String field, String pattern) throws IOException {
@@ -340,6 +396,8 @@ public final class OutdatedConfigurationArchive {
         // Finish classification before any move. Invalid applicable YAML aborts the batch;
         // unclassifiable Lua stays in place for the script loader's normal diagnostics.
         for (var rule : rules.entrySet()) {
+            // Stale key rules edit files in place afterwards and never select a file for archival.
+            if (rule.getValue().stream().allMatch(StaleKeyRule.class::isInstance)) continue;
             Path category = data.resolve(rule.getKey()).normalize();
             if (!category.startsWith(data) || category.equals(data)) throw new IOException("Invalid content category");
             if (!Files.exists(category, LinkOption.NOFOLLOW_LINKS)) continue;
@@ -352,21 +410,9 @@ public final class OutdatedConfigurationArchive {
             List<LuaSourceRule> sourceRules = rule.getValue().stream().filter(LuaSourceRule.class::isInstance)
                     .map(LuaSourceRule.class::cast).toList();
             List<Rule> yamlRules = rule.getValue().stream()
-                    .filter(selected -> !(selected instanceof LuaScriptRule) && !(selected instanceof LuaSourceRule)).toList();
-            List<Path> files = new ArrayList<>();
-            // A symlink is reported as a file and never followed; a junction shows up as a folder and is not entered.
-            Files.walkFileTree(category, new SimpleFileVisitor<>() {
-                @Override public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes) throws IOException {
-                    return skipLinked(directory, inspectedPaths, warn) ? FileVisitResult.SKIP_SUBTREE : FileVisitResult.CONTINUE;
-                }
-
-                @Override public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
-                    if (!skipLinked(file, inspectedPaths, warn)) files.add(file);
-                    return FileVisitResult.CONTINUE;
-                }
-            });
-            files.sort(null);
-            for (Path path : files) {
+                    .filter(selected -> !(selected instanceof LuaScriptRule) && !(selected instanceof LuaSourceRule)
+                            && !(selected instanceof StaleKeyRule)).toList();
+            for (Path path : listFiles(category, inspectedPaths, warn)) {
                 String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
                 boolean lua = name.endsWith(".lua")
                         && (!luaRules.isEmpty() || sourceRules.stream().anyMatch(selected -> selected.appliesTo(name)));
@@ -422,6 +468,98 @@ public final class OutdatedConfigurationArchive {
             archived.add(destination);
         }
         return List.copyOf(archived);
+    }
+
+    /** Every regular file under a category, sorted. A symlink is never followed and a junction is not entered. */
+    private static List<Path> listFiles(Path category, Set<Path> inspectedPaths, Consumer<String> warn) throws IOException {
+        List<Path> files = new ArrayList<>();
+        Files.walkFileTree(category, new SimpleFileVisitor<>() {
+            @Override public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes) throws IOException {
+                return skipLinked(directory, inspectedPaths, warn) ? FileVisitResult.SKIP_SUBTREE : FileVisitResult.CONTINUE;
+            }
+
+            @Override public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
+                if (!skipLinked(file, inspectedPaths, warn)) files.add(file);
+                return FileVisitResult.CONTINUE;
+            }
+        });
+        files.sort(null);
+        return files;
+    }
+
+    /**
+     * Removes or replaces stale keys in place while they hold a value a release shipped. A key with any other value,
+     * and every other key, stays as it is. The file is loaded and saved the way the plugin's own config loaders do
+     * (Bukkit YAML, comments kept), and written only when a key changed. A file that does not parse, is not UTF-8,
+     * sits behind a link or changes while it is checked is left alone for the normal loader.
+     *
+     * @return one line per file changed, naming the file and its keys
+     */
+    static List<String> retireKeys(Path dataDirectory, Map<String, Set<Rule>> rules, Consumer<String> warn) throws IOException {
+        Path data = dataDirectory.toAbsolutePath().normalize();
+        if (!Files.exists(data, LinkOption.NOFOLLOW_LINKS) || linkedPath(data, new HashSet<>()) != null) return List.of();
+        Set<Path> inspectedPaths = new HashSet<>();
+        List<String> changes = new ArrayList<>();
+        for (var rule : rules.entrySet()) {
+            List<StaleKeyRule> keyRules = rule.getValue().stream().filter(StaleKeyRule.class::isInstance)
+                    .map(StaleKeyRule.class::cast).toList();
+            if (keyRules.isEmpty()) continue;
+            Path category = data.resolve(rule.getKey()).normalize();
+            if (!category.startsWith(data) || category.equals(data)) throw new IOException("Invalid content category");
+            if (!Files.exists(category, LinkOption.NOFOLLOW_LINKS) || skipLinked(category, inspectedPaths, warn)) continue;
+            for (Path path : listFiles(category, inspectedPaths, warn)) {
+                String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
+                List<StaleKeyRule> applicable = keyRules.stream().filter(selected -> selected.appliesTo(name)).toList();
+                if (applicable.isEmpty() || !Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) continue;
+                try {
+                    String change = retireKeys(data, path, applicable, warn);
+                    if (change != null) changes.add(change);
+                } catch (IOException | UncheckedIOException failure) {
+                    // An unreadable or unwritable file keeps its stale keys; they are not read, so nothing breaks.
+                    warn.accept("Could not remove unused default keys from " + path + ": " + failure.getMessage());
+                }
+            }
+        }
+        return List.copyOf(changes);
+    }
+
+    private static String retireKeys(Path data, Path path, List<StaleKeyRule> rules, Consumer<String> warn) throws IOException {
+        byte[] original;
+        try (InputStream input = Files.newInputStream(path)) {
+            original = readBounded(input);
+        }
+        org.bukkit.configuration.file.YamlConfiguration configuration = new org.bukkit.configuration.file.YamlConfiguration();
+        try {
+            configuration.loadFromString(StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(original)).toString());
+        } catch (CharacterCodingException | org.bukkit.configuration.InvalidConfigurationException | RuntimeException unreadable) {
+            return null;
+        }
+        List<String> removed = new ArrayList<>();
+        List<String> replaced = new ArrayList<>();
+        for (StaleKeyRule rule : rules) {
+            if (!rule.holdsShippedValue(configuration)) continue;
+            configuration.set(rule.path(), rule.newValue());
+            (rule.newValue() == null ? removed : replaced).add(rule.path());
+        }
+        if (removed.isEmpty() && replaced.isEmpty()) return null;
+        String contents = configuration.saveToString();
+        byte[] current;
+        try (InputStream input = Files.newInputStream(path)) {
+            current = readBounded(input);
+        }
+        if (!Arrays.equals(original, current) || linkedPath(path, new HashSet<>()) != null) {
+            warn.accept("Left " + path + " unchanged: it changed while its stale keys were checked.");
+            return null;
+        }
+        ConfigurationEngine.fileSaverSerialized(contents, path.toFile());
+        String file = data.relativize(path).toString().replace('\\', '/');
+        removed.sort(null);
+        replaced.sort(null);
+        StringBuilder line = new StringBuilder();
+        if (!removed.isEmpty()) line.append("Removed unused default key(s) ").append(String.join(", ", removed));
+        if (!replaced.isEmpty()) line.append(removed.isEmpty() ? "Updated old default value(s) of " : "; updated old default value(s) of ")
+                .append(String.join(", ", replaced));
+        return line.append(" in ").append(file).append(". Edited values are never changed.").toString();
     }
 
     private static boolean matchesYaml(String name, byte[] source, List<Rule> rules, Yaml parser) throws IOException {

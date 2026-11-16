@@ -57,6 +57,40 @@ His current four-quest default does not match. Neither does a customized list
 with additional quests. Other customized settings in a matching file are
 preserved in the archive, but the active replacement uses current defaults.
 
+## Stale key rules (edit in place)
+
+A whole-file archive resets every other setting in that file. When only one key
+is stale in a file admins customize, a `removeKey` rule deletes that key, and a
+`replaceKey` rule swaps an old default for the new one, only while the key holds
+one of the values a release shipped:
+
+```yaml
+menus:
+  - files: [player_status_screen.yml]
+    removeKey: skillsItemDisplayName
+    shippedValues: ['&5&lSkills', '<g:#6D3AA8:#A855F7>⚗ Skills</g>']
+command_messages.yml:
+  - files: [command_messages.yml]
+    replaceKey: skillTestAlreadyRunningMessage
+    shippedValues: ['&cOld default text']
+    newValue: '&cNew default text'
+```
+
+- `shippedValues` lists alternatives. Each is a nonblank string, a boolean, a
+  finite number (compared by value) or a string list (written as a nested list,
+  for example `[[BARRIER]]`). Comparison is exact; any other value is a
+  customization and stays.
+- Stale key rules never archive a file. They run after the archive pass, at the
+  same points, on the files that remain.
+- A changed file is loaded and saved through Bukkit's YAML, as the plugin's own
+  loaders do (comments kept), and written only when a key changed. One log line
+  names each changed file and its keys.
+- Unparsable or non-UTF-8 files, links, and files that change while being
+  checked are left alone, with a warning for the last two.
+- Do not use these rules on keys DLC ships, since the next download writes them
+  back, or on top-level keys of `ConfigurationFile` singletons, which already
+  drop keys that are no longer defaults.
+
 ## Behavior
 
 - A matching rule archives the whole `.yml` or `.yaml` file, including customized
