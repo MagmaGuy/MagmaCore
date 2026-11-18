@@ -76,6 +76,19 @@ public class InstanceProtector implements Listener {
         protectedWorlds.clear();
         bypassingPlayers.clear();
         containerAllowlist = null;
+        ProtectedPlantMelee.shutdown();
+    }
+
+    /**
+     * Turns the melee swing through plants of protected worlds on or off (see {@link ProtectedPlantMelee}).
+     * On by default; {@code -Dmagmacore.protectedPlantMelee=false} starts a server with it off.
+     */
+    public static void setPlantMeleeEnabled(boolean enabled) {
+        ProtectedPlantMelee.enabled = enabled;
+    }
+
+    public static boolean isPlantMeleeEnabled() {
+        return ProtectedPlantMelee.enabled;
     }
 
     // ---- legacy compatibility shims (older callers) ----
@@ -117,6 +130,13 @@ public class InstanceProtector implements Listener {
         if (!isProtectedWorld(event.getBlock().getWorld())) return;
         if (shouldBypass(event.getPlayer())) return;
         event.setCancelled(true);
+        // The plant stays, so the swing it absorbed goes on to the mob behind it (see ProtectedPlantMelee).
+        ProtectedPlantMelee.onCancelledSwing(event.getPlayer(), event.getBlock(), event.getInstaBreak());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void forgetPlantMeleeSwing(PlayerQuitEvent event) {
+        ProtectedPlantMelee.forget(event.getPlayer());
     }
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
