@@ -721,6 +721,7 @@ public class ConfigurationImporter {
         ImportManifests manifests = new ImportManifests(ownerPlugin.getDataFolder().getParentFile().toPath());
         String packageKey = ImportManifests.packageKey(archiveName);
         List<String> installedFiles = new ArrayList<>();
+        List<String> removedBlueprints;
         List<String> archivedFiles;
         try {
             for (ImportCandidate candidate : candidates) {
@@ -733,6 +734,10 @@ public class ConfigurationImporter {
                 String relative = manifests.relativize(installedFile);
                 if (relative != null) installedFiles.add(relative);
             }
+            // Blueprints go first: their files are then gone, so the file pass below does not archive parts of them.
+            removedBlueprints = packageKey == null
+                    ? List.of()
+                    : removeDroppedBlueprints(manifests, packageKey, installedFiles, transaction);
             archivedFiles = packageKey == null
                     ? List.of()
                     : archiveDroppedFiles(manifests, packageKey, installedFiles, transaction);
@@ -763,6 +768,10 @@ public class ConfigurationImporter {
                         + " update of this package cannot clean up files it stops shipping: " + exception.getMessage());
             }
         }
+        if (!removedBlueprints.isEmpty()) {
+            Logger.info("Removed " + removedBlueprints.size() + " world blueprint(s) that " + archiveName
+                    + " no longer ships: " + String.join(", ", removedBlueprints) + ".");
+        }
         if (!archivedFiles.isEmpty()) {
             Logger.info("Moved " + archivedFiles.size() + " file(s) that " + archiveName
                     + " no longer ships to plugins/MagmaCore/" + com.magmaguy.magmacore.config.OutdatedConfigurationArchive.DIRECTORY
@@ -770,6 +779,39 @@ public class ConfigurationImporter {
                     + (archivedFiles.size() > 10 ? " and " + (archivedFiles.size() - 10) + " more." : "."));
         }
         return true;
+    }
+
+    /**
+     * Removes world blueprints the previous version of this package installed under a name this version no
+     * longer ships, such as a dungeon whose world was renamed. Every import replaces a blueprint whole, and
+     * the plugin rewrites an installed blueprint into the server's world format, so its files no longer match
+     * the ones the package shipped and the file pass cannot find them. Left in place, the old map would sit
+     * beside the new one. Rollback puts the blueprint back.
+     */
+    private static List<String> removeDroppedBlueprints(
+            ImportManifests manifests,
+            String packageKey,
+            List<String> installedFiles,
+            ImportTransaction transaction) {
+        List<String> dropped;
+        try {
+            dropped = manifests.droppedBlueprints(packageKey, installedFiles);
+        } catch (IOException exception) {
+            Logger.warn("Could not read the import record for " + packageKey
+                    + "; world blueprints it no longer ships stay in place: " + exception.getMessage());
+            return List.of();
+        }
+        List<String> removed = new ArrayList<>();
+        for (String path : dropped) {
+            try {
+                transaction.displaceDirectory(manifests.resolve(path));
+                removed.add(path);
+            } catch (IOException exception) {
+                Logger.warn("Could not remove world blueprint " + path + ", which " + packageKey
+                        + " no longer ships; it stays in place: " + exception.getMessage());
+            }
+        }
+        return removed;
     }
 
     /**

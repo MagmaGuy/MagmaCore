@@ -97,6 +97,46 @@ final class ImportManifests {
     }
 
     /**
+     * World blueprint folders the previous import of this package installed and the current import no longer
+     * ships, such as a blueprint whose world was renamed. Folders the current import or another package still
+     * lists files in are kept, and an archive name reused by an unrelated package reports nothing, as in
+     * {@link #droppedFiles}. Only folders that still exist are returned.
+     */
+    List<String> droppedBlueprints(String key, Collection<String> installed) throws IOException {
+        Set<String> previous = load(key);
+        if (previous == null || previous.isEmpty()) return List.of();
+        Set<String> current = lowerCase(installed);
+        if (Collections.disjoint(lowerCase(previous), current)) return List.of();
+        Set<String> kept = new HashSet<>();
+        for (String path : current) {
+            String blueprint = blueprintFolder(path);
+            if (blueprint != null) kept.add(blueprint);
+        }
+        for (String path : otherPackagesFiles(key)) {
+            String blueprint = blueprintFolder(path);
+            if (blueprint != null) kept.add(blueprint);
+        }
+        Set<String> dropped = new TreeSet<>();
+        for (String path : previous) {
+            String blueprint = blueprintFolder(path);
+            // Compared in lower case so a blueprint whose folder only changed case on Windows is not removed.
+            if (blueprint == null || kept.contains(blueprint.toLowerCase(Locale.ROOT))) continue;
+            if (Files.isDirectory(resolve(blueprint), LinkOption.NOFOLLOW_LINKS)) dropped.add(blueprint);
+        }
+        return new ArrayList<>(dropped);
+    }
+
+    /**
+     * The blueprint folder an installed file lies in, {@code <plugin>/world_blueprints/<content>/<blueprint>},
+     * or null for a file outside one.
+     */
+    static String blueprintFolder(String relativePath) {
+        String[] parts = relativePath.split("/");
+        if (parts.length < 5 || !parts[1].equalsIgnoreCase("world_blueprints")) return null;
+        return String.join("/", Arrays.copyOf(parts, 4));
+    }
+
+    /**
      * Where a dropped file goes: the same {@code MagmaCore/outdated files/<plugin>/<batch>/} layout used
      * for retired configuration files, so administrators find both in one place.
      */
