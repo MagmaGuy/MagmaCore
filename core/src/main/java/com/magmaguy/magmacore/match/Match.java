@@ -214,8 +214,31 @@ public abstract class Match {
             } catch (RuntimeException | LinkageError failure) {
                 Logger.warn("Match " + runtimeId + ": exitDestination failed: " + failure);
             }
-            if (exit != null) MatchMovement.moveForMatch(this, player, participant, exit, MoveReason.EXIT);
+            if (exit != null && !MatchMovement.moveForMatch(this, player, participant, exit, MoveReason.EXIT))
+                recoverExit(participant, exit);
         }
+    }
+
+    /**
+     * The exit move was refused. The player is already out of the match, so staying would strand them in a space
+     * that is about to close: say who and why, try again a tick later and fall back to the main world's spawn.
+     */
+    private void recoverExit(MatchPlayer participant, Location exit) {
+        Player player = participant.getPlayer();
+        Logger.warn("Match " + runtimeId + ": could not move " + player.getName() + " out to "
+                + MatchMovement.describe(exit) + ": " + MatchMovement.refusal(player, exit) + ". Trying again next tick.");
+        Bukkit.getScheduler().runTask(MatchCore.plugin(), () -> {
+            if (!player.isOnline() || !contains(player.getLocation())) return;
+            if (MatchMovement.moveForMatch(this, player, participant, exit, MoveReason.EXIT)) return;
+            Location spawn = Bukkit.getWorlds().get(0).getSpawnLocation();
+            if (!contains(spawn) && MatchMovement.moveForMatch(this, player, participant, spawn, MoveReason.EXIT)) {
+                Logger.warn("Match " + runtimeId + ": moved " + player.getName() + " to the spawn of "
+                        + spawn.getWorld().getName() + " instead, after " + MatchMovement.describe(exit) + " was refused twice.");
+                return;
+            }
+            Logger.warn("Match " + runtimeId + ": " + player.getName() + " is still inside the match space at "
+                    + MatchMovement.describe(player.getLocation()) + ": " + MatchMovement.refusal(player, spawn) + ".");
+        });
     }
 
     static double maxHealth(Player player) {

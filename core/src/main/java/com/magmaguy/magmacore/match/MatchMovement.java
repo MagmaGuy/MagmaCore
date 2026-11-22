@@ -41,10 +41,41 @@ final class MatchMovement {
                 || !player.isOnline() || !player.isValid()) return false;
         Match current = MatchCore.matchOf(player);
         if (!permitsLifecycleMovement(player, destination, match, current)) return false;
-        return teleportAuthorized(player, destination, PlayerTeleportEvent.TeleportCause.PLUGIN,
-                current, false, match, () -> participant != null
-                        ? participant.teleport(destination, reason)
-                        : player.teleport(destination, PlayerTeleportEvent.TeleportCause.PLUGIN));
+        BooleanSupplier teleport = () -> participant != null
+                ? participant.teleport(destination, reason)
+                : player.teleport(destination, PlayerTeleportEvent.TeleportCause.PLUGIN);
+        // The server refuses to move a player who carries a passenger to another world, before any event and
+        // without a word: Paper for world changes, Spigot for every teleport. Accessory plugins mount armor stands
+        // on players, so a lifecycle move sheds riders first instead of leaving the player behind.
+        if (!player.getWorld().equals(destination.getWorld())) releaseRiders(player);
+        if (teleportAuthorized(player, destination, PlayerTeleportEvent.TeleportCause.PLUGIN, current, false, match, teleport))
+            return true;
+        return releaseRiders(player) && teleportAuthorized(player, destination,
+                PlayerTeleportEvent.TeleportCause.PLUGIN, current, false, match, teleport);
+    }
+
+    /** Ejects the player's passengers and takes the player off its vehicle. Returns whether there was either. */
+    static boolean releaseRiders(Player player) {
+        boolean riders = !player.getPassengers().isEmpty() || player.isInsideVehicle();
+        if (!player.getPassengers().isEmpty()) player.eject();
+        if (player.isInsideVehicle()) player.leaveVehicle();
+        return riders;
+    }
+
+    /** What may have refused a lifecycle move that just returned false, for a log line. */
+    static String refusal(Player player, Location destination) {
+        if (!player.isOnline()) return "the player is offline";
+        if (player.isDead() || !player.isValid()) return "the player is dead or not valid";
+        if (destination == null || destination.getWorld() == null) return "the destination has no loaded world";
+        if (!player.getPassengers().isEmpty())
+            return player.getPassengers().size() + " passenger(s) are still riding the player";
+        return "the server or another plugin's teleport listener refused or cancelled the teleport";
+    }
+
+    static String describe(Location location) {
+        if (location == null) return "nowhere";
+        return (location.getWorld() == null ? "an unloaded world" : location.getWorld().getName()) + " "
+                + location.getBlockX() + "," + location.getBlockY() + "," + location.getBlockZ();
     }
 
     /**
