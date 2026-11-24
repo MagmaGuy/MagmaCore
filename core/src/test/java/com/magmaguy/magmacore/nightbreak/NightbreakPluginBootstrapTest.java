@@ -2,23 +2,40 @@ package com.magmaguy.magmacore.nightbreak;
 
 import com.magmaguy.magmacore.command.AdvancedCommand;
 import com.magmaguy.magmacore.command.CommandManager;
+import org.bukkit.Bukkit;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitScheduler;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.when;
 
 class NightbreakPluginBootstrapTest {
+    private MockedStatic<Bukkit> bukkit;
+
+    @BeforeEach
+    void provideScheduler() {
+        // Registering the content commands schedules the daily automatic content download.
+        bukkit = mockStatic(Bukkit.class);
+        bukkit.when(Bukkit::getScheduler).thenReturn(mock(BukkitScheduler.class));
+    }
 
     @AfterEach
     void clearSharedPluginState() {
-        CommandManager.shutdown();
+        try {
+            CommandManager.shutdown();
+        } finally {
+            bukkit.close();
+        }
     }
 
     @Test

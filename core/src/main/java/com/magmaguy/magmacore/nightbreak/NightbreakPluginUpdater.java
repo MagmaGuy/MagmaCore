@@ -274,6 +274,10 @@ public final class NightbreakPluginUpdater {
         startPluginUpdateMonitor(plugin, spec);
         // On a test server local builds replace the plugin, so a public download must not.
         if (NightbreakDevUpdateSource.startIfConfigured(plugin)) return;
+        scheduleAutomaticPluginDownloads(plugin, spec);
+    }
+
+    static void scheduleAutomaticPluginDownloads(JavaPlugin plugin, NightbreakPluginSpec spec) {
         String key = cacheKey(plugin, spec);
         long generation = currentGeneration(plugin);
         AtomicBoolean announced = new AtomicBoolean(false);
