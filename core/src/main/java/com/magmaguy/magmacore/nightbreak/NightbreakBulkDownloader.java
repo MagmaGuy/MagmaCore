@@ -27,6 +27,13 @@ import java.util.function.Consumer;
 public final class NightbreakBulkDownloader {
     private static final Object LIFECYCLE_LOCK = new Object();
     private static final Map<JavaPlugin, Long> PLUGIN_GENERATIONS = new IdentityHashMap<>();
+    /**
+     * Catalog version of each content update an automatic pass downloaded and left in
+     * imports/ for the next restart or reload, by slug. The automatic pass repeats daily,
+     * and a held package still reads as out of date, so without this it would be fetched
+     * again every day. Guarded by {@link #LIFECYCLE_LOCK}; cleared in {@link #shutdown}.
+     */
+    private static final Map<JavaPlugin, Map<String, Integer>> HELD_UPDATE_VERSIONS = new IdentityHashMap<>();
 
     private NightbreakBulkDownloader() {
     }
@@ -46,7 +53,40 @@ public final class NightbreakBulkDownloader {
         if (plugin == null) return;
         synchronized (LIFECYCLE_LOCK) {
             PLUGIN_GENERATIONS.put(plugin, currentGenerationLocked(plugin) + 1L);
+            // A reload or restart imports whatever was waiting.
+            HELD_UPDATE_VERSIONS.remove(plugin);
         }
+    }
+
+    private static int catalogVersion(String slug) {
+        NightbreakAccount.VersionInfo versionInfo = NightbreakContentManager.getVersionCache().get(slug);
+        return versionInfo == null ? -1 : versionInfo.versionInt;
+    }
+
+    private static void rememberHeldUpdate(JavaPlugin plugin, String slug) {
+        int version = catalogVersion(slug);
+        if (version <= 0) return;
+        synchronized (LIFECYCLE_LOCK) {
+            HELD_UPDATE_VERSIONS.computeIfAbsent(plugin, ignored -> new java.util.HashMap<>()).put(slug, version);
+        }
+    }
+
+    /** @return the packages whose current catalog version is not already waiting in imports/ */
+    private static <T extends NightbreakManagedContent> List<T> withoutHeldUpdates(JavaPlugin plugin, List<T> packages) {
+        Map<String, Integer> held;
+        synchronized (LIFECYCLE_LOCK) {
+            Map<String, Integer> current = HELD_UPDATE_VERSIONS.get(plugin);
+            if (current == null || current.isEmpty()) return packages;
+            held = Map.copyOf(current);
+        }
+        List<T> remaining = new ArrayList<>();
+        for (T pkg : packages) {
+            Integer heldVersion = held.get(pkg.getNightbreakSlug());
+            // A newer catalog version than the one waiting is downloaded over it.
+            if (heldVersion != null && catalogVersion(pkg.getNightbreakSlug()) <= heldVersion) continue;
+            remaining.add(pkg);
+        }
+        return remaining;
     }
 
     public static <T extends NightbreakManagedContent> void execute(JavaPlugin plugin,
@@ -177,11 +217,20 @@ public final class NightbreakBulkDownloader {
         }
 
         List<T> downloadable = collectPackages(allPackages, mode);
+        int heldForRestart = 0;
+        if (mode == DownloadMode.UPDATE && !reloadAfterDownloads) {
+            int outdated = downloadable.size();
+            downloadable = withoutHeldUpdates(plugin, downloadable);
+            heldForRestart = outdated - downloadable.size();
+        }
         logSelection(pluginDisplayName, allPackages, downloadable, mode);
 
         if (downloadable.isEmpty()) {
             lease.release();
-            if (mode == DownloadMode.UPDATE) {
+            if (heldForRestart > 0) {
+                sender.sendMessage(ChatColorConverter.convert("&e[" + pluginDisplayName + "] " + heldForRestart
+                        + " downloaded content update(s) are waiting. Restart the server to use them."));
+            } else if (mode == DownloadMode.UPDATE) {
                 sender.sendMessage(ChatColorConverter.convert("&a[" + pluginDisplayName + "] No content updates are currently pending."));
             } else if (mode == DownloadMode.FORCE_REINSTALL) {
                 sender.sendMessage(ChatColorConverter.convert("&c[" + pluginDisplayName + "] No Nightbreak-managed content matched the reinstall request."));
@@ -359,6 +408,9 @@ public final class NightbreakBulkDownloader {
                         lease.runSync(() -> {
                             if (throwable == null) {
                                 completed.incrementAndGet();
+                                if (mode == DownloadMode.UPDATE && !reloadAfterDownloads) {
+                                    rememberHeldUpdate(plugin, pkg.getNightbreakSlug());
+                                }
                                 if (!playerUnavailable) {
                                     int remaining = packages.size() - (index + 1);
                                     String suffix = remaining > 0

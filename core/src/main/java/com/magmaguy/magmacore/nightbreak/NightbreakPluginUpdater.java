@@ -48,6 +48,8 @@ public final class NightbreakPluginUpdater {
     private static final long BOOT_STAGGER_MAX_TICKS = 20L * 60L * 2L;
     private static final long AUTO_PLUGIN_UPDATE_EXTRA_DELAY_TICKS = 20L * 30L;
     private static final long AUTO_CONTENT_UPDATE_EXTRA_DELAY_TICKS = 20L * 90L;
+    /** How often the automatic plugin and content downloads run again after their first pass. */
+    private static final long AUTO_UPDATE_INTERVAL_TICKS = 20L * 60L * 60L * 24L;
     private static final int SPIGOT_FALLBACK_TIMEOUT_MS = 3000;
     private static final String SPIGOT_UPDATE_BASE_URL = "https://api.spigotmc.org";
     private static final Object SPIGOT_TEST_BASE_URL_LOCK = new Object();
@@ -56,15 +58,17 @@ public final class NightbreakPluginUpdater {
             new AtomicInteger();
     private static final List<String> AUTO_DOWNLOAD_CONFIG_COMMENTS = List.of(
             "When true, this plugin automatically downloads available plugin updates",
-            "and content update files on startup. Downloaded plugin and content",
-            "updates are used after the server restarts, unless",
+            "and content update files shortly after startup and every 24 hours after",
+            "that. Downloaded plugin and content updates are used after the server",
+            "restarts, unless",
             NightbreakPluginHotSwap.APPLY_MODE_CONFIG_PATH + " applies plugin updates sooner.",
             "Automatic plugin downloads require a valid account token and an active supporter",
             "Patreon membership. Leave this false if you prefer to use the in-game update button.");
     private static final List<String> RESTART_ONLY_AUTO_DOWNLOAD_CONFIG_COMMENTS = List.of(
             "When true, this plugin automatically downloads available plugin updates",
-            "and content update files on startup. Downloaded plugin and content",
-            "updates are used after the server restarts.",
+            "and content update files shortly after startup and every 24 hours after",
+            "that. Downloaded plugin and content updates are used after the server",
+            "restarts.",
             "Automatic plugin downloads require a valid account token and an active supporter",
             "Patreon membership. Leave this false if you prefer to use the in-game update button.");
     private static final Map<String, PluginUpdateCheck> CACHED_UPDATE_CHECKS = new ConcurrentHashMap<>();
@@ -88,6 +92,8 @@ public final class NightbreakPluginUpdater {
 
     public enum DownloadStatus {
         DOWNLOADED,
+        /** An automatic pass found this release already waiting in the update folder. */
+        ALREADY_DOWNLOADED,
         UP_TO_DATE,
         NO_TOKEN,
         NO_ACCESS,
@@ -268,22 +274,26 @@ public final class NightbreakPluginUpdater {
         startPluginUpdateMonitor(plugin, spec);
         // On a test server local builds replace the plugin, so a public download must not.
         if (NightbreakDevUpdateSource.startIfConfigured(plugin)) return;
-        if (!isAutoDownloadPluginUpdatesEnabled(plugin)) return;
         String key = cacheKey(plugin, spec);
         long generation = currentGeneration(plugin);
-        AtomicInteger scheduledTaskId = new AtomicInteger(-1);
-        int taskId = Bukkit.getScheduler().scheduleSyncDelayedTask(plugin, () -> {
-            AUTO_PLUGIN_UPDATE_TASKS.remove(key, scheduledTaskId.get());
+        AtomicBoolean announced = new AtomicBoolean(false);
+        // Repeats every 24 hours: a server that stays up would otherwise never download a
+        // release published after it started. The setting is read on every pass, so the
+        // setup-menu toggle takes effect without a restart.
+        int taskId = Bukkit.getScheduler().scheduleSyncRepeatingTask(plugin, () -> {
             if (!isCurrentGeneration(plugin, generation) || !plugin.isEnabled()) return;
-            plugin.getLogger().info("Automatic update downloads are enabled.");
-            downloadPluginUpdateAsync(plugin, spec, Bukkit.getConsoleSender(), result -> {
+            if (!isAutoDownloadPluginUpdatesEnabled(plugin)) return;
+            boolean firstPass = announced.compareAndSet(false, true);
+            if (firstPass) plugin.getLogger().info("Automatic update downloads are enabled.");
+            // Later passes stay quiet while there is nothing new, and never fetch again a
+            // release that is already waiting in the update folder.
+            downloadPluginUpdateAsync(plugin, spec, Bukkit.getConsoleSender(), true, firstPass, result -> {
                 if (isCurrentGeneration(plugin, generation) && result.downloaded()
                         && NightbreakPluginHotSwap.MODE_NEVER.equals(NightbreakPluginHotSwap.applyMode(plugin))) {
                     plugin.getLogger().info("Downloaded " + spec.displayName() + " " + result.remoteVersion() + ". Restart the server to use it.");
                 }
             });
-        }, initialRefreshDelayTicks(plugin, spec) + AUTO_PLUGIN_UPDATE_EXTRA_DELAY_TICKS);
-        scheduledTaskId.set(taskId);
+        }, initialRefreshDelayTicks(plugin, spec) + AUTO_PLUGIN_UPDATE_EXTRA_DELAY_TICKS, AUTO_UPDATE_INTERVAL_TICKS);
         if (taskId != -1) {
             Integer previousTaskId = AUTO_PLUGIN_UPDATE_TASKS.put(key, taskId);
             cancelReplacedTask(previousTaskId, taskId);
@@ -366,32 +376,29 @@ public final class NightbreakPluginUpdater {
                                                                                                 Consumer<CommandSender> reloadAction) {
         if (plugin == null || spec == null || packagesSupplier == null || !spec.hasContentPackages()) return;
         NightbreakChangelogManager.registerContentSupplier(plugin, packagesSupplier);
-        if (!isAutoDownloadPluginUpdatesEnabled(plugin)) return;
         String key = cacheKey(plugin, spec);
         long generation = currentGeneration(plugin);
         String runningKey = key + "#" + generation;
+        // One repeating task per plugin lifecycle; shutdown(plugin) clears the key.
         if (!RUNNING_AUTO_CONTENT_UPDATES.add(runningKey)) return;
-        AtomicInteger scheduledTaskId = new AtomicInteger(-1);
-        int taskId = Bukkit.getScheduler().scheduleSyncDelayedTask(plugin, () -> {
-            AUTO_CONTENT_UPDATE_TASKS.remove(key, scheduledTaskId.get());
-            try {
-                if (!isCurrentGeneration(plugin, generation)
-                        || !plugin.isEnabled()
-                        || !isAutoDownloadPluginUpdatesEnabled(plugin)) return;
+        AtomicBoolean announced = new AtomicBoolean(false);
+        // Repeats every 24 hours, like the plugin download, and reads the setting on every pass.
+        int taskId = Bukkit.getScheduler().scheduleSyncRepeatingTask(plugin, () -> {
+            if (!isCurrentGeneration(plugin, generation)
+                    || !plugin.isEnabled()
+                    || !isAutoDownloadPluginUpdatesEnabled(plugin)) return;
+            if (announced.compareAndSet(false, true)) {
                 plugin.getLogger().info("Automatic content update downloads are enabled. Downloaded content updates will be used after the server restarts.");
-                NightbreakBulkDownloader.execute(plugin,
-                        spec.displayName(),
-                        Bukkit.getConsoleSender(),
-                        packagesSupplier.get(),
-                        true,
-                        guard,
-                        reloadAction,
-                        false);
-            } finally {
-                RUNNING_AUTO_CONTENT_UPDATES.remove(runningKey);
             }
-        }, initialRefreshDelayTicks(plugin, spec) + AUTO_CONTENT_UPDATE_EXTRA_DELAY_TICKS);
-        scheduledTaskId.set(taskId);
+            NightbreakBulkDownloader.execute(plugin,
+                    spec.displayName(),
+                    Bukkit.getConsoleSender(),
+                    packagesSupplier.get(),
+                    true,
+                    guard,
+                    reloadAction,
+                    false);
+        }, initialRefreshDelayTicks(plugin, spec) + AUTO_CONTENT_UPDATE_EXTRA_DELAY_TICKS, AUTO_UPDATE_INTERVAL_TICKS);
         if (taskId != -1) {
             Integer previousTaskId = AUTO_CONTENT_UPDATE_TASKS.put(key, taskId);
             cancelReplacedTask(previousTaskId, taskId);
@@ -435,6 +442,19 @@ public final class NightbreakPluginUpdater {
                                                  NightbreakPluginSpec spec,
                                                  CommandSender sender,
                                                  Consumer<PluginUpdateDownload> callback) {
+        downloadPluginUpdateAsync(plugin, spec, sender, false, true, callback);
+    }
+
+    /**
+     * @param skipIfAlreadyStaged leave a release that already waits in the update folder alone
+     * @param reportUpToDate      false keeps the result quiet when no newer release exists
+     */
+    private static void downloadPluginUpdateAsync(JavaPlugin plugin,
+                                                  NightbreakPluginSpec spec,
+                                                  CommandSender sender,
+                                                  boolean skipIfAlreadyStaged,
+                                                  boolean reportUpToDate,
+                                                  Consumer<PluginUpdateDownload> callback) {
         long generation = currentGeneration(plugin);
         NightbreakPluginAsyncWorkTracker.Work work = registerAsyncWork(plugin, generation);
         if (work == null) return;
@@ -443,11 +463,13 @@ public final class NightbreakPluginUpdater {
                 if (!work.start()) return;
                 try {
                     if (!isCurrentGeneration(plugin, generation)) return;
-                    PluginUpdateDownload result = downloadPluginUpdate(plugin, spec, sender, generation);
+                    PluginUpdateDownload result = downloadPluginUpdate(plugin, spec, sender, generation, skipIfAlreadyStaged);
                     if (!isCurrentGeneration(plugin, generation)) return;
                     Bukkit.getScheduler().runTask(plugin, () -> {
                         if (!isCurrentGeneration(plugin, generation)) return;
-                        sendDownloadResult(sender, plugin, spec, result);
+                        if (reportUpToDate || result.status() != DownloadStatus.UP_TO_DATE) {
+                            sendDownloadResult(sender, plugin, spec, result);
+                        }
                         if (callback != null) callback.accept(result);
                         if (result.downloaded()
                                 && !NightbreakPluginHotSwap.applyDownloadedUpdate(plugin, sender)) {
@@ -468,13 +490,14 @@ public final class NightbreakPluginUpdater {
     static PluginUpdateDownload downloadPluginUpdate(JavaPlugin plugin,
                                                      NightbreakPluginSpec spec,
                                                      CommandSender sender) {
-        return downloadPluginUpdate(plugin, spec, sender, currentGeneration(plugin));
+        return downloadPluginUpdate(plugin, spec, sender, currentGeneration(plugin), false);
     }
 
     private static PluginUpdateDownload downloadPluginUpdate(JavaPlugin plugin,
                                                               NightbreakPluginSpec spec,
                                                               CommandSender sender,
-                                                              long generation) {
+                                                              long generation,
+                                                              boolean skipIfAlreadyStaged) {
         String runningKey = cacheKey(plugin, spec);
         if (!RUNNING_PLUGIN_DOWNLOADS.add(runningKey)) {
             return new PluginUpdateDownload(
@@ -487,7 +510,7 @@ public final class NightbreakPluginUpdater {
         }
         try {
             return performPluginUpdateDownload(
-                    plugin, spec, sender, generation);
+                    plugin, spec, sender, generation, skipIfAlreadyStaged);
         } finally {
             RUNNING_PLUGIN_DOWNLOADS.remove(runningKey);
         }
@@ -497,7 +520,8 @@ public final class NightbreakPluginUpdater {
             JavaPlugin plugin,
             NightbreakPluginSpec spec,
             CommandSender sender,
-            long generation) {
+            long generation,
+            boolean skipIfAlreadyStaged) {
         if (!isCurrentGeneration(plugin, generation)) {
             return new PluginUpdateDownload(
                     DownloadStatus.DOWNLOAD_FAILED,
@@ -561,6 +585,15 @@ public final class NightbreakPluginUpdater {
                 targetName + "." + generation + "."
                         + UUID.randomUUID() + ".download");
         File downloadedFile = new File(updateFolder, targetName);
+        if (skipIfAlreadyStaged) {
+            // The repeating automatic pass would otherwise fetch the same release every day
+            // until the server restarts.
+            String stagedVersion = NightbreakPluginHotSwap.descriptorVersion(downloadedFile);
+            if (stagedVersion != null && compareVersions(stagedVersion, remoteVersion) >= 0) {
+                return new PluginUpdateDownload(DownloadStatus.ALREADY_DOWNLOADED,
+                        localVersion, remoteVersion, downloadPageUrl, downloadedFile, null);
+            }
+        }
         File legacyTempFile =
                 new File(updateFolder, targetName + ".download");
         if (legacyTempFile.exists() && !legacyTempFile.delete()) {

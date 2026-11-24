@@ -369,6 +369,13 @@ public final class NightbreakPluginHotSwap {
         return description != null && description.getName().equals(pluginName);
     }
 
+    /** @return the version in the jar's plugin.yml, or null when the jar is missing or unreadable */
+    static String descriptorVersion(File jar) {
+        if (jar == null || !jar.isFile()) return null;
+        PluginDescriptionFile description = readDescription(jar);
+        return description == null ? null : description.getVersion();
+    }
+
     private static PluginDescriptionFile readDescription(File jar) {
         try (JarFile jarFile = new JarFile(jar)) {
             JarEntry entry = jarFile.getJarEntry("plugin.yml");

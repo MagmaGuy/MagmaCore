@@ -22,6 +22,11 @@ final class NightbreakPluginUpdateMessages {
         if (sender == null) return;
         switch (result.status()) {
             case DOWNLOADED -> sendDownloaded(sender, plugin, spec, result);
+            case ALREADY_DOWNLOADED -> Logger.sendSimpleMessage(sender, "&e" + spec.displayName() + " "
+                    + result.remoteVersion() + " is downloaded and waiting"
+                    + (NightbreakPluginHotSwap.MODE_NEVER.equals(NightbreakPluginHotSwap.applyMode(plugin))
+                    ? ". Restart the server to use it."
+                    : " to be applied."));
             case UP_TO_DATE -> sendUpToDate(sender, spec, result);
             case NO_TOKEN -> sendNoToken(sender, spec, result);
             case NO_ACCESS -> sendNoAccess(sender, spec, result);
