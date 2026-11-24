@@ -188,6 +188,13 @@ public class MagicProjectileEngine<C extends MagicProjectileEngine.Source> imple
         resolve(flight, target, event.getEntity().getLocation(), event.getEntity().getVelocity());
     }
 
+    private boolean resolveMarker(UUID markerId, LivingEntity target) {
+        Flight flight = flights.lookup(markerId);
+        if (flight == null) return false;
+        resolve(flight, target, flight.marker.getLocation(), flight.marker.getVelocity());
+        return true;
+    }
+
     private Arrow spawnMarker(Player owner, Location start, Vector initialDirection) {
         World world = start.getWorld();
         if (world == null || !loaded(start)) return null;
@@ -202,7 +209,10 @@ public class MagicProjectileEngine<C extends MagicProjectileEngine.Source> imple
             marker.setPierceLevel(0);
             marker.setPickupStatus(AbstractArrow.PickupStatus.DISALLOWED);
             marker.setVisibleByDefault(false);
-            MagicProjectileMarker.mark(marker, plugin, target -> resolveMarker(marker, target));
+            // The handler lives in Bukkit's metadata map: it holds the marker's id, never the
+            // marker, so a missed removal cannot keep the arrow and its world in memory.
+            UUID markerId = marker.getUniqueId();
+            MagicProjectileMarker.mark(marker, plugin, target -> resolveMarker(markerId, target));
             marker.setVelocity(initialDirection.clone().normalize().multiply(.05D));
         });
         return arrow;
@@ -253,6 +263,8 @@ public class MagicProjectileEngine<C extends MagicProjectileEngine.Source> imple
         try { flight.cleanup(); }
         catch (RuntimeException failure) { plugin.getLogger().warning("Magic projectile visual cleanup failed: " + failure.getMessage()); }
         finally {
+            try { MagicProjectileMarker.unmark(flight.marker, plugin); }
+            catch (RuntimeException failure) { plugin.getLogger().warning("Magic projectile marker release failed: " + failure.getMessage()); }
             try { flight.marker.remove(); }
             catch (RuntimeException failure) { plugin.getLogger().warning("Magic projectile removal failed: " + failure.getMessage()); }
         }

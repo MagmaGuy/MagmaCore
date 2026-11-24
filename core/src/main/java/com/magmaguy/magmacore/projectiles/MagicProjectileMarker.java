@@ -35,6 +35,14 @@ public final class MagicProjectileMarker {
         projectile.setMetadata(IMPACT_OWNER, new org.bukkit.metadata.FixedMetadataValue(owner, impacts));
     }
 
+    /**
+     * Bukkit keeps entity metadata until it is removed, even after the entity is gone, so every
+     * discarded marker must drop its handler here or the entry stays for the server's uptime.
+     */
+    static void unmark(Projectile projectile, org.bukkit.plugin.Plugin owner) {
+        projectile.removeMetadata(IMPACT_OWNER, owner);
+    }
+
     private static NamespacedKey key() {
         return new NamespacedKey("magmacore", "magic_projectile");
     }
