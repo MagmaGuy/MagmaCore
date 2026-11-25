@@ -85,6 +85,11 @@ public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter {
         return CraftBukkitBridge.asBukkitCopy(nativeItem);
     }
 
+    @Override
+    public Object nativeItemCopy(org.bukkit.inventory.ItemStack item) {
+        return CraftBukkitBridge.asNMSCopy(item);
+    }
+
 
     @Override
     public void damageWithoutCooldown(LivingEntity target, double amount, Entity source) {

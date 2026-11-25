@@ -169,6 +169,8 @@ public class PacketInteractionListener implements Listener {
                 channel.pipeline().remove(handlerName);
             }
 
+            if (com.magmaguy.easyminecraftgoals.thirdparty.BedrockChecker.isBedrock(player))
+                com.magmaguy.easyminecraftgoals.internal.PacketHeadHat.skipViewer(player.getUniqueId());
             channel.pipeline().addBefore("packet_handler", handlerName, new PacketHandler(player, serverPlayer));
             playerChannels.put(player.getUniqueId(), channel);
 
@@ -193,6 +195,7 @@ public class PacketInteractionListener implements Listener {
         com.magmaguy.easyminecraftgoals.internal.PoseBacklog.clearViewer(player.getUniqueId());
         com.magmaguy.easyminecraftgoals.internal.PacketPassengerRegistry.clearViewer(player.getUniqueId());
         com.magmaguy.easyminecraftgoals.internal.PacketEquipmentVeil.clearViewer(player.getUniqueId());
+        com.magmaguy.easyminecraftgoals.internal.PacketHeadHat.clearViewer(player.getUniqueId());
         com.magmaguy.easyminecraftgoals.internal.PacketNameTagTeams.clearViewer(player.getUniqueId());
         Channel channel = playerChannels.remove(player.getUniqueId());
         if (channel != null && channel.pipeline().get(handlerName) != null) {
@@ -297,7 +300,8 @@ public class PacketInteractionListener implements Listener {
             }
             if (msg instanceof ClientboundSetPlayerTeamPacket teamPacket) restoreHeldEntries(ctx, teamPacket);
             if (msg instanceof net.minecraft.network.protocol.Packet<?> packet) {
-                msg = EquipmentPackets.veil(player.getUniqueId(), PassengerPackets.compose(player.getUniqueId(), packet));
+                UUID viewer = player.getUniqueId();
+                msg = EquipmentPackets.veil(viewer, HeadHatPackets.apply(viewer, PassengerPackets.compose(viewer, packet)));
             }
             super.write(ctx, msg, promise);
         }

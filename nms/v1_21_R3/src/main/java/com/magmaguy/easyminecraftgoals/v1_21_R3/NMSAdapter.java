@@ -86,6 +86,11 @@ public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter {
         return org.bukkit.craftbukkit.v1_21_R3.inventory.CraftItemStack.asBukkitCopy(nativeItem);
     }
 
+    @Override
+    public Object nativeItemCopy(org.bukkit.inventory.ItemStack item) {
+        return org.bukkit.craftbukkit.v1_21_R3.inventory.CraftItemStack.asNMSCopy(item);
+    }
+
 
     @Override
     public void damageWithoutCooldown(LivingEntity target, double amount, Entity source) {

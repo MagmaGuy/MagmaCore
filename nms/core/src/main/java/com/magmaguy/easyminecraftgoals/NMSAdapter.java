@@ -56,6 +56,11 @@ public abstract class NMSAdapter {
         throw new UnsupportedOperationException("Consumption duration is unavailable on this adapter");
     }
 
+    /** A native copy of the item, for packets the adapter writes; callers outside the adapter keep it opaque. */
+    public Object nativeItemCopy(ItemStack item) {
+        throw new UnsupportedOperationException("Native item copies are unavailable on this adapter");
+    }
+
     /**
      * Delivers a living attacker or owned arrow hit through native damage and Bukkit events,
      * bypassing only this invocation's hit cooldown. Does not clear the target's immunity state.
@@ -437,6 +442,7 @@ public abstract class NMSAdapter {
         // Default no-op
         PacketEntityInteractionManager.getInstance().shutdown();
         com.magmaguy.easyminecraftgoals.internal.PoseBacklog.clear();
+        com.magmaguy.easyminecraftgoals.internal.PacketHeadHat.clear();
     }
 
     /**
