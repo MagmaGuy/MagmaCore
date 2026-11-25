@@ -202,6 +202,12 @@ public class NMSAdapter extends com.magmaguy.easyminecraftgoals.NMSAdapter {
     }
 
     @Override
+    public float[] getWitherHeadRotation(org.bukkit.entity.LivingEntity wither, int head) {
+        if (wither == null) return null;
+        return BodyRotation.getWitherHeadRotation(CraftBukkitBridge.getNMSEntity(wither), head);
+    }
+
+    @Override
     public void sendNameTagTeam(org.bukkit.entity.Player viewer, String teamName, String member, boolean create) {
         // A team that exists only on the viewer's client: the client shows a team member's name under the
         // team's rule even while something rides them, which a team-less vehicle's name is not.

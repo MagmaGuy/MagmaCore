@@ -215,6 +215,17 @@ public abstract class NMSAdapter {
     public abstract float getBodyRotation(Entity entity);
 
     /**
+     * Where one of a wither's side heads looks, as {yaw, pitch} in degrees with Minecraft's yaw and a positive pitch
+     * looking down. Head 0 is the wither's right head, the client's {@code right_head}; head 1 its left,
+     * {@code left_head}. Each side head turns toward its own target, and the client draws it turned by its yaw less
+     * the body's yaw and by its pitch, as it draws a mob's head. Null when the entity is no wither, the head is
+     * neither side head, or this server version cannot tell.
+     */
+    public float[] getWitherHeadRotation(org.bukkit.entity.LivingEntity wither, int head) {
+        return null;
+    }
+
+    /**
      * Where the client seats the passenger at {@code passengerIndex} on {@code vehicle}, relative to the
      * vehicle's position: its passenger attachment for that index, scaled with the entity and rotated by its
      * yaw, exactly as the client's {@code positionRider} computes it. Null when this version cannot tell.
