@@ -243,11 +243,20 @@ class OutdatedConfigurationArchiveTest {
                 "{files: [quest.yml], key: a..b, value: old}",
                 "{files: [quest.yml], key: a.*.b, value: old}",
                 "{files: [quest.yml], key: a.b, value: null}",
-                "{files: [quest.yml], key: a.b, value: 1.5}",
+                "{files: [quest.yml], key: a.b, value: .nan}",
+                "{files: [quest.yml], key: a.b, value: .inf}",
+                "{files: [quest.yml], key: a.b, value: -.inf}",
                 "{files: [quest.yml], key: a.b, value: true}",
                 "{files: [quest.yml], key: a.b, value: ''}",
                 "{files: [quest.yml], key: a.b, value: old, typo: true}"))
             assertThrows(IOException.class, () -> OutdatedConfigurationArchive.readRules(
+                    ("customquests:\n  - " + rule + "\n").getBytes(StandardCharsets.UTF_8)), rule);
+    }
+
+    @Test void acceptsFiniteDecimalValueRules() {
+        for (String rule : List.of("{files: [quest.yml], key: a.b, value: 1.5}",
+                "{files: [quest.yml], key: a.b, value: 0.004}"))
+            assertDoesNotThrow(() -> OutdatedConfigurationArchive.readRules(
                     ("customquests:\n  - " + rule + "\n").getBytes(StandardCharsets.UTF_8)), rule);
     }
 
