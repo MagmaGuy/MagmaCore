@@ -3,7 +3,9 @@ package com.magmaguy.magmacore.scripting;
 import com.magmaguy.magmacore.location.LocationQueryRegistry;
 import com.magmaguy.magmacore.location.LuaLocations;
 import com.magmaguy.magmacore.location.api.LocationOwnership;
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.entity.Player;
 import org.luaj.vm2.Globals;
 import org.luaj.vm2.LuaString;
 import org.luaj.vm2.LuaTable;
@@ -13,6 +15,7 @@ import org.luaj.vm2.lib.VarArgFunction;
 import org.luaj.vm2.lib.jse.JsePlatform;
 
 import java.util.Set;
+import java.util.UUID;
 import java.util.function.Predicate;
 
 public final class LuaEnvironmentFactory {
@@ -85,6 +88,18 @@ public final class LuaEnvironmentFactory {
         LuaTable location = new LuaTable();
         location.set("is_in_dungeon", locationPredicate(LocationQueryRegistry::isInAnyDungeon));
         location.set("is_protected", locationPredicate(LocationQueryRegistry::isInAnyProtectedRegion));
+        location.set("can_build", new VarArgFunction() {
+            @Override
+            public Varargs invoke(Varargs args) {
+                // The same per-player question as FMM prop placement: claim trust, region membership and
+                // bypass. An unknown player or location fails closed.
+                Location loc = LuaLocations.tableToLocation(args.arg(2));
+                if (loc == null) return LuaValue.FALSE;
+                Player player = onlinePlayer(args.arg1());
+                if (player == null) return LuaValue.FALSE;
+                return LuaValue.valueOf(LocationQueryRegistry.canBuild(player, loc));
+            }
+        });
         location.set("owned_by", new VarArgFunction() {
             @Override
             public Varargs invoke(Varargs args) {
@@ -157,6 +172,17 @@ public final class LuaEnvironmentFactory {
             table.set(index++, LuaValue.valueOf(value));
         }
         return table;
+    }
+
+    /** The online player a Lua player table (its {@code uuid}) or a UUID string names, or null. */
+    static Player onlinePlayer(LuaValue value) {
+        LuaValue id = value.istable() ? value.get("uuid") : value;
+        if (!id.isstring()) return null;
+        try {
+            return Bukkit.getPlayer(UUID.fromString(id.tojstring()));
+        } catch (IllegalArgumentException notAUuid) {
+            return null;
+        }
     }
 
     private static VarArgFunction locationPredicate(Predicate<Location> predicate) {
