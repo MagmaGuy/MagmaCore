@@ -249,6 +249,20 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
                 throw new IllegalArgumentException("stop_on_unequip must be a boolean");
             stopOnUnequip = Boolean.TRUE.equals(unequip);
         }
+        /** Scripts opt into removal only after using the ordinary world spawn operation. */
+        boolean ownEntity(Entity entity) {
+            if (entity == null || !entity.isValid() || entity instanceof Player
+                    || !entity.getWorld().getUID().equals(source.world())) return false;
+            if (ownedEntities.containsKey(entity.getUniqueId())) return true;
+            instance.ownCleanup(() -> {
+                ownedEntities.remove(entity.getUniqueId());
+                com.magmaguy.magmacore.scripting.tables.LuaEntityTable.clearArrowAttachment(plugin, entity);
+                entity.remove();
+            });
+            ownedEntities.put(entity.getUniqueId(), entity);
+            entity.setPersistent(false);
+            return true;
+        }
         @Override public boolean isScriptOwnerActive() {
             Entity actor = getBukkitEntity();
             return !closed && plugin.isEnabled() && actor instanceof LivingEntity && actor.isValid() && !actor.isDead()
@@ -326,20 +340,24 @@ final class EnchantmentActionExecutor implements Listener, AutoCloseable {
                             active.values().stream().anyMatch(previous -> previous != this
                                     && previous.definition.id().equals(definition.id())
                                     && previous.source.actor().equals(source.actor())))));
-                    // Scripts opt into removal only after using the ordinary world spawn operation.
-                    table.set("own_entity", LuaTableSupport.tableMethod(table, args -> {
+                    table.set("own_entity", LuaTableSupport.tableMethod(table, args ->
+                            LuaValue.valueOf(ownEntity(Bukkit.getEntity(UUID.fromString(args.checkjstring(1)))))));
+                    // Owns the mob like own_entity, then asks the owning plugin to dress it in a model; the model
+                    // goes with the mob when the action stops. Returns the entity table, or nil without a model.
+                    table.set("apply_model", LuaTableSupport.tableMethod(table, args -> {
                         Entity entity = Bukkit.getEntity(UUID.fromString(args.checkjstring(1)));
-                        if (entity == null || !entity.isValid() || entity instanceof Player
-                                || !entity.getWorld().getUID().equals(source.world())) return LuaValue.FALSE;
-                        if (ownedEntities.containsKey(entity.getUniqueId())) return LuaValue.TRUE;
-                        instance.ownCleanup(() -> {
-                            ownedEntities.remove(entity.getUniqueId());
-                            com.magmaguy.magmacore.scripting.tables.LuaEntityTable.clearArrowAttachment(plugin, entity);
-                            entity.remove();
-                        });
-                        ownedEntities.put(entity.getUniqueId(), entity);
-                        entity.setPersistent(false);
-                        return LuaValue.TRUE;
+                        String modelId = args.checkjstring(2);
+                        if (!(entity instanceof LivingEntity living) || !isScriptOwnerActive() || !ownEntity(entity))
+                            return LuaValue.NIL;
+                        var result = domainHandler.handle(EnchantmentProviders.Operation.EVALUATE,
+                                Map.of("kind", "apply_model", "entity", entity.getUniqueId(), "model", modelId,
+                                        "actor", source.actor(), "world", source.world()));
+                        if (!Boolean.TRUE.equals(result.get("applied"))) {
+                            plugin.getLogger().warning("Enchantment " + definition.id() + " could not apply model "
+                                    + modelId + " to " + entity.getType() + ".");
+                            return LuaValue.NIL;
+                        }
+                        return LuaLivingEntityTable.build(living);
                     }));
                     table.set("place_block", LuaTableSupport.tableMethod(table, args -> {
                         var world = Bukkit.getWorld(source.world());
